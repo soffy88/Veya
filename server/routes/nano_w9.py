@@ -28,7 +28,11 @@ router = APIRouter(
 
 
 def _allowed_roots() -> list[str]:
-    raw = os.environ.get("VEYA_ALLOWED_REPO_ROOTS") or os.environ.get("VEYA_PROJECT_ROOT") or os.getcwd()
+    raw = (
+        os.environ.get("VEYA_ALLOWED_REPO_ROOTS")
+        or os.environ.get("VEYA_PROJECT_ROOT")
+        or os.getcwd()
+    )
     return [os.path.realpath(r) for r in raw.split(os.pathsep) if r.strip()]
 
 

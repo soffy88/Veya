@@ -70,8 +70,9 @@ def _verified_webhook_payload(request: Request, body: bytes) -> dict[str, Any]:
     secret = os.environ.get("VEYA_WEBHOOK_SECRET", "").strip()
     if not secret:
         raise HTTPException(status_code=401, detail="Webhook authentication is not configured")
-    supplied = (request.headers.get("X-Veya-Signature")
-                or request.headers.get("X-Hub-Signature-256") or "").strip()
+    supplied = (
+        request.headers.get("X-Veya-Signature") or request.headers.get("X-Hub-Signature-256") or ""
+    ).strip()
     if not supplied:
         raise HTTPException(status_code=401, detail="Missing webhook signature")
     expected = "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()

@@ -52,7 +52,7 @@ def test_existing_skill_hub_loads_bundle_from_temporary_skills_dir() -> None:
 
             stub.ToolExecutionError = ToolExecutionError
             stub._invoke_callback = invoke_callback
-            stub._schema_validator = lambda schema, owner="": (lambda value: None)
+            stub._schema_validator = lambda schema, owner="": lambda value: None
             stub._validate_arguments = lambda *args, **kwargs: None
             sys.modules["server.tool_registry"] = stub
         try:
@@ -77,7 +77,9 @@ def test_package_contains_no_sponsorship_or_affiliate_material() -> None:
     for path in PACKAGE.rglob("*"):
         if path.is_file() and path.suffix.lower() in {".md", ".py", ".json"}:
             content = path.read_text(encoding="utf-8")
-            assert not forbidden.search(content), f"promotional content found in {path.relative_to(PACKAGE)}"
+            assert not forbidden.search(content), (
+                f"promotional content found in {path.relative_to(PACKAGE)}"
+            )
 
 
 def test_wordcount_script_counts_han_characters_in_chapter_sample() -> None:
@@ -95,6 +97,7 @@ def test_wordcount_script_counts_han_characters_in_chapter_sample() -> None:
         assert result["status"] == "pass"
         assert result["word_count"] == 4
 
+
 def test_all_reference_markdown_is_vendored_with_provenance() -> None:
     flows = sorted((PACKAGE / "references" / "flows").glob("*.md"))
     guides = sorted((PACKAGE / "references" / "guides").glob("*.md"))
@@ -105,10 +108,13 @@ def test_all_reference_markdown_is_vendored_with_provenance() -> None:
         assert "https://github.com/PenglongHuang/chinese-novelist-skill" in content
         assert "Copyright (c) 2026 PenglongHuang" in content
 
+
 def test_preferences_are_scoped_to_project_workspace() -> None:
     for path in [PACKAGE / "SKILL.md", *(PACKAGE / "references" / "flows").glob("*.md")]:
         content = path.read_text(encoding="utf-8")
         assert "~/.veya" not in content
         assert "/home/" not in content
-    content = (PACKAGE / "references" / "flows" / "shared-infrastructure.md").read_text(encoding="utf-8")
+    content = (PACKAGE / "references" / "flows" / "shared-infrastructure.md").read_text(
+        encoding="utf-8"
+    )
     assert "chinese-novelist/user-preferences.json" in content

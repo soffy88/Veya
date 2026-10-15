@@ -143,9 +143,7 @@ def install_cli_on_runner(
     _require_cli_hub("install_cli_on_runner")
     pinned = _require_pinned("install_cli_on_runner", package, version)
     runner = run_cmd or _default_run_cmd
-    result = runner(
-        ["pip", "install", "--no-input", "--disable-pip-version-check", pinned]
-    )
+    result = runner(["pip", "install", "--no-input", "--disable-pip-version-check", pinned])
     if int(getattr(result, "returncode", 1) or 0) != 0:
         return {
             "success": False,

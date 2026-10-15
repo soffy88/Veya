@@ -8,7 +8,7 @@ import re
 import shlex
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -116,7 +116,7 @@ def _run_version_check(command: str) -> str | None:
 def _discover_builtin() -> dict[str, CLIAgentProfile]:
     """Discover built-in CLI agents via PATH lookup."""
     profiles = {}
-    for name, (command, version_flag) in _BUILTIN_PROFILES.items():
+    for name, (command, _version_flag) in _BUILTIN_PROFILES.items():
         detected_path = shutil.which(command)
         if detected_path:
             version = _run_version_check(command)
@@ -165,7 +165,9 @@ def _load_custom_profiles(repo_root: Path) -> dict[str, CLIAgentProfile]:
                 try:
                     template = _validate_command_template(template)
                 except ValueError:
-                    logger.warning("Ignoring custom CLI profile with an unsafe command template: %s", name)
+                    logger.warning(
+                        "Ignoring custom CLI profile with an unsafe command template: %s", name
+                    )
                     continue
                 profiles[name] = CLIAgentProfile(
                     name=name,
@@ -257,10 +259,7 @@ class CLIAgentRegistry:
             argv = shlex.split(rendered, posix=True)
         except ValueError as exc:
             raise ValueError("command_template has invalid quoting") from exc
-        return [
-            item.replace(prompt_sentinel, prompt).replace(cwd_sentinel, cwd)
-            for item in argv
-        ]
+        return [item.replace(prompt_sentinel, prompt).replace(cwd_sentinel, cwd) for item in argv]
 
 
 def get_cli_agent_registry(repo_root: Path | str) -> CLIAgentRegistry:
@@ -269,9 +268,9 @@ def get_cli_agent_registry(repo_root: Path | str) -> CLIAgentRegistry:
 
 
 __all__ = [
+    "CLI_AGENTS_REL_PATH",
     "CLIAgentProfile",
     "CLIAgentRegistry",
-    "CLI_AGENTS_REL_PATH",
-    "get_cli_agent_registry",
     "_validate_command_template",
+    "get_cli_agent_registry",
 ]

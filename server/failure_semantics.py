@@ -21,16 +21,18 @@ class TerminalState(StrEnum):
     CONFLICTED = "CONFLICTED"
 
 
-_NON_SUCCESS_STATES = frozenset({
-    TerminalState.FAILED,
-    TerminalState.CANCELLED,
-    TerminalState.TIMED_OUT,
-    TerminalState.BLOCKED,
-    TerminalState.INTERRUPTED,
-    TerminalState.BUDGET_EXHAUSTED,
-    TerminalState.POLICY_DENIED,
-    TerminalState.CONFLICTED,
-})
+_NON_SUCCESS_STATES = frozenset(
+    {
+        TerminalState.FAILED,
+        TerminalState.CANCELLED,
+        TerminalState.TIMED_OUT,
+        TerminalState.BLOCKED,
+        TerminalState.INTERRUPTED,
+        TerminalState.BUDGET_EXHAUSTED,
+        TerminalState.POLICY_DENIED,
+        TerminalState.CONFLICTED,
+    }
+)
 
 
 def is_success(state: TerminalState) -> bool:

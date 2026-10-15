@@ -25,7 +25,10 @@ def token(token_id, principal, active=True):
 def test_oauth_requires_owner_and_exact_principal(monkeypatch):
     monkeypatch.delenv("VEYA_REMOTE_OAUTH_TOKEN_ID", raising=False)
     auth = FakeAuth([token("owner-grant", "owner")])
-    assert _choose_remote_token(auth, "owner", {"username": "owner", "is_owner": True}) == "owner-grant"
+    assert (
+        _choose_remote_token(auth, "owner", {"username": "owner", "is_owner": True})
+        == "owner-grant"
+    )
     assert _choose_remote_token(auth, "member", {"username": "member", "is_owner": False}) is None
     assert _choose_remote_token(auth, "owner", {"username": "other", "is_owner": True}) is None
 
@@ -42,7 +45,9 @@ def test_configured_oauth_token_must_match_owner_principal(monkeypatch):
     assert _choose_remote_token(auth, "owner", {"username": "owner", "is_owner": True}) is None
     auth = FakeAuth([token("configured", "owner")])
     assert _choose_remote_token(auth, "owner", {"username": "owner", "is_owner": False}) is None
-    assert _choose_remote_token(auth, "owner", {"username": "owner", "is_owner": True}) == "configured"
+    assert (
+        _choose_remote_token(auth, "owner", {"username": "owner", "is_owner": True}) == "configured"
+    )
 
 
 def test_oauth_ambiguous_owner_grants_fail_closed(monkeypatch):

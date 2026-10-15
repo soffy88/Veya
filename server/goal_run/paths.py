@@ -19,9 +19,7 @@ from pathlib import Path
 
 
 def default_write_root() -> Path:
-    return Path(
-        os.environ.get("VEYA_WRITE_ROOT", str(Path.home() / ".veya" / "work"))
-    ).expanduser()
+    return Path(os.environ.get("VEYA_WRITE_ROOT", str(Path.home() / ".veya" / "work"))).expanduser()
 
 
 def _writable_dir(path: Path) -> bool:
@@ -31,7 +29,9 @@ def _writable_dir(path: Path) -> bool:
         return False
 
 
-def resolve_goal_run_root(project_root: str | os.PathLike[str] | None, *, bot_id: str | None = None) -> str:
+def resolve_goal_run_root(
+    project_root: str | os.PathLike[str] | None, *, bot_id: str | None = None
+) -> str:
     """Return an absolute, writable project root for GoalRun artifacts."""
 
     raw = str(project_root).strip() if project_root is not None else ""

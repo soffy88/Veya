@@ -139,7 +139,9 @@ def get_binding(binding_id: str) -> SupervisorBinding | None:
         return SupervisorBinding.from_dict(raw) if isinstance(raw, dict) else None
 
 
-def list_bindings(*, owner_id: str | None = None, bot_id: str | None = None) -> list[SupervisorBinding]:
+def list_bindings(
+    *, owner_id: str | None = None, bot_id: str | None = None
+) -> list[SupervisorBinding]:
     """Every binding, optionally filtered by owner and/or bot."""
     with _lock:
         items = [

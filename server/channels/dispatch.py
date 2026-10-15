@@ -82,7 +82,9 @@ async def dispatch_inbound(
     if message.platform != "tailnet" and bound_ext_user is not None:
         bound_identity = str(bound_ext_user).strip()
         incoming_identity = str(message.external_user_id or "").strip()
-        is_owner = bool(bound_identity and incoming_identity and incoming_identity == bound_identity)
+        is_owner = bool(
+            bound_identity and incoming_identity and incoming_identity == bound_identity
+        )
 
     if is_owner:
         user_ref = owner_ref or anonymous_ref(message.platform, message.external_user_id)

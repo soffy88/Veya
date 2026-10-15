@@ -129,10 +129,17 @@ async def test_binding_closes_when_run_ends_without_passing(supervisor_on, tmp_p
     from server.supervisor.handoff import supervisor_handoff
 
     goal_id = f"goal_end_{status}"
-    state = GoalRunState(goal_id=goal_id, goal_text="x", status=GoalStatus(status), bot_id="bot_test")
+    state = GoalRunState(
+        goal_id=goal_id, goal_text="x", status=GoalStatus(status), bot_id="bot_test"
+    )
     state.tasks["t1"] = TaskNode(
-        id="t1", title="t", instruction="do", acceptance=["ok"], depends_on=[],
-        assignee="builtin", status=TaskStatus.blocked,
+        id="t1",
+        title="t",
+        instruction="do",
+        acceptance=["ok"],
+        depends_on=[],
+        assignee="builtin",
+        status=TaskStatus.blocked,
     )
     state.last_stop_reason = "Missing required evidence"
     save_goal_run(state, str(tmp_path))
@@ -154,11 +161,18 @@ async def test_binding_stays_open_while_run_progresses(supervisor_on, tmp_path):
     from server.goal_run.store import save_goal_run
     from server.supervisor.handoff import supervisor_handoff
 
-    state = GoalRunState(goal_id="goal_live", goal_text="x", status=GoalStatus.running, bot_id="bot_test")
+    state = GoalRunState(
+        goal_id="goal_live", goal_text="x", status=GoalStatus.running, bot_id="bot_test"
+    )
     for tid, st in (("t1", TaskStatus.completed), ("t2", TaskStatus.running)):
         state.tasks[tid] = TaskNode(
-            id=tid, title=tid, instruction="do", acceptance=["ok"], depends_on=[],
-            assignee="builtin", status=st,
+            id=tid,
+            title=tid,
+            instruction="do",
+            acceptance=["ok"],
+            depends_on=[],
+            assignee="builtin",
+            status=st,
         )
     save_goal_run(state, str(tmp_path))
     supervisor_on.save_binding(_binding(tmp_path, "goal_live"))
@@ -176,15 +190,26 @@ async def test_binding_gives_up_after_repairs_exhausted(supervisor_on, tmp_path)
     from server.goal_run.store import save_goal_run
     from server.supervisor.handoff import supervisor_handoff
 
-    state = GoalRunState(goal_id="goal_stuck", goal_text="x", status=GoalStatus.running, bot_id="bot_test")
+    state = GoalRunState(
+        goal_id="goal_stuck", goal_text="x", status=GoalStatus.running, bot_id="bot_test"
+    )
     state.tasks["t1"] = TaskNode(
-        id="t1", title="t", instruction="do", acceptance=["ok"], depends_on=[],
-        assignee="builtin", status=TaskStatus.running,
+        id="t1",
+        title="t",
+        instruction="do",
+        acceptance=["ok"],
+        depends_on=[],
+        assignee="builtin",
+        status=TaskStatus.running,
     )
     save_goal_run(state, str(tmp_path))
     b = _binding(
-        tmp_path, "goal_stuck", nudges_sent=3, max_repairs=3,
-        last_activity_at=time.time() - 3600, stall_after_minutes=1,
+        tmp_path,
+        "goal_stuck",
+        nudges_sent=3,
+        max_repairs=3,
+        last_activity_at=time.time() - 3600,
+        stall_after_minutes=1,
     )
     # Same fingerprint as what the run shows now -> no fresh activity.
     b.last_report_fingerprint = "running|0|1|0|None"

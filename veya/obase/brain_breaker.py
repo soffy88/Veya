@@ -66,7 +66,7 @@ def classify_quota_error(text: str) -> str:
 def _next_utc_day_boundary(now: float | None = None) -> float:
     moment = datetime.fromtimestamp(now if now is not None else time.time(), tz=UTC)
     nxt = (moment + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    return nxt.timestamp()
+    return float(nxt.timestamp())
 
 
 def _cooldown_for(kind: str, *, repeats: int, now: float | None = None) -> float:
@@ -74,8 +74,8 @@ def _cooldown_for(kind: str, *, repeats: int, now: float | None = None) -> float
     moment = now if now is not None else time.time()
     if kind in ("monthly", "daily"):
         return max(0.0, _next_utc_day_boundary(moment) - moment)
-    base = _BASE_COOLDOWN_S * (2 ** max(0, repeats - 1))
-    return min(base, _MAX_COOLDOWN_S)
+    base = _BASE_COOLDOWN_S * float(2 ** max(0, repeats - 1))
+    return min(base, float(_MAX_COOLDOWN_S))
 
 
 def _is_quota_error(exc: Any, status: int | None = None) -> tuple[bool, str]:

@@ -44,39 +44,143 @@ SKILLS = {
 # id -> (upstream relative path, category, one-line Chinese summary)
 ROLES: dict[str, tuple[str, str, str]] = {
     # engineering
-    "backend-architect": ("engineering/engineering-backend-architect.md", "engineering", "后端架构师：可扩展系统、数据库、API 与云基础设施设计。"),
-    "frontend-developer": ("engineering/engineering-frontend-developer.md", "engineering", "前端开发：现代 Web 界面、组件化、性能与可访问性。"),
-    "senior-developer": ("engineering/engineering-senior-developer.md", "engineering", "资深开发：高质量实现、代码规范与工程判断。"),
-    "software-architect": ("engineering/engineering-software-architect.md", "engineering", "软件架构师：系统边界、架构决策与权衡记录。"),
-    "code-reviewer": ("engineering/engineering-code-reviewer.md", "engineering", "代码评审：正确性、安全、可维护性的建设性评审。"),
-    "minimal-change-engineer": ("engineering/engineering-minimal-change-engineer.md", "engineering", "最小改动工程师：只改必须改的，避免顺手重构。"),
-    "devops-automator": ("engineering/engineering-devops-automator.md", "engineering", "DevOps 自动化：CI/CD、基础设施即代码与部署流水线。"),
-    "sre": ("engineering/engineering-sre.md", "engineering", "SRE：可靠性、SLO、监控告警与事故响应。"),
-    "ai-engineer": ("engineering/engineering-ai-engineer.md", "engineering", "AI 工程师：模型集成、LLM 应用与评测落地。"),
-    "technical-writer": ("engineering/engineering-technical-writer.md", "writing", "技术写作：开发者文档、API 参考、README 与教程。"),
+    "backend-architect": (
+        "engineering/engineering-backend-architect.md",
+        "engineering",
+        "后端架构师：可扩展系统、数据库、API 与云基础设施设计。",
+    ),
+    "frontend-developer": (
+        "engineering/engineering-frontend-developer.md",
+        "engineering",
+        "前端开发：现代 Web 界面、组件化、性能与可访问性。",
+    ),
+    "senior-developer": (
+        "engineering/engineering-senior-developer.md",
+        "engineering",
+        "资深开发：高质量实现、代码规范与工程判断。",
+    ),
+    "software-architect": (
+        "engineering/engineering-software-architect.md",
+        "engineering",
+        "软件架构师：系统边界、架构决策与权衡记录。",
+    ),
+    "code-reviewer": (
+        "engineering/engineering-code-reviewer.md",
+        "engineering",
+        "代码评审：正确性、安全、可维护性的建设性评审。",
+    ),
+    "minimal-change-engineer": (
+        "engineering/engineering-minimal-change-engineer.md",
+        "engineering",
+        "最小改动工程师：只改必须改的，避免顺手重构。",
+    ),
+    "devops-automator": (
+        "engineering/engineering-devops-automator.md",
+        "engineering",
+        "DevOps 自动化：CI/CD、基础设施即代码与部署流水线。",
+    ),
+    "sre": (
+        "engineering/engineering-sre.md",
+        "engineering",
+        "SRE：可靠性、SLO、监控告警与事故响应。",
+    ),
+    "ai-engineer": (
+        "engineering/engineering-ai-engineer.md",
+        "engineering",
+        "AI 工程师：模型集成、LLM 应用与评测落地。",
+    ),
+    "technical-writer": (
+        "engineering/engineering-technical-writer.md",
+        "writing",
+        "技术写作：开发者文档、API 参考、README 与教程。",
+    ),
     # testing
-    "reality-checker": ("testing/testing-reality-checker.md", "engineering", "现实核验：以证据为准验收，拒绝未经证实的“完成”。"),
-    "api-tester": ("testing/testing-api-tester.md", "engineering", "API 测试：接口功能、性能与安全测试。"),
+    "reality-checker": (
+        "testing/testing-reality-checker.md",
+        "engineering",
+        "现实核验：以证据为准验收，拒绝未经证实的“完成”。",
+    ),
+    "api-tester": (
+        "testing/testing-api-tester.md",
+        "engineering",
+        "API 测试：接口功能、性能与安全测试。",
+    ),
     # product
-    "product-manager": ("product/product-manager.md", "product", "产品经理：需求、路线图、优先级与跨团队协作。"),
-    "sprint-prioritizer": ("product/product-sprint-prioritizer.md", "product", "迭代排期：敏捷规划、优先级排序与资源分配。"),
-    "feedback-synthesizer": ("product/product-feedback-synthesizer.md", "product", "反馈归纳：汇总用户反馈并提炼可执行洞察。"),
+    "product-manager": (
+        "product/product-manager.md",
+        "product",
+        "产品经理：需求、路线图、优先级与跨团队协作。",
+    ),
+    "sprint-prioritizer": (
+        "product/product-sprint-prioritizer.md",
+        "product",
+        "迭代排期：敏捷规划、优先级排序与资源分配。",
+    ),
+    "feedback-synthesizer": (
+        "product/product-feedback-synthesizer.md",
+        "product",
+        "反馈归纳：汇总用户反馈并提炼可执行洞察。",
+    ),
     # design
-    "ui-designer": ("design/design-ui-designer.md", "design", "UI 设计师：视觉设计、组件库与设计系统。"),
-    "ux-researcher": ("design/design-ux-researcher.md", "design", "UX 研究员：用户研究、可用性测试与洞察。"),
+    "ui-designer": (
+        "design/design-ui-designer.md",
+        "design",
+        "UI 设计师：视觉设计、组件库与设计系统。",
+    ),
+    "ux-researcher": (
+        "design/design-ux-researcher.md",
+        "design",
+        "UX 研究员：用户研究、可用性测试与洞察。",
+    ),
     # marketing
-    "content-creator": ("marketing/marketing-content-creator.md", "marketing", "内容创作：多平台内容策略、编辑日历与文案。"),
-    "growth-hacker": ("marketing/marketing-growth-hacker.md", "marketing", "增长黑客：获客实验、转化漏斗与快速迭代。"),
-    "seo-specialist": ("marketing/marketing-seo-specialist.md", "marketing", "SEO 专家：技术 SEO、内容优化与自然流量增长。"),
+    "content-creator": (
+        "marketing/marketing-content-creator.md",
+        "marketing",
+        "内容创作：多平台内容策略、编辑日历与文案。",
+    ),
+    "growth-hacker": (
+        "marketing/marketing-growth-hacker.md",
+        "marketing",
+        "增长黑客：获客实验、转化漏斗与快速迭代。",
+    ),
+    "seo-specialist": (
+        "marketing/marketing-seo-specialist.md",
+        "marketing",
+        "SEO 专家：技术 SEO、内容优化与自然流量增长。",
+    ),
     # operations
-    "senior-project-manager": ("project-management/project-manager-senior.md", "operations", "高级项目经理：把规格拆成任务，控制范围与节奏。"),
-    "support-responder": ("support/support-support-responder.md", "operations", "客服响应：多渠道客户支持与问题解决。"),
-    "infrastructure-maintainer": ("support/support-infrastructure-maintainer.md", "operations", "基础设施运维：系统稳定、性能、安全与成本。"),
+    "senior-project-manager": (
+        "project-management/project-manager-senior.md",
+        "operations",
+        "高级项目经理：把规格拆成任务，控制范围与节奏。",
+    ),
+    "support-responder": (
+        "support/support-support-responder.md",
+        "operations",
+        "客服响应：多渠道客户支持与问题解决。",
+    ),
+    "infrastructure-maintainer": (
+        "support/support-infrastructure-maintainer.md",
+        "operations",
+        "基础设施运维：系统稳定、性能、安全与成本。",
+    ),
     # research
-    "research-synthesist": ("research/research-synthesist.md", "research", "研究综合：文献综述、来源评估与证据综合。"),
-    "trend-researcher": ("product/product-trend-researcher.md", "research", "趋势研究：市场情报、竞品分析与新兴趋势。"),
+    "research-synthesist": (
+        "research/research-synthesist.md",
+        "research",
+        "研究综合：文献综述、来源评估与证据综合。",
+    ),
+    "trend-researcher": (
+        "product/product-trend-researcher.md",
+        "research",
+        "趋势研究：市场情报、竞品分析与新兴趋势。",
+    ),
     # writing
-    "book-co-author": ("marketing/marketing-book-co-author.md", "writing", "图书合著：长文写作、结构规划与作者口吻。"),
+    "book-co-author": (
+        "marketing/marketing-book-co-author.md",
+        "writing",
+        "图书合著：长文写作、结构规划与作者口吻。",
+    ),
 }
 
 SKILL_ZH: dict[str, str] = {
@@ -122,7 +226,16 @@ def _git_head(repo: Path) -> str:
         return "unknown"
 
 
-def _header(*, kind: str, preset_id: str, src: dict[str, str], commit: str, rel: str, category: str, summary_zh: str) -> str:
+def _header(
+    *,
+    kind: str,
+    preset_id: str,
+    src: dict[str, str],
+    commit: str,
+    rel: str,
+    category: str,
+    summary_zh: str,
+) -> str:
     return (
         "<!-- veya-preset\n"
         f"kind: {kind}\n"
@@ -151,7 +264,15 @@ def import_roles(upstream: Path) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     for preset_id, (rel, category, zh) in ROLES.items():
         body = (repo / rel).read_text(encoding="utf-8")
-        head = _header(kind="role", preset_id=preset_id, src=AGENCY, commit=commit, rel=rel, category=category, summary_zh=zh)
+        head = _header(
+            kind="role",
+            preset_id=preset_id,
+            src=AGENCY,
+            commit=commit,
+            rel=rel,
+            category=category,
+            summary_zh=zh,
+        )
         (out_dir / f"{preset_id}.md").write_text(head + body, encoding="utf-8")
     return len(ROLES)
 
@@ -177,7 +298,15 @@ def import_skills(upstream: Path) -> int:
             rel = f"skills/{preset_id}/{rel_in_skill.as_posix()}"
             dest = out_dir / rel_in_skill
             dest.parent.mkdir(parents=True, exist_ok=True)
-            head = _header(kind="skill", preset_id=preset_id, src=SKILLS, commit=commit, rel=rel, category="engineering", summary_zh=zh)
+            head = _header(
+                kind="skill",
+                preset_id=preset_id,
+                src=SKILLS,
+                commit=commit,
+                rel=rel,
+                category="engineering",
+                summary_zh=zh,
+            )
             dest.write_text(head + src.read_text(encoding="utf-8"), encoding="utf-8")
         count += 1
     return count

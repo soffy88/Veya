@@ -3,11 +3,19 @@ import os
 from pathlib import Path
 from typing import Any
 
+
 class RoutineHistoryStore:
     def __init__(self, bot_id: str, storage_path: str | Path | None = None):
         self.bot_id = bot_id
         if storage_path is None:
-            self.storage_path = Path(os.environ.get("VEYA_ROUTINE_HISTORY_DIR", os.path.expanduser("~/.veya/routine_history"))) / f"{bot_id}.json"
+            self.storage_path = (
+                Path(
+                    os.environ.get(
+                        "VEYA_ROUTINE_HISTORY_DIR", os.path.expanduser("~/.veya/routine_history")
+                    )
+                )
+                / f"{bot_id}.json"
+            )
         else:
             self.storage_path = Path(storage_path)
 

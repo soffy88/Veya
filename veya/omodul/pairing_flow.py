@@ -15,9 +15,10 @@ Ops (``input_data["op"]``):
 
 from __future__ import annotations
 
-import time
+import contextlib
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from veya.oprim.pairing import pairing_code_consume, pairing_code_create
 
@@ -28,7 +29,7 @@ STATUS_ERROR = "error"
 class PairingFlowConfig:
     """Injection points for the pairing flow."""
 
-    _enabled_pillars = {"decision_trail"}
+    _enabled_pillars: frozenset[str] = frozenset({"decision_trail"})
 
     def __init__(
         self,
@@ -47,10 +48,8 @@ class PairingFlowConfig:
 def _trail(config: PairingFlowConfig, topic: str, payload: dict[str, Any]) -> None:
     if config.trail is None:
         return
-    try:
+    with contextlib.suppress(Exception):
         config.trail(topic, payload)
-    except Exception:
-        pass
 
 
 async def run_pairing_flow(
@@ -124,9 +123,7 @@ def _op_confirm(config: PairingFlowConfig, data: dict[str, Any]) -> dict[str, An
     registration: dict[str, Any] = {}
     if config.register_device is not None:
         try:
-            registration = dict(
-                config.register_device(device_kind, device_label, credential)
-            )
+            registration = dict(config.register_device(device_kind, device_label, credential))
         except Exception:
             registration = {}
     _trail(
@@ -148,4 +145,4 @@ def _op_confirm(config: PairingFlowConfig, data: dict[str, Any]) -> dict[str, An
     }
 
 
-__all__ = ["PairingFlowConfig", "run_pairing_flow", "STATUS_COMPLETED", "STATUS_ERROR"]
+__all__ = ["STATUS_COMPLETED", "STATUS_ERROR", "PairingFlowConfig", "run_pairing_flow"]

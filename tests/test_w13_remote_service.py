@@ -131,7 +131,7 @@ async def test_apply_refuses_without_approval(rc_env):
 
 @pytest.mark.asyncio
 async def test_apply_after_approval_launches_and_acks(rc_env):
-    from server.remote_control import service, sessions
+    from server.remote_control import service
 
     result = await _start()
     await _approve(result["approval_id"])
@@ -258,8 +258,8 @@ async def test_complete_requires_evidence_and_notifies(rc_env, monkeypatch):
 
 
 def test_tools_registered_only_when_flag_on(monkeypatch):
-    from server.tool_registry import MasterToolRegistry
     from server.remote_control import tools
+    from server.tool_registry import MasterToolRegistry
 
     monkeypatch.setenv("VEYA_REMOTE_CONTROL", "0")
     assert tools.register_tools(MasterToolRegistry()) == 0

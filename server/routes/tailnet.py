@@ -1,4 +1,5 @@
 """Owner-only management API for the opt-in Tailnet channel."""
+
 from __future__ import annotations
 
 import os
@@ -16,14 +17,26 @@ router = APIRouter(prefix="/api/v1/tailnet", tags=["tailnet-channel"])
 def require_tailnet_owner(user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, Any]:
     """Tailnet policy management is security-sensitive and fails closed."""
     user_id = str(user.get("user_id") or "")
-    configured_owner = (os.getenv("VEYA_TAILNET_OWNER_USER_ID") or os.getenv("VEYA_OWNER_USER_ID") or "").strip()
-    roles = {str(role).lower() for role in user.get("roles", [])} if isinstance(user.get("roles", []), (list, tuple, set)) else set()
+    configured_owner = (
+        os.getenv("VEYA_TAILNET_OWNER_USER_ID") or os.getenv("VEYA_OWNER_USER_ID") or ""
+    ).strip()
+    roles = (
+        {str(role).lower() for role in user.get("roles", [])}
+        if isinstance(user.get("roles", []), (list, tuple, set))
+        else set()
+    )
     role = str(user.get("role") or "").lower()
     allowed = bool(configured_owner and user_id == configured_owner) or bool(
-        user.get("is_owner") is True or user.get("is_admin") is True or role in {"owner", "admin"} or roles.intersection({"owner", "admin"})
+        user.get("is_owner") is True
+        or user.get("is_admin") is True
+        or role in {"owner", "admin"}
+        or roles.intersection({"owner", "admin"})
     )
     if not allowed:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tailnet management is owner-only; configure VEYA_TAILNET_OWNER_USER_ID")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tailnet management is owner-only; configure VEYA_TAILNET_OWNER_USER_ID",
+        )
     return user
 
 
@@ -32,7 +45,9 @@ class PolicyUpdate(BaseModel):
     allow: list[str] = Field(default_factory=list, max_length=500)
     deny: list[str] = Field(default_factory=list, max_length=500)
     bindings: dict[str, dict[str, str]] = Field(default_factory=dict, max_length=500)
-    wake_policy: dict[str, Any] = Field(default_factory=lambda: {"default_max": "batch", "peers": {}})
+    wake_policy: dict[str, Any] = Field(
+        default_factory=lambda: {"default_max": "batch", "peers": {}}
+    )
     quiet_hours: dict[str, str] | None = None
     wake_rate: int = Field(default=6, ge=0, le=1000)
     agents: dict[str, dict[str, str]] = Field(default_factory=dict, max_length=500)
@@ -64,7 +79,9 @@ def _validate_owned_targets(payload: PolicyUpdate, user: dict[str, Any]) -> None
             for bot_id in group.bot_ids:
                 _owned_bot(bot_id, user)
         else:
-            raise HTTPException(status_code=400, detail="target must declare bot/group and target_id")
+            raise HTTPException(
+                status_code=400, detail="target must declare bot/group and target_id"
+            )
 
 
 @router.get("/status")
@@ -91,7 +108,9 @@ async def get_policy(_: dict[str, Any] = Depends(require_tailnet_owner)) -> dict
 
 
 @router.put("/policy")
-async def put_policy(payload: PolicyUpdate, user: dict[str, Any] = Depends(require_tailnet_owner)) -> dict[str, Any]:
+async def put_policy(
+    payload: PolicyUpdate, user: dict[str, Any] = Depends(require_tailnet_owner)
+) -> dict[str, Any]:
     try:
         _validate_owned_targets(payload, user)
         policy = get_service().save_policy(payload.model_dump())
@@ -106,11 +125,18 @@ async def put_policy(payload: PolicyUpdate, user: dict[str, Any] = Depends(requi
 async def get_peers(_: dict[str, Any] = Depends(require_tailnet_owner)) -> dict[str, Any]:
     service = get_service()
     policy = service.load_policy()
-    return {"peers": service.list_peers(), "allow": policy["allow"], "deny": policy["deny"], "mode": policy["mode"]}
+    return {
+        "peers": service.list_peers(),
+        "allow": policy["allow"],
+        "deny": policy["deny"],
+        "mode": policy["mode"],
+    }
 
 
 @router.put("/peers")
-async def put_peers(payload: PeerUpdate, _: dict[str, Any] = Depends(require_tailnet_owner)) -> dict[str, Any]:
+async def put_peers(
+    payload: PeerUpdate, _: dict[str, Any] = Depends(require_tailnet_owner)
+) -> dict[str, Any]:
     service = get_service()
     policy = service.load_policy()
     policy.update({"allow": payload.allow, "deny": payload.deny})
@@ -122,7 +148,11 @@ async def put_peers(payload: PeerUpdate, _: dict[str, Any] = Depends(require_tai
 
 
 @router.get("/requests/{request_id}")
-async def get_request(request_id: str, peer: str | None = Query(default=None, max_length=300), _: dict[str, Any] = Depends(require_tailnet_owner)) -> dict[str, Any]:
+async def get_request(
+    request_id: str,
+    peer: str | None = Query(default=None, max_length=300),
+    _: dict[str, Any] = Depends(require_tailnet_owner),
+) -> dict[str, Any]:
     service = get_service()
     if peer:
         try:

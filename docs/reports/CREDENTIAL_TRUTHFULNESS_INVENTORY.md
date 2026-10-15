@@ -51,9 +51,9 @@ def _credential_present(names: list[str], files: list[Path]) -> bool:
 
 ```python
 auth = _credential_present([...], [...])
-authenticated = bool(auth)          # executor_registry.py::_discover
+authenticated = bool(auth)  # executor_registry.py::_discover
 ...
-auth_state="AUTHENTICATED" if authenticated else "MISSING"
+auth_state = "AUTHENTICATED" if authenticated else "MISSING"
 status = "READY" if reachable and authenticated else ...
 ```
 

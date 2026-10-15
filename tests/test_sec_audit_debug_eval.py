@@ -6,7 +6,10 @@ from server.routes.debug_guard import require_nonproduction_debug
 
 
 def test_expression_evaluation_http_route_is_removed():
-    assert all(getattr(route, "path", "") != "/advanced-visualization/debug/expression" for route in router.routes)
+    assert all(
+        getattr(route, "path", "") != "/advanced-visualization/debug/expression"
+        for route in router.routes
+    )
 
 
 def test_debug_guard_defaults_to_production(monkeypatch):

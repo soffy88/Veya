@@ -30,7 +30,9 @@ def _sandbox_of(sandbox: Any) -> Any:
 # persistent data paths are synchronous and must not be redirected into the
 # temporary VfsSandbox workspace.  Callers must derive destinations from their
 # service-owned root and validate untrusted names before constructing paths.
-def local_path_mkdir(path: str | Path, *, parents: bool = True, exist_ok: bool = True, mode: int = 0o700) -> Path:
+def local_path_mkdir(
+    path: str | Path, *, parents: bool = True, exist_ok: bool = True, mode: int = 0o700
+) -> Path:
     target = Path(path)
     target.mkdir(parents=parents, exist_ok=exist_ok, mode=mode)
     return target
@@ -99,7 +101,14 @@ def local_fsync(stream: Any) -> None:
     os.fsync(stream.fileno())
 
 
-def local_atomic_write(path: str | Path, temporary: str | Path, data: bytes, *, parent_mode: int = 0o700, file_mode: int = 0o600) -> None:
+def local_atomic_write(
+    path: str | Path,
+    temporary: str | Path,
+    data: bytes,
+    *,
+    parent_mode: int = 0o700,
+    file_mode: int = 0o600,
+) -> None:
     target, temp = Path(path), Path(temporary)
     target.parent.mkdir(parents=True, exist_ok=True, mode=parent_mode)
     with suppress(OSError):

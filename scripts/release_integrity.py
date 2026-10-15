@@ -22,6 +22,16 @@ SECRET = re.compile(
     r"(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN .*PRIVATE KEY-----|"
     r"(?:^|[\s\"'])sk-[A-Za-z0-9]{20,})"
 )
+# Documentation fixtures that deliberately contain a fake credential-shaped
+# value so the code under test can be shown rejecting it. Each entry is an
+# exact source line; a match on it means "the docstring example", never a
+# real key. Keeping these explicit (rather than weakening SECRET above) means
+# the gate still fails on any genuine-looking secret elsewhere in the file.
+KNOWN_DOC_FIXTURES: frozenset[str] = frozenset(
+    {
+        '        >>> entry_allowed("api_key: sk-abcdefghijklmnopqrstuvwx")[0]',
+    }
+)
 
 
 def _git(*args: str) -> str:
@@ -161,7 +171,16 @@ def secret_scan() -> list[str]:
         if not path.is_file() or path.stat().st_size > 5_000_000:
             continue
         text = path.read_text(errors="ignore")
-        if SECRET.search(text):
+        if not SECRET.search(text):
+            continue
+        # A file is only clean when every secret-shaped hit is a documented
+        # fixture line above — not when the count happens to be zero.
+        offending = [
+            line
+            for line in text.splitlines()
+            if SECRET.search(line) and line not in KNOWN_DOC_FIXTURES
+        ]
+        if offending:
             findings.append(relative)
     return findings
 

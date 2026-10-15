@@ -116,6 +116,9 @@ __all__ = [
     "ExecutorFailureClass",
     "ExecutorHealth",
     "ExecutorHealthRegistry",
+    # Executor registry (re-exported at package root)
+    "ExecutorRegistry",
+    "ExecutorRuntimeIdentity",
     "FinalizationResult",
     "JobState",
     "L1ExecutionFinalizer",
@@ -157,7 +160,10 @@ __all__ = [
     "create_gateway",
     "create_veya_event",
     "default_tool_adapter",
+    # Executor registry (re-exported at package root)
     "direct_sync_window_s",
+    "get_executor_registry",
+    "normalize_executor_id",
     "registry_order",
     "resolve_executor",
     "resolve_repo_target",

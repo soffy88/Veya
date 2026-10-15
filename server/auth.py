@@ -499,10 +499,7 @@ def is_public_path(path: str) -> bool:
     for prefix in _PUBLIC_PREFIXES:
         if path.startswith(prefix.rstrip("/") + "/"):
             return True
-    for suffix in _PUBLIC_SUFFIXES:
-        if path.endswith(suffix):
-            return True
-    return False
+    return any(path.endswith(suffix) for suffix in _PUBLIC_SUFFIXES)
 
 
 def _request_token(scope: dict[str, Any]) -> str:

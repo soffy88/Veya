@@ -177,10 +177,10 @@ def apply_manifest(
 
 
 __all__ = [
-    "WorktreeManifest",
     "MANIFEST_REL_PATH",
+    "WorktreeManifest",
+    "_validate_relative_path",
+    "apply_manifest",
     "load_manifest",
     "write_manifest",
-    "apply_manifest",
-    "_validate_relative_path",
 ]

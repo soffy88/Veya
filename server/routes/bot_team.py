@@ -125,6 +125,7 @@ def _safe_chatter_scope(bot_id: str, user_id: str) -> str:
     digest = hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:12]
     return f"pub_{clean[:36]}_{digest}"
 
+
 def _bot_view(spec: BotSpec) -> dict[str, Any]:
     return {
         "bot_id": spec.bot_id,
@@ -707,7 +708,7 @@ async def post_public_bot_message(
         raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found or not public")
 
     chatter_id = str(user.get("user_id") or "")
-    is_owner = (chatter_id == spec.owner_id)
+    is_owner = chatter_id == spec.owner_id
     chatter_key = _safe_chatter_scope(bot_id, chatter_id)
     store = _public_conversation_store(bot_id)
 
@@ -720,6 +721,7 @@ async def post_public_bot_message(
     }
 
     from dataclasses import replace
+
     proxy_bot = replace(
         spec,
         bot_id=chatter_key,
@@ -1066,9 +1068,10 @@ async def post_bot_to_bot_message(
 
     # Both ends must be the caller's bots (W11 D2).
     _require_bot(bot_registry(), bot_id, owner_id=user["user_id"])
-    if req.target_bot_id != bot_id and _resolve_bot(
-        bot_registry(), req.target_bot_id, owner_id=user["user_id"]
-    ) is None:
+    if (
+        req.target_bot_id != bot_id
+        and _resolve_bot(bot_registry(), req.target_bot_id, owner_id=user["user_id"]) is None
+    ):
         raise HTTPException(status_code=422, detail=f"unknown target bot {req.target_bot_id!r}")
     messenger = BotMessenger(bot_registry(), conversations=conversations())
     try:

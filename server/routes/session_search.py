@@ -118,6 +118,7 @@ async def _federated_search(
 
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=5.0) as client:
                 params = {"q": query, "limit": limit}
                 if backend:
@@ -167,6 +168,7 @@ def _get_runners() -> list[dict[str, Any]]:
     """Get configured runners from bot_team/runners.py if available."""
     try:
         from server.bot_team.runners import get_runners
+
         return get_runners()
     except ImportError:
         return []

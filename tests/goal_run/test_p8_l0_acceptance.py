@@ -19,8 +19,6 @@ from pathlib import Path
 
 import pytest
 
-from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
-
 from server.goal_run.execution_admission import (
     AdmissionStatus,
     ExecutionAdmissionRequest,
@@ -33,6 +31,7 @@ from server.goal_run.execution_control import ExecutionControl
 from server.goal_run.execution_recovery import ExecutionRecovery, RecoveryOutcome
 from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatus
 from server.goal_run.store import load_goal_run, save_goal_run
+from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
 from veya.remote.action_gateway import ActionCategory, ActionGateway, classify_action
 from veya.remote.approval import ApprovalStore
 from veya.remote.executor_adapters import register_default_adapters

@@ -162,9 +162,7 @@ def _facade_session(workspace: Path) -> Any:
         token_id=f"facade-{os.getpid()}",
         workspaces=(str(workspace),),
         active_workspace=str(workspace),
-        permissions=RemotePermissions(
-            read=True, write=True, shell=_shell_confirmed()
-        ),
+        permissions=RemotePermissions(read=True, write=True, shell=_shell_confirmed()),
         created_at=now,
         expires_at=now + 300,
     )

@@ -1,6 +1,7 @@
 import hashlib
-from veya.oskill.im.wechat import WeChatGateway
+
 from veya.oskill.im.discord import DiscordGateway
+from veya.oskill.im.wechat import WeChatGateway
 
 
 def test_wechat_signatures_are_required_and_constant_time_compatible():
@@ -16,6 +17,7 @@ def test_wechat_signatures_are_required_and_constant_time_compatible():
 def test_discord_signatures_fail_closed_without_key_or_headers():
     gateway = DiscordGateway(public_key="", runner=None)
     import asyncio
+
     assert asyncio.run(gateway.verify_signature(b"{}", "signature", "timestamp")) is False
     configured = DiscordGateway(public_key="not-a-valid-ed25519-key", runner=None)
     assert asyncio.run(configured.verify_signature(b"{}", "bad", "timestamp")) is False

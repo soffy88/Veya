@@ -11,7 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from config.loader import load_config
+from server.approvals import router as approvals_router
 from server.assembly import Infra
+from server.pairing import router as pairing_router
 from server.routes.adversarial import router as adversarial_router
 from server.routes.agent import router as agent_router
 from server.routes.agent_collaboration import router as agent_collaboration_router
@@ -24,15 +26,13 @@ from server.routes.automata import webhook_router
 from server.routes.autonomous import router as autonomous_router
 from server.routes.backends import router as backends_router
 from server.routes.board import router as board_router
-from server.routes.bot_team import router as bots_router
 from server.routes.bot_memory import router as bot_memory_router
+from server.routes.bot_models import router as bot_models_router
 from server.routes.bot_runtime import router as bot_runtime_router
+from server.routes.bot_team import router as bots_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
-
-# W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
-from server.routes.mcp_presets import router as mcp_presets_router
-from server.routes.role_skill_presets import router as role_skill_presets_router
+from server.routes.cli_agents import router as cli_agents_router
 from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
@@ -48,8 +48,15 @@ from server.routes.integrations import router as integrations_router
 from server.routes.legacy_agent import router as legacy_agent_router
 from server.routes.master import router as master_router
 from server.routes.mcp import router as mcp_router
+
+# W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
+from server.routes.mcp_presets import router as mcp_presets_router
+
+# W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
 from server.routes.models import router as models_router
 from server.routes.multimodal import router as multimodal_router
+from server.routes.nano_w9 import router as nano_w9_router
+from server.routes.nano_w10_c import router as nano_w10_c_router
 from server.routes.neuro_symbolic import router as neuro_symbolic_router
 from server.routes.notifications import router as notifications_router
 from server.routes.observer import router as observer_router
@@ -62,12 +69,13 @@ from server.routes.plan import router as plan_router
 from server.routes.product import router as product_router
 from server.routes.projects import router as projects_router
 from server.routes.prompt import router as prompt_router
+from server.routes.providers import router as providers_router
 from server.routes.push import router as push_router
-from server.approvals import router as approvals_router
-from server.pairing import router as pairing_router
 from server.routes.remote_mcp import router as remote_mcp_router
 from server.routes.research import router as research_router
 from server.routes.resilient import router as resilient_router
+from server.routes.review import router as review_router
+from server.routes.role_skill_presets import router as role_skill_presets_router
 from server.routes.runners import router as runners_router
 from server.routes.security import router as security_router
 from server.routes.semantic_search import router as semantic_search_router
@@ -81,19 +89,13 @@ from server.routes.telemetry import router as telemetry_router
 from server.routes.threat_model import router as threat_model_router
 from server.routes.tool import router as tool_router
 from server.routes.tools import router as tools_router
+from server.routes.usage import router as usage_router
 from server.routes.vault import compat_router as vault_compat_router
 from server.routes.vault import router as vault_router
 from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
-from server.routes.review import router as review_router
-from server.routes.nano_w9 import router as nano_w9_router
-from server.routes.nano_w10_c import router as nano_w10_c_router
 from server.routes.workbench import router as workbench_router
 from server.routes.workspace import router as workspace_router
-from server.routes.cli_agents import router as cli_agents_router
-from server.routes.providers import router as providers_router
-from server.routes.bot_models import router as bot_models_router
-from server.routes.usage import router as usage_router
 from server.sse import router as sse_router
 
 
@@ -620,18 +622,22 @@ app.include_router(cindy_compat_router)
 app.include_router(voice_compat_router)
 app.include_router(execution_contract_router)
 app.include_router(sse_router)
-from server.routes.routines import router as routines_router
 from server.routes.artifacts import (
-    router as artifacts_router,
     public_router as public_artifacts_router,
 )
+from server.routes.artifacts import (
+    router as artifacts_router,
+)
 from server.routes.channels import router as channels_router
-from server.routes.tailnet import router as tailnet_router
 from server.routes.html_pages import (
     public_router as public_html_pages_router,
+)
+from server.routes.html_pages import (
     router as html_pages_router,
 )
+from server.routes.routines import router as routines_router
 from server.routes.settings import router as settings_router
+from server.routes.tailnet import router as tailnet_router
 
 app.include_router(routines_router)
 app.include_router(artifacts_router)

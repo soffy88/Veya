@@ -17,8 +17,7 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
-from pydantic import ValidationError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from server import auth as auth_mod
 from server.feature_flags import enabled as flag_enabled
@@ -100,7 +99,9 @@ async def pairing_request(body: PairingRequest) -> dict[str, Any]:
     from veya.omodul.pairing_flow import PairingFlowConfig, run_pairing_flow
 
     result = await run_pairing_flow(
-        PairingFlowConfig(store=_store()), {"op": "request", **body.model_dump()}, "/tmp/veya-pairing"
+        PairingFlowConfig(store=_store()),
+        {"op": "request", **body.model_dump()},
+        "/tmp/veya-pairing",
     )
     if result.get("status") != "completed":
         raise HTTPException(status_code=429, detail=str(result.get("error") or "request refused"))
@@ -137,4 +138,4 @@ async def pairing_confirm(
     return result
 
 
-__all__ = ["device_pairing_enabled", "router", "FLAG_DEVICE_PAIRING"]
+__all__ = ["FLAG_DEVICE_PAIRING", "device_pairing_enabled", "router"]

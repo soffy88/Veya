@@ -15,8 +15,6 @@ from pathlib import Path
 
 import pytest
 
-from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
-
 from server.goal_run import bind_execution, create_pending_run
 from server.goal_run.execution_admission import (
     BindingStatus,
@@ -32,6 +30,7 @@ from server.goal_run.execution_recovery import (
 )
 from server.goal_run.models import GoalStatus
 from server.goal_run.store import load_goal_run, read_events, save_goal_run
+from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
 
 
 @pytest.fixture(autouse=True)

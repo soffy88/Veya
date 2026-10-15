@@ -60,9 +60,7 @@ class Tenant:
             "tenant_id": self.tenant_id,
             "name": self.name,
             "tier": self.tier.value,
-            "quotas": {
-                k.value: asdict(v) for k, v in self.quotas.items()
-            },
+            "quotas": {k.value: asdict(v) for k, v in self.quotas.items()},
             "created_at": self.created_at,
         }
 

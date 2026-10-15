@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-import uuid
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -37,9 +35,7 @@ class SkillEligibility:
             return False
         if self.project and self.project != context.get("project"):
             return False
-        if self.repository and self.repository != context.get("repository"):
-            return False
-        return True
+        return not (self.repository and self.repository != context.get("repository"))
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

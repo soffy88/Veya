@@ -153,7 +153,9 @@ _LOCAL_VENV_PIP = re.compile(
     r"^\s*(?:\./)?(?:\.venv|venv)/bin/(?:pip3?|python3?\s+-m\s+pip)\s+install\s"
 )
 _UV_PIP = re.compile(r"^\s*uv\s+pip\s+install\s")
-_UV_PIP_ESCAPES = re.compile(r"(?:^|\s)--(?:system|python|target|prefix|break-system-packages)\b|(?:^|\s)-p\s")
+_UV_PIP_ESCAPES = re.compile(
+    r"(?:^|\s)--(?:system|python|target|prefix|break-system-packages)\b|(?:^|\s)-p\s"
+)
 
 
 def is_project_local_install(command: str) -> bool:

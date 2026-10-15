@@ -479,30 +479,35 @@ def test_notify_done_uses_web_push(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jsonrpc_initialize_authenticates_before_adapter_recovery():
-    from veya.remote.auth import RemoteAuth, RemoteAuthError
+    from veya.remote.auth import RemoteAuthError
     from veya.remote.mcp_server import RemoteMCPGateway
 
     class Auth:
         configured = True
+
         def verify(self, _authorization):
             raise RemoteAuthError("invalid token")
 
     class Adapter:
         def __init__(self):
             self.initializations = 0
+
         async def initialize(self):
             self.initializations += 1
+
         def list_tools(self):
             return []
 
     class Sessions:
         max_sessions = None
+
         def active_count(self):
             return 0
 
     class Audit:
         def __init__(self):
             self.rows = []
+
         def record(self, **row):
             self.rows.append(row)
 

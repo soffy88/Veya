@@ -27,7 +27,6 @@ from server.events import EventStore
 from server.goal_run import runner as runner_mod
 from server.goal_run.bot_identity import BotRegistry, BotSpec
 from server.nano_w10 import loop_mode as loop_mode_mod
-from server.routes import bot_team as bot_team_routes
 from server.routes.bot_team import router as bots_router
 from server.task_store import TaskStore
 

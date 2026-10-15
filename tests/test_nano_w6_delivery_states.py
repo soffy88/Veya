@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # ── pure derivation ───────────────────────────────────────────────────
 
 
@@ -54,7 +53,6 @@ def test_poll_marks_delivered(mailbox):
 
 
 def test_derivation_with_start_evidence(mailbox):
-    from server.goal_run.agent_mailbox import AgentMessage
 
     msg = mailbox.send(
         sender="coordinator", recipient="worker-2", delivery_mode="NOTIFY", payload={"text": "hi"}

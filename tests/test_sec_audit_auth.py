@@ -14,7 +14,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from server import auth as auth_mod

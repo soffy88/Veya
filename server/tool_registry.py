@@ -36,10 +36,10 @@ from server.tool_guard import global_tool_guard as _tool_guard
 from server.tool_guard_policies import install_default_tool_policies
 
 install_default_tool_policies(_tool_guard)
-from veya.obase import telemetry
-from veya.obase.async_utils import run_sync_in_daemon_thread
-from veya.oskill.pure.tool_error_text import explain_tool_error
-from veya.oskill.pure.validate_args import validate_args
+from veya.obase import telemetry  # noqa: E402 — installed after default policies
+from veya.obase.async_utils import run_sync_in_daemon_thread  # noqa: E402
+from veya.oskill.pure.tool_error_text import explain_tool_error  # noqa: E402
+from veya.oskill.pure.validate_args import validate_args  # noqa: E402
 
 logger = __import__("logging").getLogger("master.tools")
 
@@ -1075,7 +1075,6 @@ async def _proxy_url() -> str | None:
     return None
 
 
-
 def _resolve_public_fetch_target(url: str) -> tuple[str, str, str]:
     """Return (normalized host, public pinned IP, URL) from one validation lookup."""
     import ipaddress
@@ -1093,7 +1092,9 @@ def _resolve_public_fetch_target(url: str) -> tuple[str, str, str]:
         raise ValueError("only absolute HTTP(S) URLs are allowed")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("URL user-info is not allowed")
-    if host in {"localhost", "metadata.google.internal", "metadata.google"} or host.endswith((".localhost", ".local", ".internal", ".test")):
+    if host in {"localhost", "metadata.google.internal", "metadata.google"} or host.endswith(
+        (".localhost", ".local", ".internal", ".test")
+    ):
         raise ValueError("non-public hostname is not allowed")
 
     try:
@@ -1134,14 +1135,22 @@ class _PinnedAsyncNetworkBackend:
         self._delegate = AutoBackend()
         self._pins = {key.lower().rstrip("."): value for key, value in pins.items()}
 
-    async def connect_tcp(self, host: str, port: int, timeout=None, local_address=None, socket_options=None):
+    async def connect_tcp(
+        self, host: str, port: int, timeout=None, local_address=None, socket_options=None
+    ):
         pinned = self._pins.get(str(host).lower().rstrip("."), host)
         return await self._delegate.connect_tcp(
-            pinned, port, timeout=timeout, local_address=local_address, socket_options=socket_options
+            pinned,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
         )
 
     async def connect_unix_socket(self, path: str, timeout=None, socket_options=None):
-        return await self._delegate.connect_unix_socket(path, timeout=timeout, socket_options=socket_options)
+        return await self._delegate.connect_unix_socket(
+            path, timeout=timeout, socket_options=socket_options
+        )
 
     async def sleep(self, seconds: float) -> None:
         await self._delegate.sleep(seconds)
@@ -1153,7 +1162,8 @@ async def _get_public_fetch_response(url: str, headers: dict[str, str], proxy: s
     Explicit/system proxies are intentionally not used: a proxy can resolve the
     original hostname independently and reintroduce DNS rebinding/SSRF risk.
     """
-    from urllib.parse import urljoin, urlsplit
+    from urllib.parse import urljoin
+
     import httpx
 
     if proxy:
@@ -1179,6 +1189,7 @@ async def _get_public_fetch_response(url: str, headers: dict[str, str], proxy: s
         current = urljoin(current, location)
     raise ValueError("too many redirects")
 
+
 async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
     """原生 URL 阅读工具 (httpx, 免 playwright): 抓任意网页/文档为纯文本。
 
@@ -1187,8 +1198,6 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
     (模型读到后自行调整)。
     """
     import re
-
-    import httpx
 
     url = url.strip()
     try:
@@ -1202,6 +1211,7 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
         ),
         "Accept": "text/html,application/xhtml+xml,text/markdown,text/plain,*/*;q=0.8",
     }
+
     # Public fetches must connect to the validated/pinned DNS answer directly.
     # Proxy-side DNS resolution cannot be proven safe, so this path does not proxy.
     async def _get(url_to_fetch: str):
@@ -1414,7 +1424,7 @@ def _tool_read_file_ast(
             source = b.read_text(filepath, max_bytes=200000)
             return str(extract_skeleton(source, filepath))
 
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "read_file_ast",
             host,
             {"filepath": filepath},
@@ -1423,6 +1433,7 @@ def _tool_read_file_ast(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     from veya.ast import extract_skeleton
 
@@ -1488,7 +1499,7 @@ def _tool_write_file(
             "content_sha256": hashlib.sha256(str(content).encode("utf-8")).hexdigest(),
             "overwrite": bool(overwrite),
         }
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "write_file",
             host,
             args,
@@ -1497,6 +1508,7 @@ def _tool_write_file(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     from server.config_protection import check_config_protection, is_protected_config_path
 
@@ -1564,7 +1576,7 @@ def _tool_read_hashline(
             source = b.read_text(filepath, max_bytes=200000)
             return f"[hashline {filepath}]\n" + str(render(source, max_lines=cap, start_line=begin))
 
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "read_hashline",
             host,
             {"filepath": filepath, "max_lines": cap, "start_line": begin},
@@ -1573,6 +1585,7 @@ def _tool_read_hashline(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     from server.config_protection import is_protected_config_path
 
@@ -1630,7 +1643,7 @@ def _tool_edit_hashline(
                 "Re-read with read_hashline before another edit."
             )
 
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "edit_hashline",
             host,
             args,
@@ -1639,6 +1652,7 @@ def _tool_edit_hashline(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     from server.config_protection import check_config_protection, is_protected_config_path
 
@@ -1762,7 +1776,7 @@ def _tool_ast_grep_rewrite(
     if host:
         from server.remote_control import ssh_tools
 
-        return ssh_tools.handle_ast_grep_rewrite_host(
+        result: str = ssh_tools.handle_ast_grep_rewrite_host(
             host=host,
             path=path,
             pattern=pattern,
@@ -1772,6 +1786,7 @@ def _tool_ast_grep_rewrite(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     if update:
         from server.config_protection import check_config_protection
@@ -1810,7 +1825,7 @@ def _tool_grep(
             res = b.grep(pattern, root=root or "", glob=glob or "", max_results=max_results)
             return res or f"no matches for {pattern!r}"
 
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "grep",
             host,
             {"pattern": pattern, "glob": glob, "root": root, "max_results": max_results},
@@ -1819,6 +1834,7 @@ def _tool_grep(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     from server.assembly import ripgrep_search
 
@@ -1874,7 +1890,7 @@ def _tool_list_files(
                 lines_out.append(f"{name}/" if is_d else f"{name} ({row.get('size', 0)}b)")
             return "\n".join(lines_out) or "(empty)"
 
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "list_files",
             host,
             {"path": path},
@@ -1883,6 +1899,7 @@ def _tool_list_files(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     root = _resolve_workspace_root()
     target = root if path in (".", "") else _resolve_path(path, must_exist=False)
@@ -1979,7 +1996,8 @@ async def _tool_run_in_sandbox(
         )
         if inspect.isawaitable(res):
             res = await res
-        return res
+        result: str = str(res)
+        return result
 
     from server.auth import current_user
     from veya.platform import load

@@ -67,7 +67,6 @@ async def generate_3d_graph(request: Generate3DGraphRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"3D graph generation failed: {e!s}")
 
 
-
 @router.post("/debug/step", dependencies=[Depends(require_nonproduction_debug)])
 async def step_debug(request: StepDebugRequest) -> dict[str, Any]:
     """执行调试步进"""

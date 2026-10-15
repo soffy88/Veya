@@ -70,7 +70,7 @@ def test_endpoint_ignored_without_user_key(app: FastAPI, member_token: str) -> N
     captured: dict = {}
 
     class _Fake(MasterCoordinator):
-        def __init__(self, **kw):  # noqa: D401
+        def __init__(self, **kw):
             captured.update(kw)
 
         async def chat_stream(self, *a, **k):

@@ -22,7 +22,9 @@ def test_artifact_settings_are_owner_dependency_gated(tmp_path, monkeypatch):
     monkeypatch.setenv("VEYA_SETTINGS_PATH", str(tmp_path / "settings.json"))
     app = _app()
     app.dependency_overrides[auth_mod.require_owner] = lambda: {
-        "user_id": "security-owner", "username": "security-owner", "is_owner": True
+        "user_id": "security-owner",
+        "username": "security-owner",
+        "is_owner": True,
     }
     with TestClient(app) as client:
         response = client.put("/api/v1/settings/artifacts", json={"enabled": True})

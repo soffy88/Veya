@@ -72,7 +72,7 @@ runtime/provider_reliability.py      上游可靠性
 ```python
 # executor_registry._hicode_config()
 provider = os.environ.get("HICODE_REASONIX_PROVIDER")
-model    = os.environ.get("HICODE_REASONIX_MODEL") or os.environ.get("HICODE_MODEL")
+model = os.environ.get("HICODE_REASONIX_MODEL") or os.environ.get("HICODE_MODEL")
 # 回退到 config/hicode_model_mapping.json
 ```
 
@@ -176,14 +176,14 @@ PURE_READ(3)  hicode_sessions, hicode_status, hicode_tasks
 
 ```python
 {
-  "code": code_text,                 # 或 "HICODE_PROVIDER_ROUND_FAILURE"
-  "detail": detail_text,
-  "round_index": round_index,
-  "raw_evidence": _safe_failure_value(ev),     # 有界截断
-  "result": _safe_failure_value(result),
-  "recent_events": raw_events[-10:],
-  "stderr_tail": str(stderr_tail)[-2000:],
-  "exit_code": exit_code,
+    "code": code_text,  # 或 "HICODE_PROVIDER_ROUND_FAILURE"
+    "detail": detail_text,
+    "round_index": round_index,
+    "raw_evidence": _safe_failure_value(ev),  # 有界截断
+    "result": _safe_failure_value(result),
+    "recent_events": raw_events[-10:],
+    "stderr_tail": str(stderr_tail)[-2000:],
+    "exit_code": exit_code,
 }
 ```
 
@@ -191,12 +191,12 @@ PURE_READ(3)  hicode_sessions, hicode_status, hicode_tasks
 
 ```python
 {
-  "failure_class": quota.failure_class,
-  "provider": quota.provider,
-  "model": quota.model,
-  "upstream_evidence": quota.upstream_evidence,
-  "upstream_reset_seconds": quota.upstream_reset_seconds,
-  "effective_retry_not_before": quota.cooldown_until,
+    "failure_class": quota.failure_class,
+    "provider": quota.provider,
+    "model": quota.model,
+    "upstream_evidence": quota.upstream_evidence,
+    "upstream_reset_seconds": quota.upstream_reset_seconds,
+    "effective_retry_not_before": quota.cooldown_until,
 }
 ```
 

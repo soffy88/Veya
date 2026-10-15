@@ -22,16 +22,20 @@ router = APIRouter(prefix="/api/v1/providers", tags=["providers"])
 
 def _require_provider_registry() -> None:
     if not flag_enabled("VEYA_PROVIDER_REGISTRY"):
-        raise HTTPException(status_code=404, detail="provider registry not enabled (VEYA_PROVIDER_REGISTRY=1)")
+        raise HTTPException(
+            status_code=404, detail="provider registry not enabled (VEYA_PROVIDER_REGISTRY=1)"
+        )
 
 
 def get_provider_registry():
     """Get the VeyaProviderRegistry instance."""
     from veya.obase.provider_registry import get_veya_provider_registry
+
     return get_veya_provider_registry()
 
 
 # ── Request Models ────────────────────────────────────────────────────────
+
 
 class ProviderSpecRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
@@ -61,6 +65,7 @@ class BotModelSourceRequest(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────
 
+
 def _require_bot_owner(bot_id: str, user: dict[str, Any]) -> None:
     """Refuse a model-source change for a bot the caller does not own.
 
@@ -72,6 +77,7 @@ def _require_bot_owner(bot_id: str, user: dict[str, Any]) -> None:
     spec = BotRegistry().get(bot_id)
     from server.goal_run.bot_identity import DEFAULT_BOT_ID
     from server.routes.bot_team import CHEF_BOT_ID
+
     if spec is None:
         if bot_id in {DEFAULT_BOT_ID, CHEF_BOT_ID}:
             return
@@ -79,7 +85,8 @@ def _require_bot_owner(bot_id: str, user: dict[str, Any]) -> None:
 
     owner = str(spec.owner_id or "").strip()
     if bot_id not in {DEFAULT_BOT_ID, CHEF_BOT_ID} and (
-        not owner or owner in {"system", "default", "anonymous"}
+        not owner
+        or owner in {"system", "default", "anonymous"}
         or owner != str(user.get("user_id") or "")
     ):
         raise HTTPException(status_code=404, detail="bot not found")
@@ -128,6 +135,7 @@ async def register_custom_provider(
     registry = get_provider_registry()
 
     from veya.obase.provider_registry import VeyaProviderSpec
+
     spec = VeyaProviderSpec(
         name=req.name,
         display_name=req.display_name,
@@ -204,6 +212,7 @@ async def set_bot_model_source(
     registry = get_provider_registry()
 
     from veya.obase.provider_registry import ModelSourceConfig
+
     config = ModelSourceConfig(
         source=req.source,
         provider=req.provider or "",

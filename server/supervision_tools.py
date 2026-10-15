@@ -195,9 +195,7 @@ def supervise_task(
     from server.supervisor import enabled as supervisor_enabled
 
     if not supervisor_enabled():
-        raise RuntimeError(
-            "supervisor is disabled; set VEYA_SUPERVISOR=1 to enable"
-        )
+        raise RuntimeError("supervisor is disabled; set VEYA_SUPERVISOR=1 to enable")
 
     import uuid as _uuid
     from datetime import UTC, datetime

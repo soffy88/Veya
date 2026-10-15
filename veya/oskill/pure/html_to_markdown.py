@@ -319,9 +319,7 @@ class _Writer:
         rendered: list[str] = []
         for block in out:
             marker = _list_item_marker(block)
-            prev_marker = (
-                _list_item_marker(rendered[-1].split("\n")[-1]) if rendered else None
-            )
+            prev_marker = _list_item_marker(rendered[-1].split("\n")[-1]) if rendered else None
             if marker is not None and marker == prev_marker:
                 rendered[-1] = rendered[-1] + "\n" + block
             else:

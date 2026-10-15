@@ -843,8 +843,7 @@ def _remote_principal_is_owner(principal: str) -> bool:
         from server.auth import is_owner, list_users
 
         return any(
-            str(user.get("username") or "") == principal and is_owner(user)
-            for user in list_users()
+            str(user.get("username") or "") == principal and is_owner(user) for user in list_users()
         )
     except Exception:
         return False
@@ -1687,12 +1686,17 @@ def _link_canonical_venvs(worktree: str | Path, repo_root: str | Path) -> list[s
             # (harmless for the canonical tree, which already ignores it).
             still = subprocess.run(
                 ["git", "-C", str(wt), "check-ignore", "-q", name],
-                capture_output=True, timeout=10, check=False,
+                capture_output=True,
+                timeout=10,
+                check=False,
             )
             if still.returncode != 0:
                 common = subprocess.run(
                     ["git", "-C", str(wt), "rev-parse", "--git-common-dir"],
-                    capture_output=True, text=True, timeout=10, check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
                 ).stdout.strip()
                 if common:
                     exclude = (wt / common).resolve() / "info" / "exclude"
@@ -1726,12 +1730,24 @@ def _init_worktree_submodules(worktree: str | Path, repo_root: str | Path) -> li
         if wt == root or not (wt / ".gitmodules").is_file():
             return done
         listing = subprocess.run(
-            ["git", "-C", str(wt), "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
-            capture_output=True, text=True, timeout=10, check=False,
+            [
+                "git",
+                "-C",
+                str(wt),
+                "config",
+                "-f",
+                ".gitmodules",
+                "--get-regexp",
+                r"^submodule\..*\.path$",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         for line in listing.stdout.splitlines():
             key, _, sub_path = line.partition(" ")
-            name = key[len("submodule."):-len(".path")]
+            name = key[len("submodule.") : -len(".path")]
             target = wt / sub_path
             source = root / sub_path
             if not sub_path or ".." in Path(sub_path).parts:
@@ -1742,12 +1758,23 @@ def _init_worktree_submodules(worktree: str | Path, repo_root: str | Path) -> li
                 continue
             result = subprocess.run(
                 [
-                    "git", "-C", str(wt),
-                    "-c", "protocol.file.allow=always",
-                    "-c", f"submodule.{name}.url={source}",
-                    "submodule", "update", "--init", "--", sub_path,
+                    "git",
+                    "-C",
+                    str(wt),
+                    "-c",
+                    "protocol.file.allow=always",
+                    "-c",
+                    f"submodule.{name}.url={source}",
+                    "submodule",
+                    "update",
+                    "--init",
+                    "--",
+                    sub_path,
                 ],
-                capture_output=True, text=True, timeout=180, check=False,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
             )
             if result.returncode == 0:
                 done.append(sub_path)
@@ -2376,9 +2403,7 @@ class RemoteToolAdapter:
                     risk = RiskClass(raw_risk)
                 except ValueError:
                     allowed = ", ".join(r.value for r in RiskClass)
-                    raise ValueError(
-                        f"risk_class {raw_risk!r} is not one of: {allowed}"
-                    ) from None
+                    raise ValueError(f"risk_class {raw_risk!r} is not one of: {allowed}") from None
                 record = store.create_approval(
                     principal=session.principal,
                     capability_id=str(args["capability_id"]),
@@ -2438,9 +2463,9 @@ class RemoteToolAdapter:
             selector = str(workspace_path).strip()
             existing_path = normalized.get("path")
             workspace_arg = normalized.get("workspace")
-            if Path(selector).is_absolute() and not workspace_arg:
-                normalized["workspace"] = selector
-            elif Path(selector).is_absolute() and str(workspace_arg) != selector:
+            if (Path(selector).is_absolute() and not workspace_arg) or (
+                Path(selector).is_absolute() and str(workspace_arg) != selector
+            ):
                 normalized["workspace"] = selector
             elif workspace_arg and (
                 name not in _COMMAND_TOOLS
@@ -3042,7 +3067,9 @@ class RemoteToolAdapter:
         ).encode()
         return "remote-" + hashlib.sha1(seed).hexdigest()[:20]
 
-    def _hydrate_session_worktree(self, session: RemoteSession, repo_root: str | None) -> str | None:
+    def _hydrate_session_worktree(
+        self, session: RemoteSession, repo_root: str | None
+    ) -> str | None:
         """Re-attach this principal's persistent worktree to a new session.
 
         Returns the usable worktree path for ``repo_root`` or ``None`` when the
@@ -4194,11 +4221,12 @@ class RemoteToolAdapter:
             }
         raw_contract = item.get("task_contract")
         raw_contract_command = (
-            raw_contract.get("verification_command")
-            if isinstance(raw_contract, dict)
-            else None
+            raw_contract.get("verification_command") if isinstance(raw_contract, dict) else None
         )
-        if item.get("verification_command") not in (None, "") or raw_contract_command not in (None, ""):
+        if item.get("verification_command") not in (None, "") or raw_contract_command not in (
+            None,
+            "",
+        ):
             return self._fail(
                 "worker.dispatch",
                 session,

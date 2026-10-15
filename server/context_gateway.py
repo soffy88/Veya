@@ -94,11 +94,13 @@ class ContextPolicy:
     required_scopes: list[ContextScope] = field(default_factory=list)
     budget_tokens: int = 8000
     auto_admit: bool = True
-    discovery_stages: list[DiscoveryStage] = field(default_factory=lambda: [
-        DiscoveryStage.STRUCTURAL_MANIFEST,
-        DiscoveryStage.LEXICAL,
-        DiscoveryStage.HYBRID_VECTOR,
-    ])
+    discovery_stages: list[DiscoveryStage] = field(
+        default_factory=lambda: [
+            DiscoveryStage.STRUCTURAL_MANIFEST,
+            DiscoveryStage.LEXICAL,
+            DiscoveryStage.HYBRID_VECTOR,
+        ]
+    )
 
 
 class ContextGateway:

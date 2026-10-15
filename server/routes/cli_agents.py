@@ -6,15 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-
-from server import auth as auth_mod
 from pydantic import BaseModel
 
 from runtime.coding.cli_agents import (
-    CLIAgentRegistry,
-    get_cli_agent_registry,
     _validate_command_template,
+    get_cli_agent_registry,
 )
+from server import auth as auth_mod
 
 router = APIRouter(tags=["cli-agents"])
 
@@ -39,7 +37,9 @@ def _get_repo_root() -> Path:
 
 
 @router.get("/api/v1/agents/cli")
-async def list_cli_agents(user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, list[dict[str, Any]]]:
+async def list_cli_agents(
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, list[dict[str, Any]]]:
     """List all CLI agent profiles (built-in + custom)."""
     repo_root = _get_repo_root()
     registry = get_cli_agent_registry(repo_root)

@@ -38,6 +38,7 @@ async def resume_legacy_checkpoint(checkpoint: Any) -> dict[str, Any]:
     if goal_id:
         # A1-L: Canonical Resume Lineage Preservation
         from server.coordinator_master import MasterCoordinator
+
         req = CanonicalContinuationRef(
             session_id=checkpoint.session_id,
             goal_run_id=str(goal_id),

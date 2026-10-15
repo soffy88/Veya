@@ -16,6 +16,7 @@ Safety:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import subprocess
@@ -95,13 +96,12 @@ def main(
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Write the draft to a temp file: keeps argv small and avoids quoting issues.
-    with tempfile.NamedTemporaryFile(
-        "w", suffix=".md", delete=False, encoding="utf-8"
-    ) as tmp:
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as tmp:
         tmp.write(draft)
         draft_file = tmp.name
 
-    cmd = _find_am() + [
+    cmd = [
+        *_find_am(),
         "render",
         draft_file,
         "-o",
@@ -135,10 +135,8 @@ def main(
             "output": str(out_path),
         }
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(draft_file)
-        except OSError:
-            pass
 
     elapsed = round(time.time() - started, 2)
     if proc.returncode != 0:

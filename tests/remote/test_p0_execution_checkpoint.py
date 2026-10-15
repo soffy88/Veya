@@ -59,7 +59,9 @@ def test_corrupt_or_tampered_checkpoint_is_rejected(tmp_path: Path):
     store = ExecutionCheckpointStore(tmp_path)
     store.write_durable(make_checkpoint())
     path = tmp_path / "checkpoints" / "cp-1.json"
-    data = path.read_text(encoding="utf-8").replace('"last_event_sequence": 42', '"last_event_sequence": 99')
+    data = path.read_text(encoding="utf-8").replace(
+        '"last_event_sequence": 42', '"last_event_sequence": 99'
+    )
     path.write_text(data, encoding="utf-8")
     with pytest.raises(CheckpointError):
         store.read_durable("cp-1")

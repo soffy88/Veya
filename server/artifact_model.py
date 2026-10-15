@@ -79,8 +79,17 @@ def new_artifact(
 def is_temporary_path(path: str) -> bool:
     """Check if a path is a temporary build/render file (not a published artifact)."""
     temp_indicators = [
-        "/tmp/", "/var/tmp/", ".tmp", ".temp", ".cache/",
-        "node_modules/.cache/", "__pycache__/", ".build/",
-        "dist/", "target/", ".veya/runs/", ".veya/worktrees/",
+        "/tmp/",
+        "/var/tmp/",
+        ".tmp",
+        ".temp",
+        ".cache/",
+        "node_modules/.cache/",
+        "__pycache__/",
+        ".build/",
+        "dist/",
+        "target/",
+        ".veya/runs/",
+        ".veya/worktrees/",
     ]
     return any(indicator in path for indicator in temp_indicators)

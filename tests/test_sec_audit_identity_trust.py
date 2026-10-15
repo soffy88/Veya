@@ -32,9 +32,7 @@ def test_approval_resolver_ignores_untrusted_body_principal(monkeypatch):
     body = approvals_mod.ApprovalResolveRequest(
         decision="once", reason="approved", principal="agent:attacker"
     )
-    result = asyncio.run(
-        approvals_mod.resolve_approval_endpoint("approval-a", body, user)
-    )
+    result = asyncio.run(approvals_mod.resolve_approval_endpoint("approval-a", body, user))
     assert result["status"] == "completed"
     assert seen["principal"] == f"human:{scope}"
     assert seen["principal"] != "agent:attacker"
@@ -86,7 +84,9 @@ def test_network_backend_substitutes_pinned_ip_at_connect_time():
     calls = []
 
     class FakeBackend:
-        async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        async def connect_tcp(
+            self, host, port, timeout=None, local_address=None, socket_options=None
+        ):
             calls.append((host, port, timeout, local_address, socket_options))
             return "connected"
 
@@ -106,8 +106,9 @@ def test_network_backend_substitutes_pinned_ip_at_connect_time():
 
 def test_provider_bot_owner_guard_rejects_nonexistent_identity(monkeypatch):
     from fastapi import HTTPException
-    from server.routes import providers
+
     from server.goal_run.bot_identity import BotRegistry
+    from server.routes import providers
 
     monkeypatch.setattr(BotRegistry, "get", lambda _self, _bot_id: None)
     with pytest.raises(HTTPException) as missing:

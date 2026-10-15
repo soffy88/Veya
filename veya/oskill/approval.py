@@ -13,7 +13,6 @@ from typing import Any
 from veya.oprim.approval import grant_lookup, grant_scope_match
 from veya.oskill.pure.permission import (
     VERDICT_ALLOW,
-    VERDICT_ASK,
     VERDICT_DENY,
     evaluate_capability_permission,
     scope_match,
@@ -37,9 +36,7 @@ def request_permission_decision(
     """
 
     grant = grant_lookup(scope=scope, tool=tool, store=store)
-    covered = bool(grant) and grant_scope_match(
-        str(grant.get("scope_pattern") or ""), scope
-    )
+    covered = bool(grant) and grant_scope_match(str(grant.get("scope_pattern") or ""), scope)
     grants = [grant] if covered else []
     for extra in extra_grants or []:
         if str(extra.get("tool") or "").lower() != str(tool or "").lower():

@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
 import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path

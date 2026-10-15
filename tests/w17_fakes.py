@@ -27,8 +27,13 @@ class RecordingRunner:
 
     def __call__(self, argv, *, timeout_s, input_bytes=None):
         self.calls.append({"argv": list(argv), "timeout_s": timeout_s, "input": input_bytes})
-        return CaptureResult(argv=list(argv), returncode=self.returncode, stdout=self.stdout,
-                             stderr=self.stderr, timed_out=self.timed_out)
+        return CaptureResult(
+            argv=list(argv),
+            returncode=self.returncode,
+            stdout=self.stdout,
+            stderr=self.stderr,
+            timed_out=self.timed_out,
+        )
 
 
 @dataclass
@@ -43,9 +48,21 @@ class LocalExecRunner:
         remote = argv[idx + 1]
         self.calls.append(argv)
         try:
-            done = subprocess.run(["bash", "-c", remote], input=input_bytes or b"",
-                                  capture_output=True, timeout=min(timeout_s, 30), check=False)
+            done = subprocess.run(
+                ["bash", "-c", remote],
+                input=input_bytes or b"",
+                capture_output=True,
+                timeout=min(timeout_s, 30),
+                check=False,
+            )
         except subprocess.TimeoutExpired as exc:
-            return CaptureResult(argv=argv, returncode=None, stdout=exc.stdout or b"",
-                                 stderr=exc.stderr or b"", timed_out=True)
-        return CaptureResult(argv=argv, returncode=done.returncode, stdout=done.stdout, stderr=done.stderr)
+            return CaptureResult(
+                argv=argv,
+                returncode=None,
+                stdout=exc.stdout or b"",
+                stderr=exc.stderr or b"",
+                timed_out=True,
+            )
+        return CaptureResult(
+            argv=argv, returncode=done.returncode, stdout=done.stdout, stderr=done.stderr
+        )

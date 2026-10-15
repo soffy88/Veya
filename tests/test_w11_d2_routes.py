@@ -1,4 +1,5 @@
 """W11 D2: bot and group routes stay private to the owner."""
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -34,8 +35,13 @@ def test_other_user_cannot_read_delete_or_group_alice_bot(env):
     assert client.delete("/api/v1/bots/alice_bot").status_code == 404
     assert client.get("/api/v1/bots/groups").json()["groups"] == []
     assert client.get(f"/api/v1/bots/groups/{gid}/messages").status_code == 404
-    assert client.post(f"/api/v1/bots/groups/{gid}/messages", json={"text": "hi"}).status_code == 404
-    assert client.post("/api/v1/bots/groups", json={"name": "x", "bot_ids": ["alice_bot"]}).status_code == 422
+    assert (
+        client.post(f"/api/v1/bots/groups/{gid}/messages", json={"text": "hi"}).status_code == 404
+    )
+    assert (
+        client.post("/api/v1/bots/groups", json={"name": "x", "bot_ids": ["alice_bot"]}).status_code
+        == 422
+    )
 
     who["user"] = ALICE
     assert client.get("/api/v1/bots/alice_bot/messages").status_code == 200
@@ -60,9 +66,19 @@ def test_routines_are_private_to_the_bot_owner(env, tmp_path, monkeypatch):
     client.app.include_router(routines_router)
     who["user"] = BOB
     assert client.get("/api/v1/bots/alice_bot/routines").status_code == 404
-    assert client.post("/api/v1/bots/alice_bot/routines", json={"objective": "x", "schedule": "every 5m"}).status_code == 404
+    assert (
+        client.post(
+            "/api/v1/bots/alice_bot/routines", json={"objective": "x", "schedule": "every 5m"}
+        ).status_code
+        == 404
+    )
     who["user"] = ALICE
-    assert client.post("/api/v1/bots/alice_bot/routines", json={"objective": "x", "schedule": "every 5m"}).status_code == 200
+    assert (
+        client.post(
+            "/api/v1/bots/alice_bot/routines", json={"objective": "x", "schedule": "every 5m"}
+        ).status_code
+        == 200
+    )
 
 
 def test_group_roles_only_for_the_group_owner(env, monkeypatch):
@@ -71,8 +87,20 @@ def test_group_roles_only_for_the_group_owner(env, monkeypatch):
     monkeypatch.setenv("VEYA_GROUP_ROLES", "1")
     client, who = env
     client.app.include_router(c_router)
-    gid = client.post("/api/v1/bots/groups", json={"name": "g", "bot_ids": ["alice_bot"]}).json()["group"]["id"]
+    gid = client.post("/api/v1/bots/groups", json={"name": "g", "bot_ids": ["alice_bot"]}).json()[
+        "group"
+    ]["id"]
     who["user"] = BOB
-    assert client.patch(f"/api/v1/nano-w10-c/groups/{gid}/roles", json={"reply_mode": "everyone"}).status_code == 404
+    assert (
+        client.patch(
+            f"/api/v1/nano-w10-c/groups/{gid}/roles", json={"reply_mode": "everyone"}
+        ).status_code
+        == 404
+    )
     who["user"] = ALICE
-    assert client.patch(f"/api/v1/nano-w10-c/groups/{gid}/roles", json={"reply_mode": "everyone"}).status_code == 200
+    assert (
+        client.patch(
+            f"/api/v1/nano-w10-c/groups/{gid}/roles", json={"reply_mode": "everyone"}
+        ).status_code
+        == 200
+    )

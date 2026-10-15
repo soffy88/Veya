@@ -171,16 +171,13 @@ def _is_trusted_request(request: Request) -> bool:
     trusted_proxies = _get_trusted_proxies()
 
     is_trusted_peer = any(peer_addr in net for net in trusted_nets)
-    is_trusted_proxy = any(peer_addr in net for net in trusted_proxies)
+    any(peer_addr in net for net in trusted_proxies)
     has_forward_headers = any(h in request.headers for h in _PROXY_HEADERS)
 
     # 直连对端受信且无转发头 → 免 token
-    if is_trusted_peer and not has_forward_headers:
-        return True
-
     # 经反代的请求（有任何转发头）一律要求 token：X-Forwarded-For 最左值由客户端控制，
     # 不能作为免鉴权依据（防 XFF 伪造绕过）。
-    return False
+    return is_trusted_peer and not has_forward_headers
 
 
 @app.middleware("http")

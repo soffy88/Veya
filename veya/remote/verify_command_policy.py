@@ -1,4 +1,5 @@
 """Fail-closed policy for server-owned verification commands."""
+
 from __future__ import annotations
 
 import json

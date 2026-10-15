@@ -199,7 +199,9 @@ class ExecutionLease:
         return asdict(self)
 
 
-def new_revision(workspace_id: str, *, commit_sha: str | None = None, monotonic: int = 0) -> WorkspaceRevision:
+def new_revision(
+    workspace_id: str, *, commit_sha: str | None = None, monotonic: int = 0
+) -> WorkspaceRevision:
     return WorkspaceRevision(
         revision_id=str(uuid.uuid4()),
         workspace_id=workspace_id,

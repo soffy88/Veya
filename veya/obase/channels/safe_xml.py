@@ -1,4 +1,5 @@
 """Hardened XML parsing for untrusted channel webhook payloads."""
+
 from __future__ import annotations
 
 import re
@@ -6,9 +7,11 @@ from typing import Any
 
 try:
     from defusedxml import ElementTree as _ET
+
     USING_DEFUSEDXML = True
 except ImportError:  # Older developer envs; explicit DTD/entity bans remain fail-closed.
     import xml.etree.ElementTree as _ET
+
     USING_DEFUSEDXML = False
 
 _MAX_XML_BYTES = 1024 * 1024

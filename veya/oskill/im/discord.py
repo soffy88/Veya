@@ -11,8 +11,6 @@ Requires: DISCORD_BOT_TOKEN, DISCORD_APP_ID env vars.
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 import json
 import logging
 import os

@@ -935,13 +935,13 @@ class HarnessRegistry:
         """
         ensure_execution_harnesses()
         if harness_id in DEPRECATED_EXECUTORS:
-          raise ValueError(f"harness_id is retired: {harness_id!r}")
+            raise ValueError(f"harness_id is retired: {harness_id!r}")
         adapter = _HARNESS_ADAPTERS.get(harness_id)
         if adapter is None:
-          raise ValueError(f"no execution adapter for harness_id {harness_id!r}")
+            raise ValueError(f"no execution adapter for harness_id {harness_id!r}")
         result = adapter(store, task_id, request, project_root, understand_prefix)
         if inspect.isawaitable(result):
-          return await result
+            return await result
         return result
 
 
@@ -1069,7 +1069,6 @@ def sync_skills_from_hub(hub: Any) -> int:
 # ── 已知 Harness 的静态元数据登记(hicode/dsh/builtin, 见模块 docstring) ─────
 
 
-
 # ── Execution harness authority ─────────────────────────────────────────────
 # Executor identity lives in ExecutorRegistry. Execution adapters live here.
 # Neither side decides *which* executor to use: ExecutorRegistry admits, this
@@ -1087,64 +1086,64 @@ _HARNESSES_READY = False
 
 
 def _register_harness(harness_id: str, adapter: Any, **metadata: Any) -> None:
-  """Register one execution adapter plus its static metadata."""
-  if harness_id in DEPRECATED_EXECUTORS:
-    # Retired executors must never become executable again.
-    return
-  _HARNESS_ADAPTERS[harness_id] = adapter
-  harness_registry.register(
-    HarnessSpec(
-      harness_id=harness_id,
-      version="unversioned",
-      status="candidate",
-      **metadata,
+    """Register one execution adapter plus its static metadata."""
+    if harness_id in DEPRECATED_EXECUTORS:
+        # Retired executors must never become executable again.
+        return
+    _HARNESS_ADAPTERS[harness_id] = adapter
+    harness_registry.register(
+        HarnessSpec(
+            harness_id=harness_id,
+            version="unversioned",
+            status="candidate",
+            **metadata,
+        )
     )
-  )
 
 
 def initialize_execution_harnesses() -> int:
-  """Register the execution adapters this process provides. Idempotent.
+    """Register the execution adapters this process provides. Idempotent.
 
-  This is the *production* entry point. Harnesses used to be registered only by a
-  test helper, so a real process had an empty HarnessRegistry and every dispatch
-  failed with "unknown harness_id".
+    This is the *production* entry point. Harnesses used to be registered only by a
+    test helper, so a real process had an empty HarnessRegistry and every dispatch
+    failed with "unknown harness_id".
 
-  Adapters come from the runtime that owns the implementations
-  (``server.project_ask``) — not from ExecutorRegistry, which holds executor
-  identity only and must never carry callables.
-  """
-  global _HARNESSES_READY
-  from server.project_ask import get_builtin_harness_adapter, get_dsh_harness_adapter
+    Adapters come from the runtime that owns the implementations
+    (``server.project_ask``) — not from ExecutorRegistry, which holds executor
+    identity only and must never carry callables.
+    """
+    global _HARNESSES_READY
+    from server.project_ask import get_builtin_harness_adapter, get_dsh_harness_adapter
 
-  _register_harness(
-    "builtin",
-    get_builtin_harness_adapter(),
-    capabilities=["direct_tool_execution"],
-    session_semantics="MasterAgent 自身工具调用循环，无独立子会话",
-    sandbox_level="none",
-  )
-  _register_harness(
-    "dsh",
-    get_dsh_harness_adapter(),
-    capabilities=["domain_specific_execution"],
-    session_semantics="一次性 subprocess 调用（server/project_ask.py::_dsh_exec）",
-    sandbox_level="subprocess",
-  )
-  _HARNESSES_READY = True
-  return len(_HARNESS_ADAPTERS)
+    _register_harness(
+        "builtin",
+        get_builtin_harness_adapter(),
+        capabilities=["direct_tool_execution"],
+        session_semantics="MasterAgent 自身工具调用循环，无独立子会话",
+        sandbox_level="none",
+    )
+    _register_harness(
+        "dsh",
+        get_dsh_harness_adapter(),
+        capabilities=["domain_specific_execution"],
+        session_semantics="一次性 subprocess 调用（server/project_ask.py::_dsh_exec）",
+        sandbox_level="subprocess",
+    )
+    _HARNESSES_READY = True
+    return len(_HARNESS_ADAPTERS)
 
 
 def bootstrap_default_harnesses() -> None:
-  """Deprecated alias for :func:`initialize_execution_harnesses`.
+    """Deprecated alias for :func:`initialize_execution_harnesses`.
 
-  Harnesses used to be registered only from a test helper, which left a real
-  process with an empty HarnessRegistry. Registration is now a production entry
-  point; this alias exists only so existing callers keep working.
-  """
-  initialize_execution_harnesses()
+    Harnesses used to be registered only from a test helper, which left a real
+    process with an empty HarnessRegistry. Registration is now a production entry
+    point; this alias exists only so existing callers keep working.
+    """
+    initialize_execution_harnesses()
 
 
 def ensure_execution_harnesses() -> None:
-  """Idempotently make the harness adapters available before dispatch."""
-  if not _HARNESSES_READY:
-    initialize_execution_harnesses()
+    """Idempotently make the harness adapters available before dispatch."""
+    if not _HARNESSES_READY:
+        initialize_execution_harnesses()

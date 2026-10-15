@@ -70,7 +70,13 @@ def test_breaker_state_no_secrets(breaker_on):
     provider_state = snap[0]
     assert provider_state["provider"] == "opencode-go"
     assert set(provider_state) <= {
-        "provider", "state", "opened_at", "reopen_at", "repeats", "last_kind", "reason"
+        "provider",
+        "state",
+        "opened_at",
+        "reopen_at",
+        "repeats",
+        "last_kind",
+        "reason",
     }
 
 

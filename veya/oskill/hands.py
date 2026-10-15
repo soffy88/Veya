@@ -13,6 +13,7 @@ pixels arrive as base64 on the oprim's result, so this layer never opens a file.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import os
@@ -30,6 +31,7 @@ class HandsOskillError(VeyaError):
 @dataclass(frozen=True)
 class HandsAction:
     """An action selected by the VLM for hands automation."""
+
     action: str  # "click", "type", "key", "scroll", "focus_window", "done"
     params: dict[str, Any]
     reasoning: str
@@ -88,7 +90,11 @@ def _build_hands_tools() -> list[dict[str, Any]]:
                     "properties": {
                         "x": {"type": "integer", "description": "X coordinate"},
                         "y": {"type": "integer", "description": "Y coordinate"},
-                        "button": {"type": "integer", "default": 1, "description": "Mouse button (1=left, 2=middle, 3=right)"},
+                        "button": {
+                            "type": "integer",
+                            "default": 1,
+                            "description": "Mouse button (1=left, 2=middle, 3=right)",
+                        },
                     },
                     "required": ["x", "y"],
                 },
@@ -103,7 +109,11 @@ def _build_hands_tools() -> list[dict[str, Any]]:
                     "type": "object",
                     "properties": {
                         "text": {"type": "string", "description": "Text to type"},
-                        "delay_ms": {"type": "integer", "default": 0, "description": "Delay between keystrokes in ms"},
+                        "delay_ms": {
+                            "type": "integer",
+                            "default": 0,
+                            "description": "Delay between keystrokes in ms",
+                        },
                     },
                     "required": ["text"],
                 },
@@ -117,7 +127,10 @@ def _build_hands_tools() -> list[dict[str, Any]]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "key_sequence": {"type": "string", "description": "Key sequence (e.g., 'Return', 'ctrl+c', 'alt+Tab')"},
+                        "key_sequence": {
+                            "type": "string",
+                            "description": "Key sequence (e.g., 'Return', 'ctrl+c', 'alt+Tab')",
+                        },
                     },
                     "required": ["key_sequence"],
                 },
@@ -132,7 +145,11 @@ def _build_hands_tools() -> list[dict[str, Any]]:
                     "type": "object",
                     "properties": {
                         "direction": {"type": "string", "enum": ["up", "down"], "default": "down"},
-                        "amount": {"type": "integer", "default": 3, "description": "Number of scroll clicks"},
+                        "amount": {
+                            "type": "integer",
+                            "default": 3,
+                            "description": "Number of scroll clicks",
+                        },
                     },
                 },
             },
@@ -145,7 +162,10 @@ def _build_hands_tools() -> list[dict[str, Any]]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "window_id": {"type": "string", "description": "Window ID from list_windows"},
+                        "window_id": {
+                            "type": "string",
+                            "description": "Window ID from list_windows",
+                        },
                     },
                     "required": ["window_id"],
                 },
@@ -159,7 +179,10 @@ def _build_hands_tools() -> list[dict[str, Any]]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "summary": {"type": "string", "description": "Summary of what was accomplished"},
+                        "summary": {
+                            "type": "string",
+                            "description": "Summary of what was accomplished",
+                        },
                     },
                     "required": ["summary"],
                 },
@@ -225,14 +248,13 @@ async def hands_operator_loop_step(
 
     # Add previous actions as context
     if previous_actions:
-        history = "\n".join(
-            f"  {a.action}({a.params}) — {a.reasoning}"
-            for a in previous_actions
+        history = "\n".join(f"  {a.action}({a.params}) — {a.reasoning}" for a in previous_actions)
+        messages.append(
+            {
+                "role": "assistant",
+                "content": f"Previous actions:\n{history}",
+            }
         )
-        messages.append({
-            "role": "assistant",
-            "content": f"Previous actions:\n{history}",
-        })
 
     # If a11y-first is enabled, include desktop accessibility tree context
     try:
@@ -241,10 +263,12 @@ async def hands_operator_loop_step(
 
             a11y_res = capture_desktop_a11y()
             if a11y_res.get("available") and a11y_res.get("formatted"):
-                messages.append({
-                    "role": "user",
-                    "content": f"Desktop Accessibility Tree:\n{a11y_res['formatted']}",
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"Desktop Accessibility Tree:\n{a11y_res['formatted']}",
+                    }
+                )
     except Exception:
         pass
 
@@ -316,9 +340,7 @@ async def hands_approval_gate(
         "click": lambda: hands_oprim.hands_click(
             params["x"], params["y"], button=params.get("button", 1)
         ),
-        "type": lambda: hands_oprim.hands_type(
-            params["text"], delay_ms=params.get("delay_ms", 0)
-        ),
+        "type": lambda: hands_oprim.hands_type(params["text"], delay_ms=params.get("delay_ms", 0)),
         "key": lambda: hands_oprim.hands_key(params["key_sequence"]),
         "scroll": lambda: hands_oprim.hands_scroll(
             direction=params.get("direction", "down"), amount=params.get("amount", 3)
@@ -395,7 +417,8 @@ async def hands_approval_gate(
 
     # Record in SideEffectLedger if available
     if side_effect_ledger is not None and executed:
-        try:
+        # Non-fatal: the audit record above is already written
+        with contextlib.suppress(Exception):
             await side_effect_ledger.execute(
                 goal_run_id=goal_run_id,
                 work_item_id=goal_run_id,
@@ -407,8 +430,6 @@ async def hands_approval_gate(
                 capability="manual_only",
                 bot_id=bot_id,
             )
-        except Exception:
-            pass  # Non-fatal: the audit record above is already written
 
     return {
         "approved": approved,
@@ -437,7 +458,7 @@ async def hands_pause_resume(
         Status dict.
     """
     if side_effect_ledger is not None:
-        try:
+        with contextlib.suppress(Exception):
             await side_effect_ledger.execute(
                 goal_run_id=goal_run_id,
                 work_item_id=goal_run_id,
@@ -449,8 +470,6 @@ async def hands_pause_resume(
                 capability="manual_only",
                 bot_id="",  # Filled by caller
             )
-        except Exception:
-            pass
 
     return {"status": "paused" if paused else "resumed", "goal_run_id": goal_run_id}
 

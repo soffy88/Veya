@@ -11,6 +11,18 @@ Following the 3O paradigm:
 - omodul → end-to-end features built on oskill
 """
 
+# 阶段 3: 物理触手原子 (注入句柄, 无业务逻辑)
+from veya.oprim.approval import (
+    approval_create,
+    approval_resolve,
+    grant_list,
+    grant_lookup,
+    grant_put,
+    grant_revoke,
+    grant_scope_match,
+    handoff_create,
+    handoff_resolve,
+)
 from veya.oprim.audio import (
     bytes_to_int16,
     compute_rms,
@@ -28,32 +40,19 @@ from veya.oprim.audio import (
     split_into_frames,
     wav_to_pcm,
 )
-from veya.oprim.cli_hub import (
-    CLIHubUnsupportedError,
-    install_cli_on_runner,
-    invoke_cli,
-    read_cli_skill,
-    search_cli,
-)
-
-# 阶段 3: 物理触手原子 (注入句柄, 无业务逻辑)
-from veya.oprim.approval import (
-    approval_create,
-    approval_resolve,
-    grant_list,
-    grant_lookup,
-    grant_put,
-    grant_revoke,
-    grant_scope_match,
-    handoff_create,
-    handoff_resolve,
-)
 from veya.oprim.audit_chain import (
     CHAIN_FIELDS,
     GENESIS_HASH,
     chain_head,
     compute_event_hash,
     verify_chain_links,
+)
+from veya.oprim.cli_hub import (
+    CLIHubUnsupportedError,
+    install_cli_on_runner,
+    invoke_cli,
+    read_cli_skill,
+    search_cli,
 )
 from veya.oprim.daemon import daemon_bind, daemon_pause, daemon_resume, daemon_status
 from veya.oprim.event import emit_event
@@ -80,6 +79,21 @@ from veya.oprim.hands import (
 )
 from veya.oprim.llm import llm_call, llm_stream
 from veya.oprim.pairing import pairing_code_consume, pairing_code_create
+
+# NANO-W10 (item 4): prompt-cache discipline atoms
+from veya.oprim.prompt_cache import (
+    CACHED_USAGE_KEYS,
+    PROMPT_SECTION_NAMES,
+    cached_token_split,
+    section_digest,
+)
+from veya.oprim.receipt_query import (
+    RECEIPT_FIELDS,
+    RECEIPT_SOURCES,
+    normalize_query,
+    normalize_receipt,
+    receipt_uri,
+)
 from veya.oprim.runner_ops import (
     RunnerOpsError,
     runner_self_update_check,
@@ -90,20 +104,6 @@ from veya.oprim.runner_ops import (
     runner_service_install,
     runner_service_status,
     runner_service_uninstall,
-)
-from veya.oprim.receipt_query import (
-    RECEIPT_FIELDS,
-    RECEIPT_SOURCES,
-    normalize_query,
-    normalize_receipt,
-    receipt_uri,
-)
-# NANO-W10 (item 4): prompt-cache discipline atoms
-from veya.oprim.prompt_cache import (
-    CACHED_USAGE_KEYS,
-    PROMPT_SECTION_NAMES,
-    cached_token_split,
-    section_digest,
 )
 from veya.oprim.shell import shell_exec, shell_exec_args, shell_run_script
 from veya.oprim.snapshot import snapshot_commit, snapshot_delete, snapshot_fetch, snapshot_list

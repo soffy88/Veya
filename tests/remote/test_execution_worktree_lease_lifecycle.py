@@ -246,7 +246,7 @@ async def test_startup_reconciliation_reclaims_interrupted_release(tmp_path: Pat
 async def test_gc_is_idempotent(tmp_path: Path) -> None:
     root = _repo(tmp_path)
     manager = _manager(tmp_path)
-    exec_id, worktree = await _execution_with_worktree(manager, root, parent_execution_id=None)
+    exec_id, _worktree = await _execution_with_worktree(manager, root, parent_execution_id=None)
     _terminalize_without_release(manager, exec_id, ExecutionStatus.COMPLETED)
 
     first = manager.reconcile_worktrees()

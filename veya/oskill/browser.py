@@ -373,10 +373,7 @@ class BrowserSession:
             "screenshot": True,
         }
         a11y_first = os.environ.get("VEYA_A11Y_FIRST", "").lower() in ("1", "true", "yes", "on")
-        if a11y_first:
-            plan = plan_observation(available)
-        else:
-            plan = screenshot_first_plan(available)
+        plan = plan_observation(available) if a11y_first else screenshot_first_plan(available)
 
         screenshot_b64 = ""
         if plan.tier == "screenshot" or not a11y_first:

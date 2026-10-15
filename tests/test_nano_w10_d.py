@@ -209,7 +209,6 @@ def test_capture_desktop_a11y_returns_valid_structure() -> None:
 # ===========================================================================
 
 
-
 def test_dom_reader_flag_defaults_off() -> None:
     """Flag VEYA_DOM_READER must default to False."""
     assert feature_flags.enabled("VEYA_DOM_READER") is False
@@ -353,7 +352,6 @@ def test_read_browser_registered_in_master_tools() -> None:
 # ===========================================================================
 
 
-
 def test_search_ladder_default_order() -> None:
     """Search order must be configured_provider -> model_native -> duckduckgo -> bing."""
     assert DEFAULT_SEARCH_BACKENDS == (
@@ -449,7 +447,9 @@ async def test_run_search_ladder_adapter_fallback() -> None:
         "veya.obase.search_adapters.execute_search_backend",
         side_effect=[
             [],  # configured_provider fails
-            [{"url": "https://bing.com/hit", "title": "Hit", "snippet": "Text"}],  # model_native succeeds
+            [
+                {"url": "https://bing.com/hit", "title": "Hit", "snippet": "Text"}
+            ],  # model_native succeeds
         ],
     ):
         winning_backend, hits, text = await run_search_ladder_adapter(
@@ -478,7 +478,6 @@ async def test_run_search_ladder_adapter_all_failed() -> None:
 # ===========================================================================
 # 4. ADDENDUM V: Channel ladder for web reading
 # ===========================================================================
-
 
 
 def test_channel_ladder_flag_defaults_off() -> None:
@@ -626,7 +625,10 @@ async def test_tool_read_channel_with_provenance() -> None:
     """read_channel marks output with firewall provenance."""
     with (
         patch("server.feature_flags.enabled", return_value=True),
-        patch("server.channel_tools.probe_channel", return_value={"status": "ok", "active_backend": "test_mock"}),
+        patch(
+            "server.channel_tools.probe_channel",
+            return_value={"status": "ok", "active_backend": "test_mock"},
+        ),
     ):
         res = await tool_read_channel("web", "https://example.com/data")
         assert "EXTERNAL DATA" in res

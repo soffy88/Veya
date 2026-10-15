@@ -16,6 +16,7 @@ runs a subset.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import http.client
 import json
 import sys
@@ -66,7 +67,7 @@ def wait_healthy(base: str, timeout: float = 240) -> bool:
             with urllib.request.urlopen(base.rstrip("/") + "/health", timeout=5) as resp:
                 if resp.status == 200:
                     return True
-        except Exception:  # noqa: BLE001 - still restarting
+        except Exception:
             pass
         time.sleep(3)
     return False
@@ -102,7 +103,7 @@ class Client:
         for attempt in range(3):
             try:
                 return self._login(username)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if attempt == 2 or not _is_infra(exc):
                     raise
                 wait_healthy(self.base)
@@ -149,10 +150,8 @@ class Client:
 
     def cleanup(self) -> None:
         for bot_id in self.bots:
-            try:
+            with contextlib.suppress(Exception):
                 self.call("DELETE", f"/api/v1/bots/{bot_id}")
-            except Exception:
-                pass
 
 
 def _text(msg: dict[str, Any]) -> str:
@@ -202,7 +201,7 @@ def s3(a: Client, b: Client) -> str:
     def send(i: int) -> None:
         try:
             results[i] = a.say(bot, texts[i])
-        except BaseException as exc:  # noqa: BLE001 - re-raised below
+        except BaseException as exc:
             errors.append(exc)
 
     threads = []
@@ -487,7 +486,7 @@ def main() -> int:
             try:
                 try:
                     detail = SCENARIOS[name](a, b)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     if not _is_infra(exc):
                         raise
                     # The backend restarted under us (another deploy).  That
@@ -501,7 +500,7 @@ def main() -> int:
                     detail += f" [re-run after backend restart: {type(exc).__name__}]"
                 extra = f" {_deepeval_line(name, {'reply': detail})}" if args.deepeval else ""
                 print(f"PASS {name} ({time.time() - t0:.0f}s) {detail}{extra}", flush=True)
-            except Exception as exc:  # noqa: BLE001 - report every scenario
+            except Exception as exc:
                 failed.append(name)
                 print(
                     f"FAIL {name} ({time.time() - t0:.0f}s) {type(exc).__name__}: {str(exc)[:300]}",

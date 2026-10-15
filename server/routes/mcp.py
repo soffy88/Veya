@@ -22,10 +22,9 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-
-from server import auth as auth_mod
 from pydantic import BaseModel, Field
 
+from server import auth as auth_mod
 from server.tool_governance_adapter import default_veya_output_root
 from veya.platform import load
 

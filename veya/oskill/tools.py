@@ -634,9 +634,7 @@ class FileSystemTool(SmartTool):
                     return False
             except (OSError, RuntimeError):
                 continue
-        if rp.name in {".bashrc", ".bash_profile", ".profile", ".zshrc", ".netrc"}:
-            return False
-        return True
+        return rp.name not in {".bashrc", ".bash_profile", ".profile", ".zshrc", ".netrc"}
 
     def _read_file(self, path: str) -> dict[str, str]:
         """读取文件"""

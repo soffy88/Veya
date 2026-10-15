@@ -22,15 +22,15 @@ def _inject_test_owner_for_direct_route_calls(monkeypatch):
     """Direct unit calls bypass FastAPI dependencies, so explicitly inject the test owner."""
     for name in ("mcp_connect_route", "mcp_call_route", "list_mcp_servers"):
         original = getattr(mcp, name)
-        if name == "mcp_connect_route":
-            async def wrapped(req, user=_AUTH_OWNER, _original=original):
-                return await _original(req, user=user)
-        elif name == "mcp_call_route":
+        if name == "mcp_connect_route" or name == "mcp_call_route":
+
             async def wrapped(req, user=_AUTH_OWNER, _original=original):
                 return await _original(req, user=user)
         else:
+
             async def wrapped(user=_AUTH_OWNER, _original=original):
                 return await _original(user=user)
+
         monkeypatch.setattr(mcp, name, wrapped)
 
 

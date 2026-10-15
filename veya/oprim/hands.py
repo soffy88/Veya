@@ -11,6 +11,7 @@ Flag: VEYA_HANDS (default OFF). Capability detection at import time.
 from __future__ import annotations
 
 import base64
+import contextlib
 import os
 import platform
 import shutil
@@ -76,10 +77,7 @@ except ImportError:
 def _check_hands_enabled() -> None:
     """Verify VEYA_HANDS flag is enabled."""
     if os.environ.get("VEYA_HANDS", "").strip().lower() not in ("1", "true", "yes", "on"):
-        raise HandsUnsupportedError(
-            "init",
-            "VEYA_HANDS flag not set (set VEYA_HANDS=1 to enable)"
-        )
+        raise HandsUnsupportedError("init", "VEYA_HANDS flag not set (set VEYA_HANDS=1 to enable)")
 
 
 def _check_linux_x11() -> None:
@@ -94,8 +92,7 @@ def _check_linux_x11() -> None:
     """
     if _SYSTEM != "linux":
         raise HandsUnsupportedError(
-            "platform",
-            f"hands only implemented for Linux X11 (current: {platform.system()})"
+            "platform", f"hands only implemented for Linux X11 (current: {platform.system()})"
         )
 
 
@@ -148,17 +145,16 @@ def _run_subprocess(
         )
     except subprocess.TimeoutExpired as exc:
         raise HandsUnsupportedError(
-            "subprocess",
-            f"command timed out after {timeout}s: {' '.join(cmd)}"
+            "subprocess", f"command timed out after {timeout}s: {' '.join(cmd)}"
         ) from exc
     except OSError as exc:
         raise HandsUnsupportedError(
-            "subprocess",
-            f"failed to execute {' '.join(cmd)}: {exc}"
+            "subprocess", f"failed to execute {' '.join(cmd)}: {exc}"
         ) from exc
 
 
 # ── Oprims ──────────────────────────────────────────────────────────────
+
 
 def _default_capture_path() -> str:
     """A per-process screenshot path in the system temp directory."""
@@ -239,21 +235,14 @@ def hands_screenshot(
 
     result = _run_subprocess(cmd, env=_display_env(display))
     if result.returncode != 0:
-        raise HandsUnsupportedError(
-            "screenshot",
-            f"scrot failed: {result.stderr.strip()}"
-        )
+        raise HandsUnsupportedError("screenshot", f"scrot failed: {result.stderr.strip()}")
 
     # Get dimensions via xdotool
-    dim_result = _run_subprocess(
-        ["xdotool", "getdisplaygeometry"], env=_display_env(display)
-    )
+    dim_result = _run_subprocess(["xdotool", "getdisplaygeometry"], env=_display_env(display))
     width, height = 0, 0
     if dim_result.returncode == 0:
-        try:
+        with contextlib.suppress(ValueError):
             width, height = map(int, dim_result.stdout.strip().split())
-        except ValueError:
-            pass
 
     return {
         "path": output_path,
@@ -277,7 +266,6 @@ def hands_list_windows(*, display: str | None = None) -> dict[str, Any]:
     _check_hands_enabled()
     _check_linux_x11()
 
-
     env = _display_env(display)
 
     # Get window list with geometry from xdotool
@@ -288,8 +276,7 @@ def hands_list_windows(*, display: str | None = None) -> dict[str, Any]:
     )
     if result.returncode != 0:
         raise HandsUnsupportedError(
-            "list_windows",
-            f"xdotool search failed: {result.stderr.strip()}"
+            "list_windows", f"xdotool search failed: {result.stderr.strip()}"
         )
 
     window_ids = result.stdout.strip().split()
@@ -301,9 +288,7 @@ def hands_list_windows(*, display: str | None = None) -> dict[str, Any]:
         title = title_result.stdout.strip() if title_result.returncode == 0 else ""
 
         # Get window geometry
-        geom_result = _run_subprocess(
-            ["xdotool", "getwindowgeometry", "--shell", wid], env=env
-        )
+        geom_result = _run_subprocess(["xdotool", "getwindowgeometry", "--shell", wid], env=env)
         geometry = {"x": 0, "y": 0, "width": 0, "height": 0}
         if geom_result.returncode == 0:
             for line in geom_result.stdout.strip().splitlines():
@@ -316,17 +301,17 @@ def hands_list_windows(*, display: str | None = None) -> dict[str, Any]:
         pid_result = _run_subprocess(["xdotool", "getwindowpid", wid], env=env)
         pid = 0
         if pid_result.returncode == 0:
-            try:
+            with contextlib.suppress(ValueError):
                 pid = int(pid_result.stdout.strip())
-            except ValueError:
-                pass
 
-        windows.append({
-            "id": wid,
-            "title": title,
-            "pid": pid,
-            "geometry": geometry,
-        })
+        windows.append(
+            {
+                "id": wid,
+                "title": title,
+                "pid": pid,
+                "geometry": geometry,
+            }
+        )
 
     return {"windows": windows}
 
@@ -353,7 +338,6 @@ def hands_click(
     _check_hands_enabled()
     _check_linux_x11()
 
-
     env = _display_env(display)
 
     # Move mouse and click
@@ -361,10 +345,7 @@ def hands_click(
         ["xdotool", "mousemove", str(x), str(y), "click", str(button)], env=env
     )
     if result.returncode != 0:
-        raise HandsUnsupportedError(
-            "click",
-            f"xdotool click failed: {result.stderr.strip()}"
-        )
+        raise HandsUnsupportedError("click", f"xdotool click failed: {result.stderr.strip()}")
 
     return {"success": True, "x": x, "y": y, "button": button}
 
@@ -389,7 +370,6 @@ def hands_type(
     _check_hands_enabled()
     _check_linux_x11()
 
-
     env = _display_env(display)
 
     # xdotool type doesn't support delay directly, use --delay
@@ -400,10 +380,7 @@ def hands_type(
 
     result = _run_subprocess(cmd, env=env)
     if result.returncode != 0:
-        raise HandsUnsupportedError(
-            "type",
-            f"xdotool type failed: {result.stderr.strip()}"
-        )
+        raise HandsUnsupportedError("type", f"xdotool type failed: {result.stderr.strip()}")
 
     return {"success": True, "chars_typed": len(text)}
 
@@ -426,15 +403,11 @@ def hands_key(
     _check_hands_enabled()
     _check_linux_x11()
 
-
     env = _display_env(display)
 
     result = _run_subprocess(["xdotool", "key", key_sequence], env=env)
     if result.returncode != 0:
-        raise HandsUnsupportedError(
-            "key",
-            f"xdotool key failed: {result.stderr.strip()}"
-        )
+        raise HandsUnsupportedError("key", f"xdotool key failed: {result.stderr.strip()}")
 
     return {"success": True, "key_sequence": key_sequence}
 
@@ -459,7 +432,6 @@ def hands_scroll(
     _check_hands_enabled()
     _check_linux_x11()
 
-
     env = _display_env(display)
 
     # xdotool uses button 4 for up, 5 for down
@@ -467,10 +439,7 @@ def hands_scroll(
     for _ in range(amount):
         result = _run_subprocess(["xdotool", "click", button], env=env)
         if result.returncode != 0:
-            raise HandsUnsupportedError(
-                "scroll",
-                f"xdotool scroll failed: {result.stderr.strip()}"
-            )
+            raise HandsUnsupportedError("scroll", f"xdotool scroll failed: {result.stderr.strip()}")
 
     return {"success": True, "direction": direction, "amount": amount}
 
@@ -493,14 +462,12 @@ def hands_focus_window(
     _check_hands_enabled()
     _check_linux_x11()
 
-
     env = _display_env(display)
 
     result = _run_subprocess(["xdotool", "windowactivate", window_id], env=env)
     if result.returncode != 0:
         raise HandsUnsupportedError(
-            "focus_window",
-            f"xdotool windowactivate failed: {result.stderr.strip()}"
+            "focus_window", f"xdotool windowactivate failed: {result.stderr.strip()}"
         )
 
     return {"success": True, "window_id": window_id}
@@ -538,12 +505,7 @@ def hands_capabilities() -> dict[str, Any]:
             "pynput": _HAS_PYNPUT,
         },
         "operations": operations,
-        "usable": bool(
-            enabled
-            and _SYSTEM == "linux"
-            and display
-            and any(operations.values())
-        ),
+        "usable": bool(enabled and _SYSTEM == "linux" and display and any(operations.values())),
     }
 
 

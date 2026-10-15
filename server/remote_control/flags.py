@@ -36,9 +36,7 @@ def require_enabled() -> None:
     """Raise unless the flag is on. Used by routes, tools and stores alike."""
 
     if not enabled():
-        raise RuntimeError(
-            f"remote control is disabled; set {FLAG_NAME}=1 to enable"
-        )
+        raise RuntimeError(f"remote control is disabled; set {FLAG_NAME}=1 to enable")
 
 
 #: W17 SSH host execution backend (registered in ``server/feature_flags.py``,

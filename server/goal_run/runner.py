@@ -1210,11 +1210,7 @@ async def project_run_goal(
         if state is None:
             # 若目标不存在，则视为新 run
             state = None
-        elif (
-            not state.tasks
-            and state.started_at is None
-            and not state.is_terminal()
-        ):
+        elif not state.tasks and state.started_at is None and not state.is_terminal():
             # A pre-registered shell (W12 supervise_task records the GoalRun
             # before it is dispatched): there is no task graph to resume, so
             # plan it now under the id the supervisor binding already holds.

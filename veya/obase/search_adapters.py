@@ -70,12 +70,14 @@ async def search_configured_provider(
                     data = res.json()
                     hits = []
                     for r in data.get("results", []):
-                        hits.append({
-                            "url": r.get("url", ""),
-                            "title": r.get("title", ""),
-                            "snippet": r.get("content", ""),
-                            "backend": "configured_provider",
-                        })
+                        hits.append(
+                            {
+                                "url": r.get("url", ""),
+                                "title": r.get("title", ""),
+                                "snippet": r.get("content", ""),
+                                "backend": "configured_provider",
+                            }
+                        )
                     return [h for h in hits if h["url"]]
         except Exception as exc:
             _log.debug("configured_provider search failed: %s", exc)
@@ -151,12 +153,14 @@ async def search_duckduckgo(
 
                 clean_title = re.sub(r"<[^>]+>", "", raw_title).strip()
                 if target.startswith("http"):
-                    hits.append({
-                        "url": target,
-                        "title": clean_title,
-                        "snippet": "",
-                        "backend": "duckduckgo",
-                    })
+                    hits.append(
+                        {
+                            "url": target,
+                            "title": clean_title,
+                            "snippet": "",
+                            "backend": "duckduckgo",
+                        }
+                    )
             return hits
     except Exception as exc:
         _log.debug("duckduckgo search failed: %s", exc)
@@ -192,12 +196,14 @@ async def search_bing(
             )
             for target, raw_title in matches[:5]:
                 clean_title = re.sub(r"<[^>]+>", "", raw_title).strip()
-                hits.append({
-                    "url": target,
-                    "title": clean_title,
-                    "snippet": "",
-                    "backend": "bing",
-                })
+                hits.append(
+                    {
+                        "url": target,
+                        "title": clean_title,
+                        "snippet": "",
+                        "backend": "bing",
+                    }
+                )
             return hits
     except Exception as exc:
         _log.debug("bing search failed: %s", exc)

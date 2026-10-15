@@ -1,4 +1,5 @@
 """Durable, idempotent execution checkpoints."""
+
 from __future__ import annotations
 
 import hashlib
@@ -38,9 +39,13 @@ class DurableExecutionCheckpoint:
         data.pop("content_hash", None)
         return data
 
-    def with_content_hash(self) -> "DurableExecutionCheckpoint":
-        payload = json.dumps(self.canonical_payload(), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        return DurableExecutionCheckpoint(**{**asdict(self), "content_hash": hashlib.sha256(payload.encode()).hexdigest()})
+    def with_content_hash(self) -> DurableExecutionCheckpoint:
+        payload = json.dumps(
+            self.canonical_payload(), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        return DurableExecutionCheckpoint(
+            **{**asdict(self), "content_hash": hashlib.sha256(payload.encode()).hexdigest()}
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -69,7 +74,11 @@ class ExecutionCheckpointStore:
         return ExecutionCheckpoint(**value)
 
     def write_durable(self, checkpoint: DurableExecutionCheckpoint) -> Path:
-        if not checkpoint.checkpoint_id or not checkpoint.goal_run_id or not checkpoint.execution_id:
+        if (
+            not checkpoint.checkpoint_id
+            or not checkpoint.goal_run_id
+            or not checkpoint.execution_id
+        ):
             raise CheckpointError("checkpoint_id, goal_run_id and execution_id are required")
         normalized = checkpoint.with_content_hash()
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -78,7 +87,9 @@ class ExecutionCheckpointStore:
             existing = self._read_durable_path(target)
             if existing == normalized:
                 return target
-            raise CheckpointError(f"checkpoint_id already exists with different content: {normalized.checkpoint_id}")
+            raise CheckpointError(
+                f"checkpoint_id already exists with different content: {normalized.checkpoint_id}"
+            )
         self._atomic_write(target, normalized.to_dict())
         latest = self.directory / "latest.json"
         self._atomic_write(latest, normalized.to_dict())

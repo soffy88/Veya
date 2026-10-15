@@ -3,6 +3,7 @@
 The receiver is opt-in and binds only to an address returned by Tailscale.
 Message bodies are untrusted channel input; this module never executes them.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,16 +34,16 @@ from veya.oprim.fs import (
     local_fsync,
     local_path_chmod,
     local_path_exists,
-    local_path_is_symlink,
-    local_path_is_file,
     local_path_is_dir,
-    local_path_rglob,
-    local_path_rmdir,
-    local_path_read_bytes,
+    local_path_is_file,
+    local_path_is_symlink,
     local_path_mkdir,
     local_path_open,
+    local_path_read_bytes,
     local_path_replace,
     local_path_resolve,
+    local_path_rglob,
+    local_path_rmdir,
     local_path_size,
     local_path_unlink,
     local_read_bytes_limited,
@@ -66,7 +67,17 @@ WAKE_ORDER = ("none", "batch", "now")
 REQUEST_STATES = {"received", "running", "completed", "failed", "rejected", "blocked", "timed_out"}
 REQUEST_FINAL = {"completed", "failed", "rejected", "blocked"}
 ENVELOPE_REQUIRED = {"v", "id", "from", "to", "ts"}
-ENVELOPE_ALLOWED = ENVELOPE_REQUIRED | {"kind", "text", "reply_to", "fetch", "wake", "agent", "from_agent", "request", "response"}
+ENVELOPE_ALLOWED = ENVELOPE_REQUIRED | {
+    "kind",
+    "text",
+    "reply_to",
+    "fetch",
+    "wake",
+    "agent",
+    "from_agent",
+    "request",
+    "response",
+}
 
 
 def enabled(value: str | None = None) -> bool:
@@ -115,7 +126,7 @@ def _split_url(value: str) -> _URLParts:
     match = re.match(r"^([A-Za-z][A-Za-z0-9+.-]*):", rest)
     if match:
         scheme = match.group(1).lower()
-        rest = rest[match.end():]
+        rest = rest[match.end() :]
     netloc = ""
     if rest.startswith("//"):
         authority_and_path = rest[2:]
@@ -139,7 +150,7 @@ def _split_url(value: str) -> _URLParts:
             hostname = None
         else:
             hostname = hostport[1:closing].lower()
-            suffix = hostport[closing + 1:]
+            suffix = hostport[closing + 1 :]
             if suffix.startswith(":"):
                 port_text = suffix[1:]
             elif suffix:
@@ -151,7 +162,17 @@ def _split_url(value: str) -> _URLParts:
         hostname = None
     else:
         hostname = hostport.lower() or None
-    return _URLParts(scheme, netloc, path, query if query_sep else "", fragment, username, password, hostname, port_text)
+    return _URLParts(
+        scheme,
+        netloc,
+        path,
+        query if query_sep else "",
+        fragment,
+        username,
+        password,
+        hostname,
+        port_text,
+    )
 
 
 def _url_port(parts: _URLParts) -> int | None:
@@ -179,8 +200,12 @@ def _url_unquote(value: str) -> str:
     index = 0
     while index < len(value):
         char = value[index]
-        if char == "%" and index + 2 < len(value) and re.fullmatch(r"[0-9A-Fa-f]{2}", value[index + 1:index + 3]):
-            decoded.append(int(value[index + 1:index + 3], 16))
+        if (
+            char == "%"
+            and index + 2 < len(value)
+            and re.fullmatch(r"[0-9A-Fa-f]{2}", value[index + 1 : index + 3])
+        ):
+            decoded.append(int(value[index + 1 : index + 3], 16))
             index += 3
         else:
             decoded.extend(char.encode("utf-8"))
@@ -211,7 +236,12 @@ def validate_envelope(env: Any) -> str | None:
         return "invalid message id"
     for field in ("from", "to"):
         value = env.get(field)
-        if not isinstance(value, str) or not value or len(value) > 253 or any(ord(c) < 32 for c in value):
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > 253
+            or any(ord(c) < 32 for c in value)
+        ):
             return f"invalid {field} host"
     try:
         parse_utc(env.get("ts"))
@@ -229,27 +259,53 @@ def validate_envelope(env: Any) -> str | None:
     for field in ("agent", "from_agent"):
         if field in env:
             name = env[field]
-            if not isinstance(name, str) or not name or len(name) > 64 or name.strip() != name or "/" in name or any(unicodedata.category(c).startswith("C") for c in name):
+            if (
+                not isinstance(name, str)
+                or not name
+                or len(name) > 64
+                or name.strip() != name
+                or "/" in name
+                or any(unicodedata.category(c).startswith("C") for c in name)
+            ):
                 return f"invalid {field}"
             env[field] = unicodedata.normalize("NFC", name)
-    if "reply_to" in env and (not isinstance(env["reply_to"], str) or not ID_RE.fullmatch(env["reply_to"])):
+    if "reply_to" in env and (
+        not isinstance(env["reply_to"], str) or not ID_RE.fullmatch(env["reply_to"])
+    ):
         return "invalid reply_to"
     fetch = env.get("fetch", [])
     if not isinstance(fetch, list) or len(fetch) > 100:
         return "invalid fetch list"
     sender = normalize_host(env["from"])
     for item in fetch:
-        if not isinstance(item, dict) or set(item) - {"name", "url", "sha256", "size", "mime", "expires"} or not {"url", "sha256", "size"} <= set(item):
+        if (
+            not isinstance(item, dict)
+            or set(item) - {"name", "url", "sha256", "size", "mime", "expires"}
+            or not {"url", "sha256", "size"} <= set(item)
+        ):
             return "invalid fetch item"
         if not isinstance(item["size"], int) or isinstance(item["size"], bool) or item["size"] < 0:
             return "invalid fetch size"
         if not isinstance(item["sha256"], str) or not SHA256_RE.fullmatch(item["sha256"]):
             return "invalid fetch hash"
         url = _split_url(str(item["url"]))
-        if url.scheme != "http" or normalize_host(url.hostname or "") != sender or not url.path.startswith("/f/") or url.username or url.password:
+        if (
+            url.scheme != "http"
+            or normalize_host(url.hostname or "") != sender
+            or not url.path.startswith("/f/")
+            or url.username
+            or url.password
+        ):
             return "fetch URL must be on the authenticated sender host"
         name = item.get("name", "attachment")
-        if not isinstance(name, str) or not name or name in {".", ".."} or "/" in name or "\\" in name or any(ord(c) < 32 for c in name):
+        if (
+            not isinstance(name, str)
+            or not name
+            or name in {".", ".."}
+            or "/" in name
+            or "\\" in name
+            or any(ord(c) < 32 for c in name)
+        ):
             return "invalid attachment name"
         if "expires" in item:
             try:
@@ -258,7 +314,11 @@ def validate_envelope(env: Any) -> str | None:
                 return "invalid attachment expiry"
     if "request" in env:
         req = env["request"]
-        if not isinstance(req, dict) or set(req) - {"timeout_seconds", "reply_port"} or not {"timeout_seconds", "reply_port"} <= set(req):
+        if (
+            not isinstance(req, dict)
+            or set(req) - {"timeout_seconds", "reply_port"}
+            or not {"timeout_seconds", "reply_port"} <= set(req)
+        ):
             return "invalid request metadata"
         timeout = req["timeout_seconds"]
         port = req["reply_port"]
@@ -274,9 +334,21 @@ def validate_envelope(env: Any) -> str | None:
             return "request deadline outside supported timestamp range"
     if "response" in env:
         response = env["response"]
-        if not isinstance(response, dict) or set(response) != {"state", "seq"} or not isinstance(response.get("state"), str) or response["state"] not in REQUEST_STATES or not isinstance(response.get("seq"), int) or isinstance(response.get("seq"), bool) or not 1 <= response["seq"] <= 9223372036854775807:
+        if (
+            not isinstance(response, dict)
+            or set(response) != {"state", "seq"}
+            or not isinstance(response.get("state"), str)
+            or response["state"] not in REQUEST_STATES
+            or not isinstance(response.get("seq"), int)
+            or isinstance(response.get("seq"), bool)
+            or not 1 <= response["seq"] <= 9223372036854775807
+        ):
             return "invalid response metadata"
-        expected = "request-result" if response["state"] in REQUEST_FINAL | {"timed_out"} else "request-receipt"
+        expected = (
+            "request-result"
+            if response["state"] in REQUEST_FINAL | {"timed_out"}
+            else "request-receipt"
+        )
         if kind != expected or "reply_to" not in env or wake != "none":
             return "response kind, correlation, or wake is invalid"
     elif kind in {"request-receipt", "request-result"}:
@@ -286,7 +358,9 @@ def validate_envelope(env: Any) -> str | None:
 
 def _atomic_json(path: Path, data: Mapping[str, Any]) -> None:
     temp = path.with_name(path.name + "." + secrets.token_hex(6) + ".tmp")
-    payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
     local_atomic_write(path, temp, payload, parent_mode=0o700, file_mode=0o600)
 
 
@@ -329,11 +403,26 @@ def _parse_whois_identity(raw: Any) -> dict[str, Any] | None:
     hostname = normalize_host(node.get("HostName") or node_name)
     tags = node.get("Tags") or []
     profile = raw.get("UserProfile") or raw.get("User") or {}
-    user = str(profile.get("LoginName") or profile.get("DisplayName") or "") if isinstance(profile, dict) else ""
-    aliases = {node_name, hostname, normalize_host(node.get("Name")), normalize_host(node.get("DNSName"))} - {""}
+    user = (
+        str(profile.get("LoginName") or profile.get("DisplayName") or "")
+        if isinstance(profile, dict)
+        else ""
+    )
+    aliases = {
+        node_name,
+        hostname,
+        normalize_host(node.get("Name")),
+        normalize_host(node.get("DNSName")),
+    } - {""}
     if not node_name:
         return None
-    return {"node": node_name, "hostname": hostname, "aliases": sorted(aliases), "tags": [str(t).lower() for t in tags if isinstance(t, str)], "user": user}
+    return {
+        "node": node_name,
+        "hostname": hostname,
+        "aliases": sorted(aliases),
+        "tags": [str(t).lower() for t in tags if isinstance(t, str)],
+        "user": user,
+    }
 
 
 def _whois(ip: str, command: str = "tailscale") -> dict[str, Any] | None:
@@ -375,10 +464,14 @@ def _identity_matches(rule: str, ident: Mapping[str, Any]) -> bool:
         return wanted in {str(tag).lower().removeprefix("tag:") for tag in ident.get("tags", [])}
     if low.startswith("user:"):
         return normalize_host(str(ident.get("user", ""))) == normalize_host(rule[5:])
-    return normalize_host(rule) in {normalize_host(x) for x in ident.get("aliases", [])} or normalize_host(rule) == normalize_host(str(ident.get("node", "")))
+    return normalize_host(rule) in {
+        normalize_host(x) for x in ident.get("aliases", [])
+    } or normalize_host(rule) == normalize_host(str(ident.get("node", "")))
 
 
-def authorize_peer(ident: Mapping[str, Any] | None, policy: Mapping[str, Any], *, recipient_token: bool = False) -> tuple[bool, str]:
+def authorize_peer(
+    ident: Mapping[str, Any] | None, policy: Mapping[str, Any], *, recipient_token: bool = False
+) -> tuple[bool, str]:
     if not ident or not normalize_host(str(ident.get("node", ""))):
         return False, "unknown_peer"
     deny = policy.get("deny", []) if isinstance(policy.get("deny", []), list) else []
@@ -397,16 +490,38 @@ def authorize_peer(ident: Mapping[str, Any] | None, policy: Mapping[str, Any], *
 
 class TailnetService:
     """Protocol handler and local policy façade. Inbox JSON is protocol storage; tracked execution remains in the existing bot/GoalRun path."""
-    def __init__(self, home: str | Path | None = None, *, tailscale_command: str = "tailscale", whois_fn: Callable[[str], dict[str, Any] | None] | None = None, allow_loopback: bool = False, port: int | None = None, peer_port: int | None = None):
-        self.home = local_path_resolve(Path(home or os.getenv("VEYA_TAILNET_HOME") or (Path.home() / ".veya" / "tailnet-channel")).expanduser())
+
+    def __init__(
+        self,
+        home: str | Path | None = None,
+        *,
+        tailscale_command: str = "tailscale",
+        whois_fn: Callable[[str], dict[str, Any] | None] | None = None,
+        allow_loopback: bool = False,
+        port: int | None = None,
+        peer_port: int | None = None,
+    ):
+        self.home = local_path_resolve(
+            Path(
+                home
+                or os.getenv("VEYA_TAILNET_HOME")
+                or (Path.home() / ".veya" / "tailnet-channel")
+            ).expanduser()
+        )
         self.inbox = self.home / "inbox"
         self.outbox = self.home / "outbox"
         self.policy_file = self.home / "policy.json"
         self.tailscale_command = tailscale_command
         self.whois_fn = whois_fn or (lambda ip: _whois(ip, self.tailscale_command))
         self.allow_loopback = allow_loopback
-        self.port = port if port is not None else int(os.getenv("VEYA_TAILNET_PORT", str(DEFAULT_PORT)))
-        self.peer_port = peer_port if peer_port is not None else int(os.getenv("VEYA_TAILNET_PEER_PORT", str(DEFAULT_PEER_PORT)))
+        self.port = (
+            port if port is not None else int(os.getenv("VEYA_TAILNET_PORT", str(DEFAULT_PORT)))
+        )
+        self.peer_port = (
+            peer_port
+            if peer_port is not None
+            else int(os.getenv("VEYA_TAILNET_PEER_PORT", str(DEFAULT_PEER_PORT)))
+        )
         if not 1 <= self.port <= 65535 or not 1 <= self.peer_port <= 65535:
             raise ValueError("Tailnet receiver and peer ports must be within 1..65535")
         self._lock = threading.RLock()
@@ -418,7 +533,19 @@ class TailnetService:
     def load_policy(self) -> dict[str, Any]:
         raw = _json_read(self.policy_file, limit=1024 * 1024)
         # Fresh policy admits only the owner login; deny rules still win. Existing saved policy is not rewritten.
-        default = {"mode": "allowlist", "allow": ["user:soffy88@gmail.com"], "deny": [], "bindings": {}, "wake_policy": {"default_max": "batch", "peers": {}}, "quiet_hours": None, "wake_rate": 6, "agents": {}, "max_message_bytes": MAX_MESSAGE_BYTES, "max_attachment_bytes": DEFAULT_MAX_ATTACHMENT_BYTES, "attachment_ttl_seconds": DEFAULT_TTL_SECONDS}
+        default = {
+            "mode": "allowlist",
+            "allow": ["user:soffy88@gmail.com"],
+            "deny": [],
+            "bindings": {},
+            "wake_policy": {"default_max": "batch", "peers": {}},
+            "quiet_hours": None,
+            "wake_rate": 6,
+            "agents": {},
+            "max_message_bytes": MAX_MESSAGE_BYTES,
+            "max_attachment_bytes": DEFAULT_MAX_ATTACHMENT_BYTES,
+            "attachment_ttl_seconds": DEFAULT_TTL_SECONDS,
+        }
         if not raw:
             return default
         for key in ("allow", "deny"):
@@ -433,21 +560,42 @@ class TailnetService:
         peers = wake.get("peers", {})
         if cap not in WAKE_LEVELS:
             cap = "batch"
-        if not isinstance(peers, dict) or len(peers) > 500 or any(not isinstance(k, str) or not k.strip() or not isinstance(v, str) or v not in WAKE_LEVELS for k, v in peers.items()):
+        if (
+            not isinstance(peers, dict)
+            or len(peers) > 500
+            or any(
+                not isinstance(k, str)
+                or not k.strip()
+                or not isinstance(v, str)
+                or v not in WAKE_LEVELS
+                for k, v in peers.items()
+            )
+        ):
             peers = {}
         raw["wake_policy"] = {"default_max": cap, "peers": peers}
         quiet = raw.get("quiet_hours")
-        if not isinstance(quiet, dict) or not isinstance(quiet.get("start"), str) or not isinstance(quiet.get("end"), str):
+        if (
+            not isinstance(quiet, dict)
+            or not isinstance(quiet.get("start"), str)
+            or not isinstance(quiet.get("end"), str)
+        ):
             raw["quiet_hours"] = None
         if not isinstance(raw.get("agents"), dict) or len(raw.get("agents", {})) > 500:
             raw["agents"] = {}
         if not isinstance(raw.get("wake_rate"), int) or isinstance(raw.get("wake_rate"), bool):
             raw["wake_rate"] = 6
-        raw["wake_rate"] = min(1000, max(0, raw["wake_rate"] ))
+        raw["wake_rate"] = min(1000, max(0, raw["wake_rate"]))
         try:
-            raw["max_message_bytes"] = min(MAX_MESSAGE_BYTES, max(1024, int(raw.get("max_message_bytes", MAX_MESSAGE_BYTES))))
-            raw["max_attachment_bytes"] = min(256 * 1024 * 1024, max(1, int(raw.get("max_attachment_bytes", DEFAULT_MAX_ATTACHMENT_BYTES))))
-            raw["attachment_ttl_seconds"] = min(7 * 24 * 3600, max(60, int(raw.get("attachment_ttl_seconds", DEFAULT_TTL_SECONDS))))
+            raw["max_message_bytes"] = min(
+                MAX_MESSAGE_BYTES, max(1024, int(raw.get("max_message_bytes", MAX_MESSAGE_BYTES)))
+            )
+            raw["max_attachment_bytes"] = min(
+                256 * 1024 * 1024,
+                max(1, int(raw.get("max_attachment_bytes", DEFAULT_MAX_ATTACHMENT_BYTES))),
+            )
+            raw["attachment_ttl_seconds"] = min(
+                7 * 24 * 3600, max(60, int(raw.get("attachment_ttl_seconds", DEFAULT_TTL_SECONDS)))
+            )
         except (TypeError, ValueError):
             raw["max_message_bytes"] = MAX_MESSAGE_BYTES
             raw["max_attachment_bytes"] = DEFAULT_MAX_ATTACHMENT_BYTES
@@ -461,11 +609,21 @@ class TailnetService:
         if mode not in ("allowlist", "tailnet"):
             raise ValueError("mode must be allowlist or tailnet")
         allow, deny = raw.get("allow", []), raw.get("deny", [])
-        if not isinstance(allow, list) or not isinstance(deny, list) or len(allow) > 500 or len(deny) > 500:
+        if (
+            not isinstance(allow, list)
+            or not isinstance(deny, list)
+            or len(allow) > 500
+            or len(deny) > 500
+        ):
             raise ValueError("allow and deny must be lists of at most 500 rules")
         rules: list[str] = []
         for value in [*allow, *deny]:
-            if not isinstance(value, str) or not value.strip() or len(value) > 253 or any(ord(c) < 32 for c in value):
+            if (
+                not isinstance(value, str)
+                or not value.strip()
+                or len(value) > 253
+                or any(ord(c) < 32 for c in value)
+            ):
                 raise ValueError("invalid peer rule")
             rules.append(value.strip())
         bindings = raw.get("bindings", {})
@@ -474,28 +632,57 @@ class TailnetService:
         normalized_bindings: dict[str, dict[str, str]] = {}
         for host, binding in bindings.items():
             host = normalize_host(host)
-            if not host or not isinstance(binding, dict) or binding.get("target_type") not in {"bot", "group"} or not isinstance(binding.get("target_id"), str) or not binding["target_id"].strip():
+            if (
+                not host
+                or not isinstance(binding, dict)
+                or binding.get("target_type") not in {"bot", "group"}
+                or not isinstance(binding.get("target_id"), str)
+                or not binding["target_id"].strip()
+            ):
                 raise ValueError("each binding needs host, target_type bot/group, and target_id")
-            normalized_bindings[host] = {"target_type": binding["target_type"], "target_id": binding["target_id"].strip(), "owner_ref": ""}
+            normalized_bindings[host] = {
+                "target_type": binding["target_type"],
+                "target_id": binding["target_id"].strip(),
+                "owner_ref": "",
+            }
         old = self.load_policy()
         wake_policy = raw.get("wake_policy", old["wake_policy"])
         if not isinstance(wake_policy, dict) or set(wake_policy) - {"default_max", "peers"}:
             raise ValueError("wake_policy must contain default_max and peers")
         wake_cap = wake_policy.get("default_max", "batch")
         peer_caps = wake_policy.get("peers", {})
-        if not isinstance(wake_cap, str) or wake_cap not in WAKE_LEVELS or not isinstance(peer_caps, dict) or len(peer_caps) > 500:
+        if (
+            not isinstance(wake_cap, str)
+            or wake_cap not in WAKE_LEVELS
+            or not isinstance(peer_caps, dict)
+            or len(peer_caps) > 500
+        ):
             raise ValueError("invalid wake_policy")
         normalized_caps: dict[str, str] = {}
         for rule, level in peer_caps.items():
-            if not isinstance(rule, str) or not rule.strip() or len(rule) > 253 or not isinstance(level, str) or level not in WAKE_LEVELS:
-                raise ValueError("wake_policy peer rules require valid names and now/batch/none levels")
+            if (
+                not isinstance(rule, str)
+                or not rule.strip()
+                or len(rule) > 253
+                or not isinstance(level, str)
+                or level not in WAKE_LEVELS
+            ):
+                raise ValueError(
+                    "wake_policy peer rules require valid names and now/batch/none levels"
+                )
             normalized_caps[rule.strip()] = level
         quiet = raw.get("quiet_hours", old["quiet_hours"])
         if quiet is not None:
-            if not isinstance(quiet, dict) or set(quiet) - {"start", "end", "tz"} or not {"start", "end"} <= set(quiet):
+            if (
+                not isinstance(quiet, dict)
+                or set(quiet) - {"start", "end", "tz"}
+                or not {"start", "end"} <= set(quiet)
+            ):
                 raise ValueError("quiet_hours requires start/end and optional tz")
             for key in ("start", "end"):
-                if not isinstance(quiet[key], str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", quiet[key]):
+                if not isinstance(quiet[key], str) or not re.fullmatch(
+                    r"(?:[01]\d|2[0-3]):[0-5]\d", quiet[key]
+                ):
                     raise ValueError("quiet_hours times must be HH:MM")
             if quiet.get("tz"):
                 try:
@@ -503,14 +690,26 @@ class TailnetService:
                 except (zoneinfo.ZoneInfoNotFoundError, TypeError):
                     raise ValueError("quiet_hours tz must be a valid IANA timezone")
         wake_rate = raw.get("wake_rate", old["wake_rate"])
-        if not isinstance(wake_rate, int) or isinstance(wake_rate, bool) or not 0 <= wake_rate <= 1000:
+        if (
+            not isinstance(wake_rate, int)
+            or isinstance(wake_rate, bool)
+            or not 0 <= wake_rate <= 1000
+        ):
             raise ValueError("wake_rate must be an integer from 0 to 1000")
         agents = raw.get("agents", old["agents"])
         if not isinstance(agents, dict) or len(agents) > 500:
             raise ValueError("agents must be an object with at most 500 entries")
         normalized_agents: dict[str, dict[str, str]] = {}
         for name, spec in agents.items():
-            if not isinstance(name, str) or not name or len(name) > 64 or name.strip() != name or "/" in name or not isinstance(spec, dict) or set(spec) - {"wake_max", "target_type", "target_id"}:
+            if (
+                not isinstance(name, str)
+                or not name
+                or len(name) > 64
+                or name.strip() != name
+                or "/" in name
+                or not isinstance(spec, dict)
+                or set(spec) - {"wake_max", "target_type", "target_id"}
+            ):
                 raise ValueError("invalid agent policy")
             if spec.get("wake_max") not in (None, *WAKE_LEVELS):
                 raise ValueError("agent wake_max must be now/batch/none")
@@ -522,7 +721,17 @@ class TailnetService:
             ):
                 raise ValueError("agent target requires target_type bot/group and target_id")
             normalized_agents[name] = entry
-        policy = {**old, "mode": mode, "allow": list(allow), "deny": list(deny), "bindings": normalized_bindings, "wake_policy": {"default_max": wake_cap, "peers": normalized_caps}, "quiet_hours": quiet, "wake_rate": wake_rate, "agents": normalized_agents}
+        policy = {
+            **old,
+            "mode": mode,
+            "allow": list(allow),
+            "deny": list(deny),
+            "bindings": normalized_bindings,
+            "wake_policy": {"default_max": wake_cap, "peers": normalized_caps},
+            "quiet_hours": quiet,
+            "wake_rate": wake_rate,
+            "agents": normalized_agents,
+        }
         _atomic_json(self.policy_file, policy)
         return policy
 
@@ -583,8 +792,20 @@ class TailnetService:
                 continue
             dns = normalize_host(peer.get("DNSName", ""))
             host = normalize_host(peer.get("HostName", ""))
-            ips = [ip for ip in peer.get("TailscaleIPs", []) if isinstance(ip, str) and is_tailnet_ip(ip)]
-            rows.append({"hostname": host, "dns_name": dns, "online": bool(peer.get("Online")), "ips": ips, "tags": [str(t) for t in peer.get("Tags", [])]})
+            ips = [
+                ip
+                for ip in peer.get("TailscaleIPs", [])
+                if isinstance(ip, str) and is_tailnet_ip(ip)
+            ]
+            rows.append(
+                {
+                    "hostname": host,
+                    "dns_name": dns,
+                    "online": bool(peer.get("Online")),
+                    "ips": ips,
+                    "tags": [str(t) for t in peer.get("Tags", [])],
+                }
+            )
         return sorted(rows, key=lambda item: (not item["online"], item["hostname"]))
 
     def resolve_peer(self, address: str) -> tuple[str, str, int, str | None]:
@@ -599,7 +820,7 @@ class TailnetService:
             if closing < 0:
                 raise ValueError("invalid bracketed peer address")
             hostname = hostpart[1:closing]
-            suffix = hostpart[closing + 1:]
+            suffix = hostpart[closing + 1 :]
             if suffix:
                 if not suffix.startswith(":") or not suffix[1:].isdigit():
                     raise ValueError("invalid peer port")
@@ -622,14 +843,21 @@ class TailnetService:
         matches = []
         for peer in self.list_peers():
             dns, short = peer["dns_name"], peer["hostname"]
-            is_match = wanted in (dns, short) or ("." not in wanted and (short == wanted or dns.split(".", 1)[0] == wanted))
+            is_match = wanted in (dns, short) or (
+                "." not in wanted and (short == wanted or dns.split(".", 1)[0] == wanted)
+            )
             if is_match and peer["online"] and peer["ips"]:
                 matches.append(peer)
         if len(matches) != 1:
             if len(matches) > 1:
                 raise ValueError("peer hostname is ambiguous; use the full Tailscale DNS name")
             raise ValueError("peer is not an online Tailscale node")
-        return matches[0]["dns_name"] or matches[0]["hostname"], matches[0]["ips"][0], port, agent.strip() or None if slash else None
+        return (
+            matches[0]["dns_name"] or matches[0]["hostname"],
+            matches[0]["ips"][0],
+            port,
+            agent.strip() or None if slash else None,
+        )
 
     def authorize_outbound_peer(self, recipient: str, ip: str) -> None:
         policy = self.load_policy()
@@ -637,15 +865,35 @@ class TailnetService:
         aliases = {normalize_host(recipient), normalize_host(ip)}
         tags: list[str] = []
         if peer_info:
-            aliases.update({normalize_host(peer_info.get("dns_name", "")), normalize_host(peer_info.get("hostname", ""))})
+            aliases.update(
+                {
+                    normalize_host(peer_info.get("dns_name", "")),
+                    normalize_host(peer_info.get("hostname", "")),
+                }
+            )
             tags = [str(tag).lower() for tag in peer_info.get("tags", [])]
         aliases.discard("")
-        ident = {"node": normalize_host(recipient), "hostname": normalize_host(recipient), "aliases": sorted(aliases), "tags": tags, "user": ""}
+        ident = {
+            "node": normalize_host(recipient),
+            "hostname": normalize_host(recipient),
+            "aliases": sorted(aliases),
+            "tags": tags,
+            "user": "",
+        }
         allowed, reason = authorize_peer(ident, policy)
         if not allowed:
             raise PermissionError(f"outbound Tailnet peer denied by local policy: {reason}")
 
-    def send_json(self, host: str, ip: str, port: int, method: str, path: str, body: dict[str, Any] | None = None, timeout: float = 15) -> tuple[int, dict[str, Any]]:
+    def send_json(
+        self,
+        host: str,
+        ip: str,
+        port: int,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        timeout: float = 15,
+    ) -> tuple[int, dict[str, Any]]:
         conn = http.client.HTTPConnection(ip, port, timeout=timeout)
         headers = {"Host": f"{host}:{port}", "Accept": "application/json"}
         data = None
@@ -665,7 +913,9 @@ class TailnetService:
         finally:
             conn.close()
 
-    def stage_attachments(self, files: list[str | Path], *, recipient: str, message_id: str, node: str, port: int) -> list[dict[str, Any]]:
+    def stage_attachments(
+        self, files: list[str | Path], *, recipient: str, message_id: str, node: str, port: int
+    ) -> list[dict[str, Any]]:
         if not files:
             return []
         policy = self.load_policy()
@@ -691,14 +941,23 @@ class TailnetService:
                 if not local_path_is_file(source):
                     raise ValueError("attachment must be a regular file")
                 name = source.name
-                if not name or name in {".", ".."} or "/" in name or "\\" in name or any(ord(c) < 32 for c in name):
+                if (
+                    not name
+                    or name in {".", ".."}
+                    or "/" in name
+                    or "\\" in name
+                    or any(ord(c) < 32 for c in name)
+                ):
                     raise ValueError("invalid attachment filename")
                 destination = files_dir / name
                 if local_path_exists(destination):
                     raise ValueError("duplicate attachment filename")
                 digest = hashlib.sha256()
                 size = 0
-                with local_path_open(source, "rb") as reader, local_path_open(destination, "xb") as writer:
+                with (
+                    local_path_open(source, "rb") as reader,
+                    local_path_open(destination, "xb") as writer,
+                ):
                     with suppress(OSError):
                         local_path_chmod(destination, 0o600)
                     while True:
@@ -707,15 +966,33 @@ class TailnetService:
                             break
                         size += len(block)
                         total += len(block)
-                        if size > policy["max_attachment_bytes"] or total > policy["max_attachment_bytes"]:
+                        if (
+                            size > policy["max_attachment_bytes"]
+                            or total > policy["max_attachment_bytes"]
+                        ):
                             raise ValueError("attachment size limit exceeded")
                         digest.update(block)
                         writer.write(block)
                 mime = "application/octet-stream"
-                item = {"name": name, "url": f"http://{node}:{port}/f/{token}/{_url_quote(name)}", "sha256": digest.hexdigest(), "size": size, "mime": mime, "expires": expires}
+                item = {
+                    "name": name,
+                    "url": f"http://{node}:{port}/f/{token}/{_url_quote(name)}",
+                    "sha256": digest.hexdigest(),
+                    "size": size,
+                    "mime": mime,
+                    "expires": expires,
+                }
                 result.append(item)
                 meta_files[name] = {"size": size, "sha256": digest.hexdigest(), "mime": mime}
-            _atomic_json(token_dir / "meta.json", {"id": message_id, "to": normalize_host(recipient), "expires": expires, "files": meta_files})
+            _atomic_json(
+                token_dir / "meta.json",
+                {
+                    "id": message_id,
+                    "to": normalize_host(recipient),
+                    "expires": expires,
+                    "files": meta_files,
+                },
+            )
             return result
         except Exception:
             # Bounded cleanup is explicit and confined to the newly-created task directory.
@@ -727,12 +1004,21 @@ class TailnetService:
             local_path_rmdir(token_dir)
             raise
 
-    def fetch_file(self, token: str, name: str, ident: Mapping[str, Any]) -> tuple[Path, str] | None:
-        if not TOKEN_RE.fullmatch(token) or not name or Path(name).name != name or name in {".", ".."}:
+    def fetch_file(
+        self, token: str, name: str, ident: Mapping[str, Any]
+    ) -> tuple[Path, str] | None:
+        if (
+            not TOKEN_RE.fullmatch(token)
+            or not name
+            or Path(name).name != name
+            or name in {".", ".."}
+        ):
             return None
         token_dir = self.outbox / token
         meta = _json_read(token_dir / "meta.json", limit=1024 * 1024)
-        if not meta or normalize_host(str(meta.get("to", ""))) != normalize_host(str(ident.get("node", ""))):
+        if not meta or normalize_host(str(meta.get("to", ""))) != normalize_host(
+            str(ident.get("node", ""))
+        ):
             return None
         try:
             if parse_utc(meta["expires"]) <= utc_now():
@@ -741,7 +1027,11 @@ class TailnetService:
             return None
         item = meta.get("files", {}).get(name)
         path = token_dir / "files" / name
-        if not isinstance(item, dict) or not local_path_is_file(path) or local_path_is_symlink(path):
+        if (
+            not isinstance(item, dict)
+            or not local_path_is_file(path)
+            or local_path_is_symlink(path)
+        ):
             return None
         if local_path_size(path) != item.get("size"):
             return None
@@ -753,11 +1043,18 @@ class TailnetService:
     def _agent_is_known(self, agent: str | None, policy: Mapping[str, Any]) -> bool:
         if not agent:
             return True
-        configured = policy.get("agents", {}).get(agent) if isinstance(policy.get("agents"), dict) else None
-        if isinstance(configured, dict) and configured.get("target_type") in {"bot", "group"} and configured.get("target_id"):
+        configured = (
+            policy.get("agents", {}).get(agent) if isinstance(policy.get("agents"), dict) else None
+        )
+        if (
+            isinstance(configured, dict)
+            and configured.get("target_type") in {"bot", "group"}
+            and configured.get("target_id")
+        ):
             return True
         try:
             from server.goal_run.bot_identity import BotRegistry
+
             return BotRegistry().get(agent) is not None
         except Exception:
             return False
@@ -780,7 +1077,15 @@ class TailnetService:
             return False
         return start <= minute < end if start < end else minute >= start or minute < end
 
-    def wake_decision(self, requested: str, ident: Mapping[str, Any], agent: str | None, *, agent_known: bool = True, now: datetime | None = None) -> tuple[str, str]:
+    def wake_decision(
+        self,
+        requested: str,
+        ident: Mapping[str, Any],
+        agent: str | None,
+        *,
+        agent_known: bool = True,
+        now: datetime | None = None,
+    ) -> tuple[str, str]:
         policy = self.load_policy()
         wake_policy = policy["wake_policy"]
         cap = wake_policy["default_max"]
@@ -834,7 +1139,13 @@ class TailnetService:
             return {"ok": True, "id": message_id, "files": []}
         sender = normalize_host(str(record.get("received", {}).get("peer", {}).get("node", "")))
         declared_sender = normalize_host(str(envelope.get("from", "")))
-        if not sender or declared_sender not in {sender, *[normalize_host(x) for x in record.get("received", {}).get("peer", {}).get("aliases", [])]}:
+        if not sender or declared_sender not in {
+            sender,
+            *[
+                normalize_host(x)
+                for x in record.get("received", {}).get("peer", {}).get("aliases", [])
+            ],
+        }:
             raise PermissionError("message sender does not match the authenticated stored identity")
         policy = self.load_policy()
         if len(items) > 100:
@@ -842,7 +1153,11 @@ class TailnetService:
         cap = policy["max_attachment_bytes"]
         total_declared = 0
         for item in items:
-            if not isinstance(item, dict) or not isinstance(item.get("size"), int) or item["size"] < 0:
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("size"), int)
+                or item["size"] < 0
+            ):
                 raise ValueError("invalid attachment metadata")
             total_declared += item["size"]
             if total_declared > cap:
@@ -860,10 +1175,24 @@ class TailnetService:
         for item in items:
             raw_url = str(item.get("url", ""))
             parsed = _split_url(raw_url)
-            if parsed.scheme != "http" or normalize_host(parsed.hostname or "") != declared_sender or parsed.username or parsed.password or not parsed.path.startswith("/f/"):
+            if (
+                parsed.scheme != "http"
+                or normalize_host(parsed.hostname or "") != declared_sender
+                or parsed.username
+                or parsed.password
+                or not parsed.path.startswith("/f/")
+            ):
                 raise ValueError("attachment URL does not match the authenticated sender")
             name = item.get("name", "attachment")
-            if not isinstance(name, str) or not name or name in {".", ".."} or Path(name).name != name or "/" in name or "\\" in name or any(unicodedata.category(c).startswith("C") for c in name):
+            if (
+                not isinstance(name, str)
+                or not name
+                or name in {".", ".."}
+                or Path(name).name != name
+                or "/" in name
+                or "\\" in name
+                or any(unicodedata.category(c).startswith("C") for c in name)
+            ):
                 raise ValueError("invalid attachment name")
             if "expires" in item and parse_utc(item["expires"]) <= utc_now():
                 raise ValueError(f"attachment link expired: {name}")
@@ -887,7 +1216,14 @@ class TailnetService:
             digest = hashlib.sha256()
             received = bytearray()
             try:
-                conn.request("GET", parsed.path + (("?" + parsed.query) if parsed.query else ""), headers={"Host": f"{peer_host}:{peer_port}", "Accept": "application/octet-stream"})
+                conn.request(
+                    "GET",
+                    parsed.path + (("?" + parsed.query) if parsed.query else ""),
+                    headers={
+                        "Host": f"{peer_host}:{peer_port}",
+                        "Accept": "application/octet-stream",
+                    },
+                )
                 response = conn.getresponse()
                 if response.status != 200:
                     response.read(4096)
@@ -913,7 +1249,15 @@ class TailnetService:
                     raise ValueError(f"attachment size/SHA-256 mismatch: {name}")
                 local_path_replace(temp_path, destination)
                 total_actual += len(received)
-                saved.append({"name": name, "path": str(destination.relative_to(self.inbox)), "size": size, "sha256": digest.hexdigest(), "mime": item.get("mime", "application/octet-stream")})
+                saved.append(
+                    {
+                        "name": name,
+                        "path": str(destination.relative_to(self.inbox)),
+                        "size": size,
+                        "sha256": digest.hexdigest(),
+                        "mime": item.get("mime", "application/octet-stream"),
+                    }
+                )
             finally:
                 conn.close()
                 if local_path_exists(temp_path):
@@ -921,18 +1265,32 @@ class TailnetService:
         self._update_record(record_path, attachments_local=saved)
         return {"ok": True, "id": message_id, "files": saved}
 
-    def _store_inbound(self, envelope: dict[str, Any], ident: dict[str, Any], peer_ip: str) -> tuple[Path, bool]:
+    def _store_inbound(
+        self, envelope: dict[str, Any], ident: dict[str, Any], peer_ip: str
+    ) -> tuple[Path, bool]:
         path = self.inbox / f"{envelope['id']}.json"
         with self._lock:
             previous = _json_read(path)
             if local_path_exists(path) and previous is None:
                 raise FileExistsError("message ID collides with an unreadable existing record")
             if previous is not None:
-                same_peer = normalize_host(str(previous.get("received", {}).get("peer", {}).get("node", ""))) == normalize_host(str(ident.get("node", "")))
+                same_peer = normalize_host(
+                    str(previous.get("received", {}).get("peer", {}).get("node", ""))
+                ) == normalize_host(str(ident.get("node", "")))
                 if not same_peer or previous.get("envelope") != envelope:
                     raise FileExistsError("message ID conflicts with an existing message")
                 return path, False
-            record = {"envelope": envelope, "received": {"at": utc_iso(), "peer": dict(ident), "peer_ip": peer_ip, "request_state": "received" if "request" in envelope else None, "seq": 1, "outcome_known": False}}
+            record = {
+                "envelope": envelope,
+                "received": {
+                    "at": utc_iso(),
+                    "peer": dict(ident),
+                    "peer_ip": peer_ip,
+                    "request_state": "received" if "request" in envelope else None,
+                    "seq": 1,
+                    "outcome_known": False,
+                },
+            }
             _atomic_json(path, record)
         return path, True
 
@@ -945,15 +1303,40 @@ class TailnetService:
             _atomic_json(path, record)
             return record
 
-    def _response_envelope(self, original: Mapping[str, Any], self_node: str, state: str, seq: int, text: str) -> dict[str, Any]:
-        env: dict[str, Any] = {"v": 1, "id": secrets.token_hex(8), "from": self_node, "to": normalize_host(str(original["from"])), "ts": utc_iso(), "kind": "request-result" if state in REQUEST_FINAL | {"timed_out"} else "request-receipt", "text": text, "reply_to": original["id"], "wake": "none", "response": {"state": state, "seq": seq}}
+    def _response_envelope(
+        self, original: Mapping[str, Any], self_node: str, state: str, seq: int, text: str
+    ) -> dict[str, Any]:
+        env: dict[str, Any] = {
+            "v": 1,
+            "id": secrets.token_hex(8),
+            "from": self_node,
+            "to": normalize_host(str(original["from"])),
+            "ts": utc_iso(),
+            "kind": "request-result"
+            if state in REQUEST_FINAL | {"timed_out"}
+            else "request-receipt",
+            "text": text,
+            "reply_to": original["id"],
+            "wake": "none",
+            "response": {"state": state, "seq": seq},
+        }
         if original.get("agent") is not None:
             env["from_agent"] = original["agent"]
         if original.get("from_agent") is not None:
             env["agent"] = original["from_agent"]
         return env
 
-    def send_lifecycle_response(self, original: Mapping[str, Any], ident: Mapping[str, Any], state: str, seq: int, text: str, *, peer_ip: str, reply_port: int) -> None:
+    def send_lifecycle_response(
+        self,
+        original: Mapping[str, Any],
+        ident: Mapping[str, Any],
+        state: str,
+        seq: int,
+        text: str,
+        *,
+        peer_ip: str,
+        reply_port: int,
+    ) -> None:
         node = self.self_node()
         if not node:
             return
@@ -970,12 +1353,28 @@ class TailnetService:
         if validate_envelope(response):
             return
         try:
-            self.send_json(normalize_host(str(ident.get("node", ""))), peer_ip, reply_port, "POST", "/msg", response, timeout=3)
+            self.send_json(
+                normalize_host(str(ident.get("node", ""))),
+                peer_ip,
+                reply_port,
+                "POST",
+                "/msg",
+                response,
+                timeout=3,
+            )
         except (OSError, http.client.HTTPException, TimeoutError, ValueError):
             # Status is durably queryable from the receiving peer; failed notification is not replayed blindly.
             log.info("tailnet lifecycle notification delivery uncertain for %s", original.get("id"))
 
-    def send_text_reply(self, original: Mapping[str, Any], ident: Mapping[str, Any], text: str, *, peer_ip: str, reply_port: int) -> None:
+    def send_text_reply(
+        self,
+        original: Mapping[str, Any],
+        ident: Mapping[str, Any],
+        text: str,
+        *,
+        peer_ip: str,
+        reply_port: int,
+    ) -> None:
         """Deliver a plain-text bot reply through tailmsg v1 without echo loops."""
         if not text:
             return
@@ -1010,22 +1409,35 @@ class TailnetService:
             return
         try:
             code, _ = self.send_json(
-                normalize_host(str(ident.get("node", ""))), peer_ip, reply_port,
-                "POST", "/msg", envelope, timeout=3,
+                normalize_host(str(ident.get("node", ""))),
+                peer_ip,
+                reply_port,
+                "POST",
+                "/msg",
+                envelope,
+                timeout=3,
             )
             if code not in {200, 202}:
-                log.info("tailnet text reply rejected for message id=%s (HTTP %d)", original.get("id"), code)
+                log.info(
+                    "tailnet text reply rejected for message id=%s (HTTP %d)",
+                    original.get("id"),
+                    code,
+                )
         except (OSError, http.client.HTTPException, TimeoutError, ValueError):
             log.info("tailnet text reply delivery uncertain for message id=%s", original.get("id"))
 
-    def request_status(self, request_id: str, *, peer: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+    def request_status(
+        self, request_id: str, *, peer: Mapping[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         if not ID_RE.fullmatch(request_id):
             return None
         record = _json_read(self.inbox / f"{request_id}.json")
         if not record or "request" not in record.get("envelope", {}):
             return None
         received = record.get("received", {})
-        if peer is not None and normalize_host(str(received.get("peer", {}).get("node", ""))) != normalize_host(str(peer.get("node", ""))):
+        if peer is not None and normalize_host(
+            str(received.get("peer", {}).get("node", ""))
+        ) != normalize_host(str(peer.get("node", ""))):
             return None
         env = record["envelope"]
         state = received.get("request_state") or "received"
@@ -1034,16 +1446,50 @@ class TailnetService:
         if overdue:
             state = "timed_out"
         known = state in REQUEST_FINAL
-        return {"id": request_id, "direction": "incoming", "peer": received.get("peer", {}).get("node"), "agent": env.get("agent"), "from_agent": env.get("from_agent"), "state": state, "last_state": received.get("request_state", "received"), "deadline": utc_iso(deadline), "overdue": overdue, "outcome_known": known, "timed_out": state == "timed_out", "late": bool(received.get("late", False)), "seq": int(received.get("seq", 1)), "task_id": received.get("task_id"), "trace_id": received.get("trace_id"), "turn_status": received.get("turn_status"), "requested_wake": received.get("requested_wake"), "effective_wake": received.get("effective_wake"), "wake_reason": received.get("wake_reason"), "result": received.get("result", "")}
+        return {
+            "id": request_id,
+            "direction": "incoming",
+            "peer": received.get("peer", {}).get("node"),
+            "agent": env.get("agent"),
+            "from_agent": env.get("from_agent"),
+            "state": state,
+            "last_state": received.get("request_state", "received"),
+            "deadline": utc_iso(deadline),
+            "overdue": overdue,
+            "outcome_known": known,
+            "timed_out": state == "timed_out",
+            "late": bool(received.get("late", False)),
+            "seq": int(received.get("seq", 1)),
+            "task_id": received.get("task_id"),
+            "trace_id": received.get("trace_id"),
+            "turn_status": received.get("turn_status"),
+            "requested_wake": received.get("requested_wake"),
+            "effective_wake": received.get("effective_wake"),
+            "wake_reason": received.get("wake_reason"),
+            "result": received.get("result", ""),
+        }
 
-    def handle_envelope(self, envelope: dict[str, Any], ident: dict[str, Any], peer_ip: str, server_port: int) -> tuple[int, dict[str, Any]]:
+    def handle_envelope(
+        self, envelope: dict[str, Any], ident: dict[str, Any], peer_ip: str, server_port: int
+    ) -> tuple[int, dict[str, Any]]:
         error = validate_envelope(envelope)
         if error:
             return 400, {"ok": False, "error": error}
-        if normalize_host(envelope["from"]) not in {normalize_host(str(x)) for x in ident.get("aliases", [])} | {normalize_host(str(ident.get("node", ""))), normalize_host(str(ident.get("hostname", "")))}:
-            return 403, {"ok": False, "error": "from does not match authenticated Tailscale identity"}
+        if normalize_host(envelope["from"]) not in {
+            normalize_host(str(x)) for x in ident.get("aliases", [])
+        } | {
+            normalize_host(str(ident.get("node", ""))),
+            normalize_host(str(ident.get("hostname", ""))),
+        }:
+            return 403, {
+                "ok": False,
+                "error": "from does not match authenticated Tailscale identity",
+            }
         self_node = self.self_node()
-        if self_node and normalize_host(envelope["to"]) not in {self_node, self_node.split(".", 1)[0]}:
+        if self_node and normalize_host(envelope["to"]) not in {
+            self_node,
+            self_node.split(".", 1)[0],
+        }:
             return 400, {"ok": False, "error": "misdirected message"}
         try:
             path, fresh = self._store_inbound(envelope, ident, peer_ip)
@@ -1053,45 +1499,120 @@ class TailnetService:
             return 200, {"ok": True, "id": envelope["id"], "duplicate": True}
         if "response" in envelope:
             # Lifecycle responses are records, never agent instructions.
-            self._update_record(path, response_for=envelope.get("reply_to"), request_state=envelope["response"]["state"], seq=envelope["response"]["seq"], result=envelope.get("text", ""), outcome_known=envelope["response"]["state"] in REQUEST_FINAL, is_protocol_response=True)
+            self._update_record(
+                path,
+                response_for=envelope.get("reply_to"),
+                request_state=envelope["response"]["state"],
+                seq=envelope["response"]["seq"],
+                result=envelope.get("text", ""),
+                outcome_known=envelope["response"]["state"] in REQUEST_FINAL,
+                is_protocol_response=True,
+            )
             return 202, {"ok": True, "id": envelope["id"]}
         if envelope.get("reply_to") and "request" not in envelope:
             # A plain tailmsg reply is an inbound response to a previous message;
             # keep it in the inbox but do not dispatch/reply to it again.
-            self._update_record(path, response_for=envelope.get("reply_to"), result=envelope.get("text", ""), is_protocol_response=True)
+            self._update_record(
+                path,
+                response_for=envelope.get("reply_to"),
+                result=envelope.get("text", ""),
+                is_protocol_response=True,
+            )
             return 202, {"ok": True, "id": envelope["id"], "reply": True}
         if "request" in envelope:
             self._update_record(path, request_state="received", seq=1)
-            self.send_lifecycle_response(envelope, ident, "received", 1, "Request durably received; execution has not been confirmed.", peer_ip=peer_ip, reply_port=envelope["request"]["reply_port"])
+            self.send_lifecycle_response(
+                envelope,
+                ident,
+                "received",
+                1,
+                "Request durably received; execution has not been confirmed.",
+                peer_ip=peer_ip,
+                reply_port=envelope["request"]["reply_port"],
+            )
         # Validate declared links at receipt time; bytes are pulled only by the
         # explicit attachment-fetch operation, never executed automatically.
         for item in envelope.get("fetch", []):
             expires = item.get("expires")
             if expires and parse_utc(expires) <= utc_now():
-                self._update_record(path, delivery_state="rejected", delivery_error="attachment link expired")
+                self._update_record(
+                    path, delivery_state="rejected", delivery_error="attachment link expired"
+                )
                 if "request" in envelope:
-                    self.send_lifecycle_response(envelope, ident, "rejected", 2, "Attachment link expired; request was not dispatched.", peer_ip=peer_ip, reply_port=envelope["request"]["reply_port"])
+                    self.send_lifecycle_response(
+                        envelope,
+                        ident,
+                        "rejected",
+                        2,
+                        "Attachment link expired; request was not dispatched.",
+                        peer_ip=peer_ip,
+                        reply_port=envelope["request"]["reply_port"],
+                    )
                 return 400, {"ok": False, "error": "attachment link expired"}
         if "request" in envelope:
-            deadline = parse_utc(envelope["ts"]) + timedelta(seconds=envelope["request"]["timeout_seconds"])
+            deadline = parse_utc(envelope["ts"]) + timedelta(
+                seconds=envelope["request"]["timeout_seconds"]
+            )
             if deadline <= utc_now():
-                self._update_record(path, request_state="timed_out", seq=2, timed_out_at=utc_iso(), outcome_known=False, result="Execution outcome is unknown; do not automatically repeat the task.")
-                self.send_lifecycle_response(envelope, ident, "timed_out", 2, "Deadline passed before dispatch; outcome is unknown and must not be retried automatically.", peer_ip=peer_ip, reply_port=envelope["request"]["reply_port"])
-                return 202, {"ok": True, "id": envelope["id"], "expired": True, "outcome_known": False}
+                self._update_record(
+                    path,
+                    request_state="timed_out",
+                    seq=2,
+                    timed_out_at=utc_iso(),
+                    outcome_known=False,
+                    result="Execution outcome is unknown; do not automatically repeat the task.",
+                )
+                self.send_lifecycle_response(
+                    envelope,
+                    ident,
+                    "timed_out",
+                    2,
+                    "Deadline passed before dispatch; outcome is unknown and must not be retried automatically.",
+                    peer_ip=peer_ip,
+                    reply_port=envelope["request"]["reply_port"],
+                )
+                return 202, {
+                    "ok": True,
+                    "id": envelope["id"],
+                    "expired": True,
+                    "outcome_known": False,
+                }
         policy = self.load_policy()
         agent = envelope.get("agent")
         agent_known = self._agent_is_known(agent, policy)
         requested_wake = envelope.get("wake", "batch")
-        effective_wake, wake_reason = self.wake_decision(requested_wake, ident, agent, agent_known=agent_known)
-        self._update_record(path, requested_wake=requested_wake, effective_wake=effective_wake, wake_reason=wake_reason, agent_known=agent_known)
+        effective_wake, wake_reason = self.wake_decision(
+            requested_wake, ident, agent, agent_known=agent_known
+        )
+        self._update_record(
+            path,
+            requested_wake=requested_wake,
+            effective_wake=effective_wake,
+            wake_reason=wake_reason,
+            agent_known=agent_known,
+        )
         if effective_wake != "now":
             # batch/none are durably stored but do not trigger any code or create
             # a second scheduler. A tracked request remains received until the
             # established Veya turn path is actually entered.
-            return 202, {"ok": True, "id": envelope["id"], "queued": effective_wake == "batch", "effective_wake": effective_wake, "wake_reason": wake_reason}
+            return 202, {
+                "ok": True,
+                "id": envelope["id"],
+                "queued": effective_wake == "batch",
+                "effective_wake": effective_wake,
+                "wake_reason": wake_reason,
+            }
         if "request" in envelope:
             self._update_record(path, request_state="running", seq=2)
-            self.send_lifecycle_response(envelope, ident, "running", 2, "Request routed to the existing Veya channel/turn path.", peer_ip=peer_ip, reply_port=envelope["request"]["reply_port"])
+            self.send_lifecycle_response(
+                envelope,
+                ident,
+                "running",
+                2,
+                "Request routed to the existing Veya channel/turn path.",
+                peer_ip=peer_ip,
+                reply_port=envelope["request"]["reply_port"],
+            )
         try:
             outcome = self._dispatch(envelope, ident)
             if not getattr(outcome, "ok", True):
@@ -1110,28 +1631,71 @@ class TailnetService:
             current_seq = int(received.get("seq", 2))
             final_seq = max(3, current_seq + 1) if "request" in envelope else current_seq
             response_text = str(getattr(outcome, "reply", "") or "").strip()
-            result_text = response_text or f"Existing Veya turn returned status={turn_status or 'unknown'}"
-            self._update_record(path, request_state=final_state if "request" in envelope else None, seq=final_seq, outcome_known=final_state in REQUEST_FINAL, task_id=task_id, trace_id=trace_id, turn_status=turn_status, result=result_text)
+            result_text = (
+                response_text or f"Existing Veya turn returned status={turn_status or 'unknown'}"
+            )
+            self._update_record(
+                path,
+                request_state=final_state if "request" in envelope else None,
+                seq=final_seq,
+                outcome_known=final_state in REQUEST_FINAL,
+                task_id=task_id,
+                trace_id=trace_id,
+                turn_status=turn_status,
+                result=result_text,
+            )
             if "request" in envelope:
                 late = utc_now() > deadline
                 self._update_record(path, late=late)
-                self.send_lifecycle_response(envelope, ident, final_state, final_seq, result_text, peer_ip=peer_ip, reply_port=envelope["request"]["reply_port"])
+                self.send_lifecycle_response(
+                    envelope,
+                    ident,
+                    final_state,
+                    final_seq,
+                    result_text,
+                    peer_ip=peer_ip,
+                    reply_port=envelope["request"]["reply_port"],
+                )
             elif envelope.get("kind", "text") == "text":
-                self.send_text_reply(envelope, ident, str(getattr(outcome, "reply", "") or "").strip(), peer_ip=peer_ip, reply_port=self.peer_port)
+                self.send_text_reply(
+                    envelope,
+                    ident,
+                    str(getattr(outcome, "reply", "") or "").strip(),
+                    peer_ip=peer_ip,
+                    reply_port=self.peer_port,
+                )
         except Exception as exc:
-            log.warning("tailnet dispatch failed for id=%s (%s)", envelope.get("id"), type(exc).__name__)
+            log.warning(
+                "tailnet dispatch failed for id=%s (%s)", envelope.get("id"), type(exc).__name__
+            )
             if "request" in envelope:
                 current = _json_read(path) or {}
                 received = current.get("received", {})
                 state = "blocked" if isinstance(exc, PermissionError) else "failed"
                 seq = max(3, int(received.get("seq", 2)) + 1)
-                self._update_record(path, request_state=state, seq=seq, outcome_known=True, turn_status=state, result=f"Dispatch failed: {type(exc).__name__}")
-                self.send_lifecycle_response(envelope, ident, state, seq, f"Dispatch failed: {type(exc).__name__}", peer_ip=peer_ip, reply_port=envelope["request"]["reply_port"])
+                self._update_record(
+                    path,
+                    request_state=state,
+                    seq=seq,
+                    outcome_known=True,
+                    turn_status=state,
+                    result=f"Dispatch failed: {type(exc).__name__}",
+                )
+                self.send_lifecycle_response(
+                    envelope,
+                    ident,
+                    state,
+                    seq,
+                    f"Dispatch failed: {type(exc).__name__}",
+                    peer_ip=peer_ip,
+                    reply_port=envelope["request"]["reply_port"],
+                )
             else:
-                self._update_record(path, turn_status="failed", result=f"Dispatch failed: {type(exc).__name__}")
+                self._update_record(
+                    path, turn_status="failed", result=f"Dispatch failed: {type(exc).__name__}"
+                )
             return 202, {"ok": True, "id": envelope["id"], "dispatch_error": True}
         return 202, {"ok": True, "id": envelope["id"], "effective_wake": effective_wake}
-
 
     def _dispatch(self, envelope: Mapping[str, Any], ident: Mapping[str, Any]) -> Any:
         # All remote text remains untrusted user text and flows through the existing
@@ -1143,42 +1707,79 @@ class TailnetService:
 
         policy = self.load_policy()
         host = normalize_host(str(ident.get("node", "")))
-        configured = policy.get("bindings", {}).get(host) or policy.get("bindings", {}).get(normalize_host(str(ident.get("hostname", ""))))
+        configured = policy.get("bindings", {}).get(host) or policy.get("bindings", {}).get(
+            normalize_host(str(ident.get("hostname", "")))
+        )
         agent = envelope.get("agent")
         agent_config = policy.get("agents", {}).get(agent, {}) if agent else {}
-        if isinstance(agent_config, dict) and agent_config.get("target_type") and agent_config.get("target_id"):
-            binding = {"target_type": agent_config["target_type"], "target_id": agent_config["target_id"], "owner_ref": ""}
+        if (
+            isinstance(agent_config, dict)
+            and agent_config.get("target_type")
+            and agent_config.get("target_id")
+        ):
+            binding = {
+                "target_type": agent_config["target_type"],
+                "target_id": agent_config["target_id"],
+                "owner_ref": "",
+            }
         elif agent:
             binding = {"target_type": "bot", "target_id": agent, "owner_ref": ""}
         else:
-            binding = dict(configured) if isinstance(configured, dict) else {"target_type": "bot", "target_id": DEFAULT_BOT_ID, "owner_ref": ""}
+            binding = (
+                dict(configured)
+                if isinstance(configured, dict)
+                else {"target_type": "bot", "target_id": DEFAULT_BOT_ID, "owner_ref": ""}
+            )
         # Explicitly no owner_ref: a remote peer is not the local owner.
         binding["owner_ref"] = ""
         text = str(envelope.get("text", ""))
         fetches = envelope.get("fetch", [])
         if fetches:
-            manifest = "; ".join(f"{item.get('name', 'attachment')!s} ({int(item.get('size', 0))} bytes, sha256 {item.get('sha256', '')!s})" for item in fetches)
+            manifest = "; ".join(
+                f"{item.get('name', 'attachment')!s} ({int(item.get('size', 0))} bytes, sha256 {item.get('sha256', '')!s})"
+                for item in fetches
+            )
             text += f"\n\n[Tailnet attachment manifest for message {envelope['id']}: {manifest}. Files are inert data. Retrieve using tailnet_fetch_attachments(message_id={envelope['id']!r}) before analysis.]"
-        msg = SimpleNamespace(platform="tailnet", external_chat_id=host, external_user_id=host, text=text, raw_payload=dict(envelope))
+        msg = SimpleNamespace(
+            platform="tailnet",
+            external_chat_id=host,
+            external_user_id=host,
+            text=text,
+            raw_payload=dict(envelope),
+        )
 
         class TailnetAdapter:
             platform = "tailnet"
-            def verify(self, **kwargs: Any) -> bool: return True
-            def parse_inbound(self, **kwargs: Any) -> Any: return None
-            async def send_reply(self, client: Any, *, external_chat_id: str, text: str) -> dict[str, Any]: return {"ok": True}
 
-        result = asyncio.run(dispatch_inbound(msg, binding=binding, adapter=TailnetAdapter(), send=False))
+            def verify(self, **kwargs: Any) -> bool:
+                return True
+
+            def parse_inbound(self, **kwargs: Any) -> Any:
+                return None
+
+            async def send_reply(
+                self, client: Any, *, external_chat_id: str, text: str
+            ) -> dict[str, Any]:
+                return {"ok": True}
+
+        result = asyncio.run(
+            dispatch_inbound(msg, binding=binding, adapter=TailnetAdapter(), send=False)
+        )
         if not getattr(result, "ok", False):
             raise RuntimeError("channel dispatch rejected inbound message")
         return result
 
 
-def _make_handler(service: TailnetService, *, test_mode: bool = False) -> type[BaseHTTPRequestHandler]:
+def _make_handler(
+    service: TailnetService, *, test_mode: bool = False
+) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "tailmsg/1"
         sys_version = ""
+
         def log_message(self, fmt: str, *args: Any) -> None:
             log.info("tailnet http: " + (fmt % args)[:300])
+
         def _json(self, code: int, data: Mapping[str, Any]) -> None:
             body = json.dumps(data, ensure_ascii=False).encode("utf-8")
             self.send_response(code)
@@ -1187,6 +1788,7 @@ def _make_handler(service: TailnetService, *, test_mode: bool = False) -> type[B
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+
         def _identify(self, *, token: bool = False) -> dict[str, Any] | None:
             ip = self.client_address[0]
             ident = service.identify(ip)
@@ -1198,23 +1800,37 @@ def _make_handler(service: TailnetService, *, test_mode: bool = False) -> type[B
                 self._json(403, {"ok": False, "error": reason})
                 return None
             return ident
+
         def do_GET(self) -> None:
             parsed = _split_url(self.path)
             path = parsed.path
             if path == "/health":
-                if not (service.allow_loopback and self.client_address[0] in {"127.0.0.1", "::1"}) and not is_tailnet_ip(self.client_address[0]):
+                if not (
+                    service.allow_loopback and self.client_address[0] in {"127.0.0.1", "::1"}
+                ) and not is_tailnet_ip(self.client_address[0]):
                     return self._json(403, {"ok": False, "error": "not a Tailscale address"})
-                return self._json(200, {"ok": True, "v": 1, "node": service.self_node() or "unknown"})
+                return self._json(
+                    200, {"ok": True, "v": 1, "node": service.self_node() or "unknown"}
+                )
             if path == "/info":
                 ident = self._identify()
                 if ident is None:
                     return
-                return self._json(200, {"v": 1, "node": service.self_node() or "unknown", "capabilities": [REQUEST_CAPABILITY], "default_agent": "veya-default", "agents": []})
+                return self._json(
+                    200,
+                    {
+                        "v": 1,
+                        "node": service.self_node() or "unknown",
+                        "capabilities": [REQUEST_CAPABILITY],
+                        "default_agent": "veya-default",
+                        "agents": [],
+                    },
+                )
             if path.startswith("/requests/"):
                 ident = self._identify()
                 if ident is None:
                     return
-                request_id = path[len("/requests/"):]
+                request_id = path[len("/requests/") :]
                 result = service.request_status(request_id, peer=ident)
                 if not result:
                     return self._json(404, {"ok": False, "error": "request not found"})
@@ -1243,6 +1859,7 @@ def _make_handler(service: TailnetService, *, test_mode: bool = False) -> type[B
                         self.wfile.write(block)
                 return
             return self._json(404, {"ok": False, "error": "not found"})
+
         def do_POST(self) -> None:
             if _split_url(self.path).path != "/msg":
                 return self._json(404, {"ok": False, "error": "not found"})
@@ -1266,8 +1883,11 @@ def _make_handler(service: TailnetService, *, test_mode: bool = False) -> type[B
                 envelope = json.loads(raw.decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
                 return self._json(400, {"ok": False, "error": "invalid JSON"})
-            code, result = service.handle_envelope(envelope, ident, self.client_address[0], service.port)
+            code, result = service.handle_envelope(
+                envelope, ident, self.client_address[0], service.port
+            )
             return self._json(code, result)
+
     return Handler
 
 
@@ -1285,19 +1905,25 @@ def _receiver_bind_address(service: TailnetService) -> str | None:
     configured = os.getenv("VEYA_TAILNET_BIND", "").strip()
     if configured == "0.0.0.0":
         if os.getenv("VEYA_TAILNET_TRUST_DOCKER_PUBLISH", "") != "1":
-            raise ValueError("VEYA_TAILNET_BIND=0.0.0.0 requires VEYA_TAILNET_TRUST_DOCKER_PUBLISH=1")
+            raise ValueError(
+                "VEYA_TAILNET_BIND=0.0.0.0 requires VEYA_TAILNET_TRUST_DOCKER_PUBLISH=1"
+            )
         publish_host = os.getenv("VEYA_TAILNET_PUBLISH_HOST", "").strip()
         if not publish_host or ":" in publish_host or not is_tailnet_ip(publish_host):
             raise ValueError("VEYA_TAILNET_PUBLISH_HOST must be an IPv4 Tailscale address")
         whois_socket = os.getenv("VEYA_TAILNET_WHOIS_SOCKET", "").strip()
         if not whois_socket or not Path(whois_socket).is_socket():
-            raise ValueError("VEYA_TAILNET_WHOIS_SOCKET must point to the mounted whois-only proxy socket")
+            raise ValueError(
+                "VEYA_TAILNET_WHOIS_SOCKET must point to the mounted whois-only proxy socket"
+            )
         if not os.getenv("VEYA_TAILNET_NODE", "").strip():
             raise ValueError("VEYA_TAILNET_NODE must name this host's Tailscale node")
         return "0.0.0.0"
     if configured:
         if not is_tailnet_ip(configured):
-            raise ValueError("VEYA_TAILNET_BIND must be a Tailscale IP or 0.0.0.0 with the trust contract")
+            raise ValueError(
+                "VEYA_TAILNET_BIND must be a Tailscale IP or 0.0.0.0 with the trust contract"
+            )
         return configured
     bind_ip = service.tailscale_ip()
     return bind_ip if bind_ip and is_tailnet_ip(bind_ip) else None
@@ -1314,11 +1940,15 @@ def start_receiver_if_enabled(service: TailnetService | None = None) -> bool:
         log.error("Veya Tailnet receiver configuration rejected (%s)", type(exc).__name__)
         return False
     if not bind_ip:
-        log.error("VEYA_TAILNET_CHANNEL is ON but no Tailscale bind address was available; receiver remains off")
+        log.error(
+            "VEYA_TAILNET_CHANNEL is ON but no Tailscale bind address was available; receiver remains off"
+        )
         return False
     node = service.self_node()
     if not node:
-        log.error("VEYA_TAILNET_CHANNEL is ON but Tailscale node identity is unavailable; receiver remains off")
+        log.error(
+            "VEYA_TAILNET_CHANNEL is ON but Tailscale node identity is unavailable; receiver remains off"
+        )
         return False
     try:
         server = ThreadingHTTPServer((bind_ip, service.port), _make_handler(service))
@@ -1327,7 +1957,9 @@ def start_receiver_if_enabled(service: TailnetService | None = None) -> bool:
         return False
     server.daemon_threads = True
     service.server = server
-    service.thread = threading.Thread(target=server.serve_forever, name="veya-tailnet-receiver", daemon=True)
+    service.thread = threading.Thread(
+        target=server.serve_forever, name="veya-tailnet-receiver", daemon=True
+    )
     service.thread.start()
     _runtime_service_lock.acquire()
     try:
@@ -1356,14 +1988,25 @@ def stop_receiver() -> None:
 
 def get_service() -> TailnetService:
     with _runtime_service_lock:
-        instance = _runtime_service_holder.get("service") or _runtime_service_holder.get("api_service")
+        instance = _runtime_service_holder.get("service") or _runtime_service_holder.get(
+            "api_service"
+        )
         if instance is None:
             instance = TailnetService()
             _runtime_service_holder["api_service"] = instance
         return instance
 
 
-def send_message(to: str, text: str, *, kind: str = "text", files: list[str] | None = None, wake: str = "batch", timeout_seconds: int = 900, timeout: float = 15) -> dict[str, Any]:
+def send_message(
+    to: str,
+    text: str,
+    *,
+    kind: str = "text",
+    files: list[str] | None = None,
+    wake: str = "batch",
+    timeout_seconds: int = 900,
+    timeout: float = 15,
+) -> dict[str, Any]:
     if not enabled():
         raise RuntimeError("VEYA_TAILNET_CHANNEL is OFF")
     if not isinstance(text, str) or len(text.encode("utf-8")) > MAX_MESSAGE_BYTES:
@@ -1381,7 +2024,16 @@ def send_message(to: str, text: str, *, kind: str = "text", files: list[str] | N
     if not node:
         raise RuntimeError("local Tailscale identity is unavailable")
     message_id = secrets.token_hex(8)
-    envelope: dict[str, Any] = {"v": 1, "id": message_id, "from": node, "to": recipient, "ts": utc_iso(), "kind": kind, "text": text, "wake": wake}
+    envelope: dict[str, Any] = {
+        "v": 1,
+        "id": message_id,
+        "from": node,
+        "to": recipient,
+        "ts": utc_iso(),
+        "kind": kind,
+        "text": text,
+        "wake": wake,
+    }
     if agent:
         envelope["agent"] = agent
     if kind == "request":
@@ -1389,18 +2041,34 @@ def send_message(to: str, text: str, *, kind: str = "text", files: list[str] | N
             raise ValueError("timeout_seconds must be 1..604800")
         envelope["request"] = {"timeout_seconds": int(timeout_seconds), "reply_port": service.port}
     if files:
-        envelope["fetch"] = service.stage_attachments(files, recipient=recipient, message_id=message_id, node=node, port=service.port)
+        envelope["fetch"] = service.stage_attachments(
+            files, recipient=recipient, message_id=message_id, node=node, port=service.port
+        )
     err = validate_envelope(envelope)
     if err:
         raise ValueError(err)
     try:
-        code, response = service.send_json(recipient, ip, port, "POST", "/msg", envelope, timeout=timeout)
+        code, response = service.send_json(
+            recipient, ip, port, "POST", "/msg", envelope, timeout=timeout
+        )
     except (OSError, http.client.HTTPException, TimeoutError) as exc:
         # Don't retry an uncertain POST: the peer may already have durably stored it.
-        raise RuntimeError(f"delivery outcome unknown for message {message_id}; query request status before sending again") from exc
+        raise RuntimeError(
+            f"delivery outcome unknown for message {message_id}; query request status before sending again"
+        ) from exc
     if code not in {200, 202}:
-        raise RuntimeError(f"Tailnet peer rejected message with HTTP {code}: {response.get('error', 'request rejected')}")
-    return {"ok": True, "id": message_id, "peer": recipient, "http_status": code, "delivery": "duplicate" if response.get("duplicate") else "accepted", "request_status_url": f"/requests/{message_id}" if kind == "request" else None, "warning": "accepted means stored, not completed" if kind == "request" else None}
+        raise RuntimeError(
+            f"Tailnet peer rejected message with HTTP {code}: {response.get('error', 'request rejected')}"
+        )
+    return {
+        "ok": True,
+        "id": message_id,
+        "peer": recipient,
+        "http_status": code,
+        "delivery": "duplicate" if response.get("duplicate") else "accepted",
+        "request_status_url": f"/requests/{message_id}" if kind == "request" else None,
+        "warning": "accepted means stored, not completed" if kind == "request" else None,
+    }
 
 
 def query_request_status(peer: str, request_id: str, *, timeout: float = 10) -> dict[str, Any]:
@@ -1409,27 +2077,100 @@ def query_request_status(peer: str, request_id: str, *, timeout: float = 10) -> 
     service = get_service()
     hostname, ip, port, _ = service.resolve_peer(peer)
     service.authorize_outbound_peer(hostname, ip)
-    code, response = service.send_json(hostname, ip, port, "GET", "/requests/" + _url_quote(request_id, safe=""), timeout=timeout)
+    code, response = service.send_json(
+        hostname, ip, port, "GET", "/requests/" + _url_quote(request_id, safe=""), timeout=timeout
+    )
     if code != 200:
-        raise RuntimeError(f"Tailnet status query failed with HTTP {code}: {response.get('error', 'request status unavailable')}")
+        raise RuntimeError(
+            f"Tailnet status query failed with HTTP {code}: {response.get('error', 'request status unavailable')}"
+        )
     return response
 
 
 def register_tools(registry: Any) -> int:
     """Add outbound send/status tools to the one existing master registry."""
     from server.tool_registry import SideEffect
+
     definitions = [
-        ("tailnet_send", "Send a plain-text message or tracked request to an allowlisted Tailscale peer; sending is a network side effect and remains subject to existing tool policy/approval.", {"type": "object", "properties": {"to": {"type": "string", "description": "Tailscale hostname[/agent] or tailnet IP[:port][/agent]; an omitted port targets the Yobiru/tailmsg default 7766. Use :7767 for another Veya receiver unless VEYA_TAILNET_PEER_PORT overrides it."}, "text": {"type": "string"}, "kind": {"type": "string", "enum": ["text", "notice", "request"]}, "wake": {"type": "string", "enum": ["now", "batch", "none"], "default": "batch"}, "files": {"type": "array", "items": {"type": "string"}, "description": "Optional local file paths to stage as SHA-256 verified attachments."}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 604800}}, "required": ["to", "text"]}, lambda **kwargs: send_message(**kwargs), SideEffect.NETWORK_WRITE),
-        ("tailnet_request_status", "Query the authenticated remote receiver for the latest receipt/result of a tracked Tailnet request. A timed_out state means the outcome is unknown and is not a safe retry signal.", {"type": "object", "properties": {"peer": {"type": "string"}, "request_id": {"type": "string"}}, "required": ["peer", "request_id"]}, query_request_status, SideEffect.PURE_READ),
-        ("tailnet_fetch_attachments", "Fetch the attachments of one received Tailnet message from its authenticated sender, verify declared sizes and SHA-256 hashes, and save inert files only under the Tailnet inbox. This writes local files and remains subject to the normal side-effect policy.", {"type": "object", "properties": {"message_id": {"type": "string"}}, "required": ["message_id"]}, lambda message_id: get_service().fetch_attachments(message_id), SideEffect.LOCAL_WRITE),
+        (
+            "tailnet_send",
+            "Send a plain-text message or tracked request to an allowlisted Tailscale peer; sending is a network side effect and remains subject to existing tool policy/approval.",
+            {
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "string",
+                        "description": "Tailscale hostname[/agent] or tailnet IP[:port][/agent]; an omitted port targets the Yobiru/tailmsg default 7766. Use :7767 for another Veya receiver unless VEYA_TAILNET_PEER_PORT overrides it.",
+                    },
+                    "text": {"type": "string"},
+                    "kind": {"type": "string", "enum": ["text", "notice", "request"]},
+                    "wake": {
+                        "type": "string",
+                        "enum": ["now", "batch", "none"],
+                        "default": "batch",
+                    },
+                    "files": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional local file paths to stage as SHA-256 verified attachments.",
+                    },
+                    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 604800},
+                },
+                "required": ["to", "text"],
+            },
+            lambda **kwargs: send_message(**kwargs),
+            SideEffect.NETWORK_WRITE,
+        ),
+        (
+            "tailnet_request_status",
+            "Query the authenticated remote receiver for the latest receipt/result of a tracked Tailnet request. A timed_out state means the outcome is unknown and is not a safe retry signal.",
+            {
+                "type": "object",
+                "properties": {"peer": {"type": "string"}, "request_id": {"type": "string"}},
+                "required": ["peer", "request_id"],
+            },
+            query_request_status,
+            SideEffect.PURE_READ,
+        ),
+        (
+            "tailnet_fetch_attachments",
+            "Fetch the attachments of one received Tailnet message from its authenticated sender, verify declared sizes and SHA-256 hashes, and save inert files only under the Tailnet inbox. This writes local files and remains subject to the normal side-effect policy.",
+            {
+                "type": "object",
+                "properties": {"message_id": {"type": "string"}},
+                "required": ["message_id"],
+            },
+            lambda message_id: get_service().fetch_attachments(message_id),
+            SideEffect.LOCAL_WRITE,
+        ),
     ]
     added = 0
     for name, description, schema, fn, effect in definitions:
         if getattr(registry, "has", None) and registry.has(name):
             continue
-        registry.register(name=name, description=description, parameters=schema, func=fn, side_effect=effect, effect_capability="none" if effect is SideEffect.PURE_READ else "manual_only")
+        registry.register(
+            name=name,
+            description=description,
+            parameters=schema,
+            func=fn,
+            side_effect=effect,
+            effect_capability="none" if effect is SideEffect.PURE_READ else "manual_only",
+        )
         added += 1
     return added
 
 
-__all__ = ["TailnetService", "authorize_peer", "create_test_server", "enabled", "get_service", "is_tailnet_ip", "query_request_status", "register_tools", "send_message", "start_receiver_if_enabled", "stop_receiver", "validate_envelope"]
+__all__ = [
+    "TailnetService",
+    "authorize_peer",
+    "create_test_server",
+    "enabled",
+    "get_service",
+    "is_tailnet_ip",
+    "query_request_status",
+    "register_tools",
+    "send_message",
+    "start_receiver_if_enabled",
+    "stop_receiver",
+    "validate_envelope",
+]

@@ -62,9 +62,10 @@ class TestRunnerOpsOprims:
         # not base64 never reaches the signature check at all.
         pinned_key_b64 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
 
-        with patch("veya.oprim.runner_ops.httpx.Client") as mock_client, \
-             patch("veya.oprim.runner_ops.ed25519") as mock_ed25519:
-
+        with (
+            patch("veya.oprim.runner_ops.httpx.Client") as mock_client,
+            patch("veya.oprim.runner_ops.ed25519") as mock_ed25519,
+        ):
             mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
                 status_code=200,
                 content=b"fake binary content",
@@ -85,9 +86,10 @@ class TestRunnerOpsOprims:
         """Test runner_self_update_stage oprim."""
         from veya.oprim.runner_ops import runner_self_update_stage
 
-        with patch("veya.oprim.runner_ops.shutil.unpack_archive") as mock_unpack, \
-             patch("veya.oprim.runner_ops.Path.rename") as mock_rename:
-
+        with (
+            patch("veya.oprim.runner_ops.shutil.unpack_archive"),
+            patch("veya.oprim.runner_ops.Path.rename"),
+        ):
             result = runner_self_update_stage(
                 archive_path="/tmp/veya-runner.tar.gz",
                 install_dir="/opt/veya",
@@ -110,7 +112,7 @@ class TestRunnerOpsOprims:
         """Test runner_service_install oprim."""
         from veya.oprim.runner_ops import runner_service_install
 
-        with patch("veya.oprim.runner_ops.Path.write_text") as mock_write:
+        with patch("veya.oprim.runner_ops.Path.write_text"):
             result = runner_service_install(
                 runner_binary="/opt/veya/veya-runner",
                 user="testuser",
@@ -123,7 +125,7 @@ class TestRunnerOpsOprims:
         """Test runner_service_uninstall oprim."""
         from veya.oprim.runner_ops import runner_service_uninstall
 
-        with patch("veya.oprim.runner_ops.Path.unlink") as mock_unlink:
+        with patch("veya.oprim.runner_ops.Path.unlink"):
             result = runner_service_uninstall(user="testuser")
             assert result["success"] is True
 
@@ -132,11 +134,7 @@ class TestRunnerOpsOprims:
         from veya.oprim.runner_ops import runner_service_status
 
         with patch("veya.oprim.runner_ops.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="active\n",
-                stderr=""
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout="active\n", stderr="")
             result = runner_service_status(user="testuser")
             assert result["status"] == "active"
 
@@ -186,21 +184,29 @@ class TestRunnerOpsRoutes:
 
     def test_check_update_endpoint(self, client):
         """Test check update endpoint."""
-        response = client.get("/api/v1/runner/self-update/check", params={"current_version": "1.0.0"})
+        response = client.get(
+            "/api/v1/runner/self-update/check", params={"current_version": "1.0.0"}
+        )
         assert response.status_code == 200
 
     def test_request_update_endpoint_requires_approval(self, client):
         """Test update request goes through ActionGateway."""
-        response = client.post("/api/v1/runner/self-update/request", json={
-            "runner_id": "runner-1",
-        })
+        response = client.post(
+            "/api/v1/runner/self-update/request",
+            json={
+                "runner_id": "runner-1",
+            },
+        )
         assert response.status_code in (202, 403)
 
     def test_service_install_endpoint(self, client):
         """Test service install endpoint."""
-        response = client.post("/api/v1/runner/service/install", json={
-            "runner_binary": "/opt/veya/veya-runner",
-        })
+        response = client.post(
+            "/api/v1/runner/service/install",
+            json={
+                "runner_binary": "/opt/veya/veya-runner",
+            },
+        )
         assert response.status_code == 200
 
     def test_service_status_endpoint(self, client):
@@ -224,7 +230,9 @@ class TestRunnerOpsRoutes:
         app.dependency_overrides[auth_mod.get_current_user] = mock_get_current_user
         client = TestClient(app)
 
-        response = client.get("/api/v1/runner/self-update/check", params={"current_version": "1.0.0"})
+        response = client.get(
+            "/api/v1/runner/self-update/check", params={"current_version": "1.0.0"}
+        )
         assert response.status_code == 404
 
 

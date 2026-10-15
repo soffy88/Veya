@@ -13,8 +13,6 @@ from pathlib import Path
 
 import pytest
 
-from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
-
 from runtime.bot_scope import CrossBotAccessDenied
 from server.goal_run.execution_abi import (
     CanonicalExecutionPlane,
@@ -31,6 +29,7 @@ from server.goal_run.execution_evidence import load_binding_record, load_durable
 from server.goal_run.models import GoalStatus
 from server.goal_run.pre_admission import bind_execution, create_pending_run
 from server.goal_run.store import load_goal_run
+from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
 from veya.remote.executor_adapters import register_default_adapters
 
 

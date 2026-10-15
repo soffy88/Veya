@@ -46,9 +46,7 @@ def grant_lookup(
 ) -> dict[str, Any] | None:
     """One always-grant for (scope, tool, scope_pattern), or None."""
 
-    return _store_of(store).lookup_grant(
-        scope=scope, tool=tool, scope_pattern=scope_pattern
-    )
+    return _store_of(store).lookup_grant(scope=scope, tool=tool, scope_pattern=scope_pattern)
 
 
 def grant_scope_match(pattern: str, scope: str, *, store: Any = None) -> bool:
@@ -70,9 +68,7 @@ def grant_put(
 ) -> dict[str, Any]:
     """Insert or refresh one always-grant. Returns the row."""
 
-    return _store_of(store).put_grant(
-        scope=scope, tool=tool, scope_pattern=scope_pattern
-    )
+    return _store_of(store).put_grant(scope=scope, tool=tool, scope_pattern=scope_pattern)
 
 
 def grant_revoke(grant_id: int, *, store: Any = None) -> bool:
@@ -107,11 +103,11 @@ def handoff_resolve(
 __all__ = [
     "approval_create",
     "approval_resolve",
+    "grant_list",
     "grant_lookup",
-    "grant_scope_match",
     "grant_put",
     "grant_revoke",
-    "grant_list",
+    "grant_scope_match",
     "handoff_create",
     "handoff_resolve",
 ]

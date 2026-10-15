@@ -99,7 +99,7 @@ class ApprovalStore:
     # ── approvals ────────────────────────────────────────────────────
     def create_approval(self, record: dict[str, Any]) -> dict[str, Any]:
         now = time.time()
-        row = {
+        row: dict[str, Any] = {
             "request_id": str(record["request_id"]),
             "scope": str(record.get("scope") or ""),
             "tool": str(record.get("tool") or ""),
@@ -124,10 +124,19 @@ class ApprovalStore:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    row["request_id"], row["scope"], row["tool"], row["tool_args_json"],
-                    row["status"], row["decision"], row["decision_reason"],
-                    row["delegate_policy"], row["session_id"], row["actor"],
-                    row["created_at"], row["updated_at"], row["resolved_at"],
+                    row["request_id"],
+                    row["scope"],
+                    row["tool"],
+                    row["tool_args_json"],
+                    row["status"],
+                    row["decision"],
+                    row["decision_reason"],
+                    row["delegate_policy"],
+                    row["session_id"],
+                    row["actor"],
+                    row["created_at"],
+                    row["updated_at"],
+                    row["resolved_at"],
                 ),
             )
             self._conn.commit()
@@ -264,7 +273,7 @@ class ApprovalStore:
     # ── handoffs ─────────────────────────────────────────────────────
     def create_handoff(self, record: dict[str, Any]) -> dict[str, Any]:
         now = time.time()
-        row = {
+        row: dict[str, Any] = {
             "id": str(record["id"]),
             "scope": str(record.get("scope") or ""),
             "reason": str(record.get("reason") or ""),
@@ -278,8 +287,14 @@ class ApprovalStore:
                 INSERT OR IGNORE INTO handoffs (id, scope, reason, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (row["id"], row["scope"], row["reason"], row["status"],
-                 row["created_at"], row["updated_at"]),
+                (
+                    row["id"],
+                    row["scope"],
+                    row["reason"],
+                    row["status"],
+                    row["created_at"],
+                    row["updated_at"],
+                ),
             )
             self._conn.commit()
         return self.get_handoff(row["id"]) or row
@@ -339,15 +354,15 @@ class ApprovalStore:
 
 
 __all__ = [
-    "ApprovalStore",
-    "default_approvals_path",
-    "STATUS_PENDING",
-    "STATUS_RESOLVED",
-    "DECISION_ONCE",
-    "DECISION_SESSION",
     "DECISION_ALWAYS",
     "DECISION_DENY",
-    "HANDOFF_PENDING",
-    "HANDOFF_DONE",
+    "DECISION_ONCE",
+    "DECISION_SESSION",
     "HANDOFF_CANCELLED",
+    "HANDOFF_DONE",
+    "HANDOFF_PENDING",
+    "STATUS_PENDING",
+    "STATUS_RESOLVED",
+    "ApprovalStore",
+    "default_approvals_path",
 ]

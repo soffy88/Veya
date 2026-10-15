@@ -46,13 +46,13 @@ class TestHandsOprims:
 
     def test_hands_screenshot_mss(self, _mock_subprocess):
         """Test hands_screenshot with mss available."""
-        with patch("veya.oprim.hands._HAS_MSS", True), \
-             patch("veya.oprim.hands.mss") as mock_mss:
+        with patch("veya.oprim.hands._HAS_MSS", True), patch("veya.oprim.hands.mss") as mock_mss:
             mock_sct = MagicMock()
             mock_sct.monitors = [{}, {"width": 1920, "height": 1080}]
             mock_mss.mss.return_value.__enter__.return_value = mock_sct
 
             from veya.oprim.hands import hands_screenshot
+
             result = hands_screenshot()
 
             assert "path" in result
@@ -62,11 +62,13 @@ class TestHandsOprims:
 
     def test_hands_screenshot_scrot_fallback(self, _mock_subprocess):
         """Test hands_screenshot falls back to scrot."""
-        with patch("veya.oprim.hands._HAS_MSS", False), \
-             patch("veya.oprim.hands._HAS_SCROT", True), \
-             patch("veya.oprim.hands._HAS_XDOTOOL", True):
-
+        with (
+            patch("veya.oprim.hands._HAS_MSS", False),
+            patch("veya.oprim.hands._HAS_SCROT", True),
+            patch("veya.oprim.hands._HAS_XDOTOOL", True),
+        ):
             from veya.oprim.hands import hands_screenshot
+
             result = hands_screenshot()
 
             assert "path" in result
@@ -86,6 +88,7 @@ class TestHandsOprims:
         ]
 
         from veya.oprim.hands import hands_list_windows
+
         result = hands_list_windows()
 
         assert "windows" in result
@@ -96,6 +99,7 @@ class TestHandsOprims:
     def test_hands_click(self, _mock_subprocess):
         """Test hands_click."""
         from veya.oprim.hands import hands_click
+
         result = hands_click(100, 200, button=1)
         assert result["success"] is True
         assert result["x"] == 100
@@ -104,6 +108,7 @@ class TestHandsOprims:
     def test_hands_type(self, _mock_subprocess):
         """Test hands_type."""
         from veya.oprim.hands import hands_type
+
         result = hands_type("hello world", delay_ms=50)
         assert result["success"] is True
         assert result["chars_typed"] == 11
@@ -111,6 +116,7 @@ class TestHandsOprims:
     def test_hands_key(self, _mock_subprocess):
         """Test hands_key."""
         from veya.oprim.hands import hands_key
+
         result = hands_key("ctrl+c")
         assert result["success"] is True
         assert result["key_sequence"] == "ctrl+c"
@@ -118,6 +124,7 @@ class TestHandsOprims:
     def test_hands_scroll(self, _mock_subprocess):
         """Test hands_scroll."""
         from veya.oprim.hands import hands_scroll
+
         result = hands_scroll(direction="up", amount=5)
         assert result["success"] is True
         assert result["direction"] == "up"
@@ -126,6 +133,7 @@ class TestHandsOprims:
     def test_hands_focus_window(self, _mock_subprocess):
         """Test hands_focus_window."""
         from veya.oprim.hands import hands_focus_window
+
         result = hands_focus_window("12345")
         assert result["success"] is True
         assert result["window_id"] == "12345"
@@ -148,28 +156,35 @@ class TestHandsOskill:
     @pytest.fixture
     def mock_llm(self):
         """Mock LLM caller."""
+
         async def mock_caller(*, messages, tools=None, max_tokens=4096):
             return {
-                "choices": [{
-                    "message": {
-                        "tool_calls": [{
-                            "function": {
-                                "name": "click",
-                                "arguments": '{"x": 100, "y": 200}'
-                            }
-                        }]
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {"function": {"name": "click", "arguments": '{"x": 100, "y": 200}'}}
+                            ]
+                        }
                     }
-                }]
+                ]
             }
+
         return mock_caller
 
     @pytest.mark.asyncio
     async def test_hands_operator_loop_step(self, mock_llm):
         """Test one step of hands operator loop."""
         with patch("veya.oprim.hands.hands_screenshot") as mock_screenshot:
-            mock_screenshot.return_value = {"path": "/tmp/test.png", "width": 1920, "height": 1080, "format": "png"}
+            mock_screenshot.return_value = {
+                "path": "/tmp/test.png",
+                "width": 1920,
+                "height": 1080,
+                "format": "png",
+            }
 
             from veya.oskill.hands import hands_operator_loop_step
+
             action = await hands_operator_loop_step(
                 llm=mock_llm,
                 objective="Click the button",
@@ -182,13 +197,20 @@ class TestHandsOskill:
     @pytest.mark.asyncio
     async def test_hands_operator_loop_step_done(self, mock_llm):
         """Test operator loop returns done when no tool call."""
+
         async def mock_done(*, messages, tools=None, max_tokens=4096):
             return {"choices": [{"message": {"content": "Task complete"}}]}
 
         with patch("veya.oprim.hands.hands_screenshot") as mock_screenshot:
-            mock_screenshot.return_value = {"path": "/tmp/test.png", "width": 1920, "height": 1080, "format": "png"}
+            mock_screenshot.return_value = {
+                "path": "/tmp/test.png",
+                "width": 1920,
+                "height": 1080,
+                "format": "png",
+            }
 
             from veya.oskill.hands import hands_operator_loop_step
+
             action = await hands_operator_loop_step(
                 llm=mock_done,
                 objective="Done",
@@ -252,6 +274,7 @@ class TestProviderRegistry:
     def registry(self, tmp_path):
         """Create a fresh registry for each test."""
         from veya.obase.provider_registry import VeyaProviderRegistry
+
         return VeyaProviderRegistry(storage_dir=tmp_path / "providers")
 
     def test_builtin_providers(self, registry):
@@ -292,6 +315,7 @@ class TestProviderRegistry:
 
         # Persists across instances
         from veya.obase.provider_registry import VeyaProviderRegistry
+
         registry2 = VeyaProviderRegistry(storage_dir=tmp_path / "providers")
         assert "my-custom" in registry2.get_custom_providers()
 
@@ -323,7 +347,9 @@ class TestProviderRegistry:
 
         # User key
         registry.set_user_api_key("user-1", "anthropic", "sk-ant-key")
-        config = ModelSourceConfig(source="user_key", provider="anthropic", model="claude-3-5-sonnet")
+        config = ModelSourceConfig(
+            source="user_key", provider="anthropic", model="claude-3-5-sonnet"
+        )
         registry.set_bot_model_source("bot-2", config)
         effective = registry.get_effective_model_config("bot-2", "user-1")
         assert effective["source"] == "user_key"
@@ -431,11 +457,14 @@ class TestBotTeamModelSource:
 
     def test_create_bot_with_model_source(self, client):
         """Test creating bot with model_source."""
-        response = client.post("/api/v1/bots", json={
-            "bot_id": "test-bot",
-            "model_source": "user_key",
-            "model_source_config": {"provider": "openai", "model": "gpt-4o"},
-        })
+        response = client.post(
+            "/api/v1/bots",
+            json={
+                "bot_id": "test-bot",
+                "model_source": "user_key",
+                "model_source_config": {"provider": "openai", "model": "gpt-4o"},
+            },
+        )
         assert response.status_code == 200
         bot = response.json()["bot"]
         assert bot["model_source"] == "user_key"
@@ -447,10 +476,13 @@ class TestBotTeamModelSource:
         client.post("/api/v1/bots", json={"bot_id": "test-bot"})
 
         # Patch model_source
-        response = client.patch("/api/v1/bots/test-bot", json={
-            "model_source": "cli",
-            "model_source_config": {"cli_agent": "codex"},
-        })
+        response = client.patch(
+            "/api/v1/bots/test-bot",
+            json={
+                "model_source": "cli",
+                "model_source_config": {"cli_agent": "codex"},
+            },
+        )
         assert response.status_code == 200
         bot = response.json()["bot"]
         assert bot["model_source"] == "cli"
@@ -458,10 +490,13 @@ class TestBotTeamModelSource:
 
     def test_invalid_model_source_rejected(self, client):
         """Test invalid model_source is rejected."""
-        response = client.post("/api/v1/bots", json={
-            "bot_id": "test-bot",
-            "model_source": "invalid",
-        })
+        response = client.post(
+            "/api/v1/bots",
+            json={
+                "bot_id": "test-bot",
+                "model_source": "invalid",
+            },
+        )
         assert response.status_code == 422
 
 
@@ -498,19 +533,26 @@ class TestProviderRoutes:
         data = response.json()
         assert "providers" in data
         assert "openai" in data["providers"]
-        assert data["providers"]["openai"]["capabilities"] == ["vision", "function-calling", "streaming"]
+        assert data["providers"]["openai"]["capabilities"] == [
+            "vision",
+            "function-calling",
+            "streaming",
+        ]
 
     def test_register_custom_provider(self, client):
         """Test registering custom provider."""
-        response = client.post("/api/v1/providers/custom", json={
-            "name": "my-provider",
-            "display_name": "My Provider",
-            "protocol_family": "openai",
-            "base_url": "https://custom.example.com/v1",
-            "capabilities": ["streaming"],
-            "models": ["custom-model"],
-            "default_model": "custom-model",
-        })
+        response = client.post(
+            "/api/v1/providers/custom",
+            json={
+                "name": "my-provider",
+                "display_name": "My Provider",
+                "protocol_family": "openai",
+                "base_url": "https://custom.example.com/v1",
+                "capabilities": ["streaming"],
+                "models": ["custom-model"],
+                "default_model": "custom-model",
+            },
+        )
         assert response.status_code == 200
 
         # Verify it appears in list
@@ -520,10 +562,13 @@ class TestProviderRoutes:
     def test_user_api_key_crud(self, client):
         """Test user API key CRUD."""
         # Set key
-        response = client.post("/api/v1/providers/keys", json={
-            "provider": "openai",
-            "api_key": "sk-test-123",
-        })
+        response = client.post(
+            "/api/v1/providers/keys",
+            json={
+                "provider": "openai",
+                "api_key": "sk-test-123",
+            },
+        )
         assert response.status_code == 200
 
         # List shows it
@@ -537,19 +582,25 @@ class TestProviderRoutes:
     def test_bot_model_source_crud(self, client, monkeypatch):
         """Test bot model source CRUD for an existing, caller-owned bot."""
         from types import SimpleNamespace
+
         from server.goal_run.bot_identity import BotRegistry
 
         monkeypatch.setattr(
             BotRegistry,
             "get",
-            lambda _registry, bot_id: SimpleNamespace(owner_id="test-user") if bot_id == "test-bot" else None,
+            lambda _registry, bot_id: (
+                SimpleNamespace(owner_id="test-user") if bot_id == "test-bot" else None
+            ),
         )
-        response = client.post("/api/v1/providers/bot-model-source", json={
-            "bot_id": "test-bot",
-            "source": "user_key",
-            "provider": "anthropic",
-            "model": "claude-3-5-sonnet",
-        })
+        response = client.post(
+            "/api/v1/providers/bot-model-source",
+            json={
+                "bot_id": "test-bot",
+                "source": "user_key",
+                "provider": "anthropic",
+                "model": "claude-3-5-sonnet",
+            },
+        )
         assert response.status_code == 200
 
         response = client.get("/api/v1/providers/bot-model-source/test-bot")

@@ -85,6 +85,7 @@ def client(channels_env) -> TestClient:
     app.include_router(channel_routes.router)
     return TestClient(app)
 
+
 class _StubClient:
     """Records outbound sends instead of performing HTTP."""
 
@@ -560,9 +561,7 @@ def test_dispatch_routes_to_bot_and_replies(channels_env, monkeypatch, tmp_path)
     monkeypatch.setattr("server.channels.clients.client_for", _async_return(stub))
 
     telegram_adapter = adapter_for("telegram")
-    inbound = telegram_adapter.parse_inbound(
-        payload=_telegram_update("ping"), headers={}
-    )
+    inbound = telegram_adapter.parse_inbound(payload=_telegram_update("ping"), headers={})
     assert inbound is not None
     binding = {
         "owner_ref": "u_owner",
@@ -570,9 +569,7 @@ def test_dispatch_routes_to_bot_and_replies(channels_env, monkeypatch, tmp_path)
         "target_type": "bot",
         "target_id": "chef",
     }
-    outcome = asyncio.run(
-        dispatch_inbound(inbound, binding=binding, adapter=telegram_adapter)
-    )
+    outcome = asyncio.run(dispatch_inbound(inbound, binding=binding, adapter=telegram_adapter))
 
     assert outcome.status == "answered"
     assert captured["text"] == "ping"

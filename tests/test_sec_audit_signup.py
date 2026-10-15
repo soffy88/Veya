@@ -16,7 +16,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server import auth as auth_mod
-from server.routes.auth import key_router, router as auth_router
+from server.routes.auth import key_router
+from server.routes.auth import router as auth_router
 
 
 @pytest.fixture
@@ -65,7 +66,9 @@ def test_register_closed_by_default(app: FastAPI) -> None:
     assert resp.status_code == 403
 
 
-def test_register_open_when_enabled(app: FastAPI, auth_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_open_when_enabled(
+    app: FastAPI, auth_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("VEYA_PUBLIC_SIGNUP", "1")
     client = TestClient(app)
     resp = client.post(

@@ -36,7 +36,6 @@ from veya.remote.permission_engine import (
     OperationContext,
     PermissionEngine,
     ReasonCode,
-    parse_command_context,
 )
 from veya.remote.tool_adapter import RemoteToolAdapter, canonical_tool_name
 
@@ -211,7 +210,7 @@ def test_foreign_or_host_write_stays_gated(tmp_path: Path, target: Path) -> None
 def test_destructive_outside_commands_stay_gated(tmp_path: Path, command: str) -> None:
     _repo(tmp_path)
     gw = ActionGateway()
-    ok, code, _msg, cl = gw.check_action(
+    ok, _code, _msg, cl = gw.check_action(
         "shell.exec", {"command": command}, _session(tmp_path), str(tmp_path)
     )
     assert ok is False, (command, cl.category)
@@ -222,7 +221,7 @@ def test_destructive_outside_commands_stay_gated(tmp_path: Path, command: str) -
 def test_ordinary_pipelines_are_not_a_fork_bomb(tmp_path: Path, command: str) -> None:
     _repo(tmp_path)
     gw = ActionGateway()
-    ok, code, _msg, cl = gw.check_action(
+    ok, code, _msg, _cl = gw.check_action(
         "shell.exec", {"command": command}, _session(tmp_path), str(tmp_path)
     )
     assert ok is True, (command, code)

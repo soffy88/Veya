@@ -57,6 +57,7 @@ def validate_routine_spec(spec: RoutineSpec) -> list[str]:
     # ORCA-W4: validate workspace_path exists if provided
     if spec.workspace_path:
         from pathlib import Path
+
         if not Path(spec.workspace_path).exists():
             errors.append(f"workspace_path does not exist: {spec.workspace_path}")
     return errors

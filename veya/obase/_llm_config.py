@@ -130,7 +130,9 @@ def pi_provider_entry(name: str) -> dict:
     import json
     from pathlib import Path
 
-    path = Path(os.environ.get("VEYA_PI_MODELS_JSON") or Path.home() / ".pi" / "agent" / "models.json")
+    path = Path(
+        os.environ.get("VEYA_PI_MODELS_JSON") or Path.home() / ".pi" / "agent" / "models.json"
+    )
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):

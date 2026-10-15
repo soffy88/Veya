@@ -74,6 +74,7 @@ def default_provider_storage_dir() -> Path:
 
 # ── Encryption for API Keys ─────────────────────────────────────────────
 
+
 def _get_encryption_key() -> bytes:
     """Derive encryption key from VEYA_SECRET_KEY or generate ephemeral."""
     secret = os.environ.get("VEYA_SECRET_KEY", "").encode()
@@ -103,9 +104,11 @@ def _decrypt_value(encrypted: str) -> str:
 
 # ── Provider Spec Extensions ────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class VeyaProviderSpec:
     """Extended provider spec with Veya-specific fields."""
+
     # Core identity
     name: str
     display_name: str
@@ -113,7 +116,9 @@ class VeyaProviderSpec:
     base_url: str | None = None
 
     # Capabilities
-    capabilities: set[str] = field(default_factory=set)  # "vision", "image-gen", "function-calling", "streaming"
+    capabilities: set[str] = field(
+        default_factory=set
+    )  # "vision", "image-gen", "function-calling", "streaming"
 
     # Model listings
     models: list[str] = field(default_factory=list)
@@ -182,7 +187,11 @@ BUILTIN_PROVIDERS: dict[str, VeyaProviderSpec] = {
         protocol_family="anthropic",
         base_url="https://api.anthropic.com",
         capabilities={"vision", "function-calling", "streaming"},
-        models=["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
+        models=[
+            "claude-3-5-sonnet-20241022",
+            "claude-3-5-haiku-20241022",
+            "claude-3-opus-20240229",
+        ],
         default_model="claude-3-5-sonnet-20241022",
         description="Anthropic API",
     ),
@@ -212,7 +221,12 @@ BUILTIN_PROVIDERS: dict[str, VeyaProviderSpec] = {
         protocol_family="openai",  # OpenAI-compatible
         base_url="https://openrouter.ai/api/v1",
         capabilities={"vision", "function-calling", "streaming", "image-gen"},
-        models=["openrouter/auto", "anthropic/claude-3.5-sonnet", "openai/gpt-4o", "google/gemini-pro"],
+        models=[
+            "openrouter/auto",
+            "anthropic/claude-3.5-sonnet",
+            "openai/gpt-4o",
+            "google/gemini-pro",
+        ],
         default_model="openrouter/auto",
         description="OpenRouter unified API",
     ),
@@ -251,9 +265,11 @@ BUILTIN_PROVIDERS: dict[str, VeyaProviderSpec] = {
 
 # ── Model Source Configuration ──────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class ModelSourceConfig:
     """Configuration for a bot's model source."""
+
     source: str  # "server" | "user_key" | "cli"
     provider: str = ""
     model: str = ""
@@ -261,7 +277,7 @@ class ModelSourceConfig:
     cli_agent: str | None = None  # "codex", "claude", "kimi", "gemini", "custom"
     cli_args: list[str] = field(default_factory=list)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         valid_sources = {"server", "user_key", "cli"}
         if self.source not in valid_sources:
             raise ValueError(f"model_source.source must be one of {valid_sources}")
@@ -280,6 +296,7 @@ class ModelSourceConfig:
 
 
 # ── Veya Provider Registry ──────────────────────────────────────────────
+
 
 class VeyaProviderRegistry:
     """
@@ -485,11 +502,14 @@ class VeyaProviderRegistry:
         for name, cmd in cli_agents.items():
             try:
                 import subprocess
+
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
                 if result.returncode == 0:
                     self._cli_agents[name] = {
                         "available": True,
-                        "version": result.stdout.strip().splitlines()[0] if result.stdout else "unknown",
+                        "version": result.stdout.strip().splitlines()[0]
+                        if result.stdout
+                        else "unknown",
                         "path": cmd[0],
                     }
                 else:
@@ -503,7 +523,7 @@ class VeyaProviderRegistry:
 
     def is_cli_agent_available(self, name: str) -> bool:
         """Check if a CLI agent is available."""
-        return self._cli_agents.get(name, {}).get("available", False)
+        return bool(self._cli_agents.get(name, {}).get("available", False))
 
     # ── Platform 3O Registry Delegation ────────────────────────────────
 

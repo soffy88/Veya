@@ -200,9 +200,9 @@ async def test_feishu_adapter_url_verification_passthrough():
     from server.channels.feishu import FeishuAdapter
 
     adapter = FeishuAdapter()
-    assert adapter.challenge_response(
-        {"type": "url_verification", "challenge": "ch-abc"}
-    ) == {"challenge": "ch-abc"}
+    assert adapter.challenge_response({"type": "url_verification", "challenge": "ch-abc"}) == {
+        "challenge": "ch-abc"
+    }
 
 
 def test_slack_formatting_is_pure_and_chunked():

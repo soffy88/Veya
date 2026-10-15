@@ -319,9 +319,12 @@ def run_doctor_channels(argv: list[str]) -> int:
     import argparse
     import asyncio
     import json
+
     from veya.obase.channel_probes import probe_all_channels
 
-    p = argparse.ArgumentParser(prog="veya doctor channels", description="自检网页阅读频道阶梯后端状态")
+    p = argparse.ArgumentParser(
+        prog="veya doctor channels", description="自检网页阅读频道阶梯后端状态"
+    )
     p.add_argument("--json", action="store_true", help="JSON 输出 (脚本友好)")
     args = p.parse_args(argv)
 

@@ -24,4 +24,4 @@ def derive_delivery_state(*, delivered: bool, has_start_evidence: bool) -> str:
     return STATE_UNCONFIRMED
 
 
-__all__ = ["derive_delivery_state", "STATE_DELIVERED", "STATE_STARTED", "STATE_UNCONFIRMED"]
+__all__ = ["STATE_DELIVERED", "STATE_STARTED", "STATE_UNCONFIRMED", "derive_delivery_state"]

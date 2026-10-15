@@ -24,9 +24,10 @@ import os
 import re
 import shlex
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any
 
 from server.remote_control import flags
 
@@ -116,18 +117,28 @@ def _ensure_private_dir(path: Path) -> Path:
 def ssh_base_argv(host: Any, *, key_path: str = "", control_dir: Path | None = None) -> list[str]:
     """Fixed ssh options + target; the caller appends ``["--", remote]``."""
 
-    policy = "yes" if getattr(host, "ssh_host_key_policy", "accept-new") == "strict" else "accept-new"
+    policy = (
+        "yes" if getattr(host, "ssh_host_key_policy", "accept-new") == "strict" else "accept-new"
+    )
     cm = control_dir if control_dir is not None else cm_dir()
     argv = [
         "ssh",
-        "-o", "BatchMode=yes",
-        "-o", f"StrictHostKeyChecking={policy}",
-        "-o", f"ConnectTimeout={connect_timeout()}",
-        "-o", "ServerAliveInterval=15",
-        "-o", "ServerAliveCountMax=3",
-        "-o", "ControlMaster=auto",
-        "-o", f"ControlPath={cm}/cm-%r@%h:%p",
-        "-o", f"ControlPersist={control_persist()}",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        f"StrictHostKeyChecking={policy}",
+        "-o",
+        f"ConnectTimeout={connect_timeout()}",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        f"ControlPath={cm}/cm-%r@%h:%p",
+        "-o",
+        f"ControlPersist={control_persist()}",
     ]
     if key_path:
         argv += ["-o", "IdentitiesOnly=yes", "-i", key_path]
@@ -162,7 +173,9 @@ def _vault_value(ref: str) -> str | None:
     return str(vault.get_secret(name) or "")
 
 
-def resolve_key_path(host: Any, *, lookup: Callable[[str], str | None] | None = None) -> tuple[str, list[str]]:
+def resolve_key_path(
+    host: Any, *, lookup: Callable[[str], str | None] | None = None
+) -> tuple[str, list[str]]:
     """Return ``(key_path, secret_values_to_mask)`` for ``host.ssh_key_ref``.
 
     Empty ref → ``("", [])`` (ssh's own default identities / agent). The vault
@@ -234,7 +247,7 @@ def run_remote(
     control = cm_dir()
     if runner is None:
         _ensure_private_dir(control)
-    full = ssh_base_argv(host, key_path=key_path, control_dir=control) + ["--", quote_remote(argv)]
+    full = [*ssh_base_argv(host, key_path=key_path, control_dir=control), "--", quote_remote(argv)]
     try:
         result = (runner or _default_runner)(
             full, timeout_s=float(timeout_s or run_timeout()), input_bytes=input_bytes
@@ -249,7 +262,9 @@ def run_remote(
         raw_err = raw_err.encode("utf-8")
     return RemoteResult(
         returncode=getattr(result, "returncode", None),
-        stdout=clean_output(raw_out.decode("utf-8", "replace"), secrets=secrets, limit=output_limit),
+        stdout=clean_output(
+            raw_out.decode("utf-8", "replace"), secrets=secrets, limit=output_limit
+        ),
         stderr=clean_output(raw_err.decode("utf-8", "replace"), secrets=secrets, limit=2000),
         timed_out=bool(getattr(result, "timed_out", False)),
         raw_stdout=raw_out,
@@ -261,12 +276,18 @@ def probe(host: Any, *, runner: Runner | None = None, key_lookup=None) -> ProbeR
 
     started = time.monotonic()
     try:
-        result = run_remote(host, ["uname", "-s"], timeout_s=5.0, runner=runner, key_lookup=key_lookup)
+        result = run_remote(
+            host, ["uname", "-s"], timeout_s=5.0, runner=runner, key_lookup=key_lookup
+        )
     except SshError as exc:
         return ProbeResult(reachable=False, error=str(exc))
     latency = round((time.monotonic() - started) * 1000, 1)
     if not result.ok:
-        err = "timeout" if result.timed_out else (result.stderr.strip()[:200] or f"exit {result.returncode}")
+        err = (
+            "timeout"
+            if result.timed_out
+            else (result.stderr.strip()[:200] or f"exit {result.returncode}")
+        )
         return ProbeResult(reachable=False, latency_ms=latency, error=err)
     echo = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
     family = {"Linux": "linux", "Darwin": "macos"}.get(echo, echo.lower())
@@ -274,10 +295,10 @@ def probe(host: Any, *, runner: Runner | None = None, key_lookup=None) -> ProbeR
 
 
 __all__ = [
+    "VAULT_PREFIX",
     "ProbeResult",
     "RemoteResult",
     "SshError",
-    "VAULT_PREFIX",
     "clean_output",
     "probe",
     "quote_remote",
