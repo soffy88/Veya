@@ -1075,6 +1075,58 @@ async def _proxy_url() -> str | None:
     return None
 
 
+
+def _assert_public_fetch_url(url: str) -> str:
+    """Validate each outbound fetch target and reject non-public address space."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlsplit
+
+    try:
+        parsed = urlsplit(url)
+    except ValueError as exc:
+        raise ValueError("invalid URL") from exc
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("only absolute HTTP(S) URLs are allowed")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URL user-info is not allowed")
+
+    host = parsed.hostname.rstrip(".").lower()
+    if host in {"localhost", "metadata.google.internal", "metadata.google"} or host.endswith((".localhost", ".local", ".internal", ".test")):
+        raise ValueError("non-public hostname is not allowed")
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            answers = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme.lower() == "https" else 80), type=socket.SOCK_STREAM)
+        except OSError as exc:
+            raise ValueError("hostname could not be resolved safely") from exc
+        addresses = {ipaddress.ip_address(answer[4][0].split("%", 1)[0]) for answer in answers}
+    else:
+        addresses = {literal}
+    if not addresses or any(not address.is_global for address in addresses):
+        raise ValueError("non-public IP address is not allowed")
+    return url
+
+
+async def _get_public_fetch_response(url: str, headers: dict[str, str], proxy: str | None):
+    """Follow redirects manually so every redirect target is revalidated."""
+    from urllib.parse import urljoin
+    import httpx
+
+    current = url
+    for _ in range(6):
+        _assert_public_fetch_url(current)
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False, proxy=proxy) as client:
+            response = await client.get(current, headers=headers)
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            return response
+        location = response.headers.get("location")
+        if not location:
+            raise ValueError("redirect has no Location header")
+        current = urljoin(current, location)
+    raise ValueError("too many redirects")
+
 async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
     """原生 URL 阅读工具 (httpx, 免 playwright): 抓任意网页/文档为纯文本。
 
@@ -1087,8 +1139,10 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
     import httpx
 
     url = url.strip()
-    if not url.lower().startswith(("http://", "https://")):
-        return f"错误: 无效 URL {url!r} (需要 http/https 开头)。"
+    try:
+        _assert_public_fetch_url(url)
+    except ValueError as exc:
+        return f"错误: URL 被安全策略拒绝 ({exc})。"
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -1098,8 +1152,8 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
     }
     proxy = await _proxy_url()
 
-    def _client() -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=20.0, follow_redirects=True, proxy=proxy)
+    async def _get(url_to_fetch: str):
+        return await _get_public_fetch_response(url_to_fetch, headers, proxy)
 
     # GitHub 仓库/子路径 → raw README 快速通道 (无 JS, 最可靠)
     m = re.match(r"https?://github\.com/([^/]+)/([^/?#]+)", url)
@@ -1109,8 +1163,7 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
             for readme in ("README.md", "Readme.md", "readme.md"):
                 raw = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{readme}"
                 try:
-                    async with _client() as client:
-                        r = await client.get(raw, headers=headers)
+                    r = await _get(raw)
                     if r.status_code == 200:
                         return (
                             f"[GitHub {owner}/{repo} README (branch={branch})]\n"
@@ -1123,8 +1176,7 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
             "可尝试 browser_run 交互抓取, 或访问仓库页面链接。"
         )
     try:
-        async with _client() as client:
-            r = await client.get(url, headers=headers)
+        r = await _get(url)
     except Exception as exc:
         return f"抓取失败: {type(exc).__name__}: {exc}"
     if r.status_code >= 400:
