@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import json
 import logging
 import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -580,6 +582,7 @@ class ProcessSandbox(Sandbox):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env=self._prepare_env(),
+                    start_new_session=True,
                 )
             else:
                 # 固定可信 wrapper：ulimit 前缀 + exec "$@"；用户参数原样传递
@@ -598,6 +601,7 @@ class ProcessSandbox(Sandbox):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env=self._prepare_env(),
+                    start_new_session=True,
                 )
             self.process = process
 
@@ -675,8 +679,20 @@ class ProcessSandbox(Sandbox):
     async def cancel(self) -> None:
         """Cancel execution."""
         if self.process and self.process.returncode is None:
-            self.process.terminate()
-            await self.process.wait()
+            try:
+                pgid = os.getpgid(self.process.pid)
+                os.killpg(pgid, signal.SIGTERM)
+            except Exception:
+                self.process.terminate()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(self.process.wait(), timeout=2.0)
+            if self.process.returncode is None:
+                with contextlib.suppress(Exception):
+                    pgid = os.getpgid(self.process.pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                with contextlib.suppress(Exception):
+                    self.process.kill()
+                await self.process.wait()
             self.status = SandboxStatus.CANCELLED
             self._audit_log(
                 "execution_cancelled", "User requested cancellation", status="cancelled"
@@ -687,7 +703,11 @@ class ProcessSandbox(Sandbox):
         assert self.config.time_limit is not None
         await asyncio.sleep(self.config.time_limit)
         if self.process and self.process.returncode is None:
-            self.process.terminate()
+            with contextlib.suppress(Exception):
+                pgid = os.getpgid(self.process.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            with contextlib.suppress(Exception):
+                self.process.kill()
             self._audit_log("execution_timeout", "Time limit exceeded", status="failed")
 
     def _prepare_env(self) -> dict[str, str]:
