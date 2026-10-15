@@ -5,15 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from server.routes.tailnet import require_tailnet_owner
 from runtime.coding.cli_agents import (
     _validate_command_template,
     get_cli_agent_registry,
 )
 
-router = APIRouter(tags=["cli-agents"])
+router = APIRouter(tags=["cli-agents"], dependencies=[Depends(require_tailnet_owner)])
 
 
 class CustomProfileRequest(BaseModel):
