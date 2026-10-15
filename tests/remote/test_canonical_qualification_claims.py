@@ -423,6 +423,9 @@ async def test_claim_5_invariants(tmp_path: Path):
 
 async def test_claim_6_routes_delegate_to_canonical_authority(tmp_path: Path, monkeypatch):
     """Routes return 404 for unknown IDs and delegate real lifecycle operations."""
+    # Test only: use the app's documented loopback single-user mode so the
+    # global auth gate does not mask this route's 404/lifecycle contract.
+    monkeypatch.setenv("VEYA_LOCAL_SINGLE_USER", "1")
     from server.app import app
     from server.routes import execution_contract
 
@@ -431,7 +434,7 @@ async def test_claim_6_routes_delegate_to_canonical_authority(tmp_path: Path, mo
     monkeypatch.setattr(execution_contract, "_CANONICAL_MANAGER", test_manager)
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         # 1. Non-existent execution must fail-closed with 404 (not a fake 200 stub!)
         resp = await client.get("/api/v1/execution/nonexistent-id-1234")
         assert resp.status_code == 404
