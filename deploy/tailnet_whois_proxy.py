@@ -123,7 +123,7 @@ def make_handler(upstream_socket: str):
                     return
                 conn = UnixHTTPConnection(upstream_socket, timeout=5.0)
                 try:
-                    conn.request("GET", upstream_target, headers={"Host": "localapi", "Connection": "close"})
+                    conn.request("GET", upstream_target, headers={"Host": "local-tailscaled.sock", "Connection": "close"})
                     response = conn.getresponse()
                     body = response.read(MAX_BODY_BYTES + 1)
                     if response.status != 200 or len(body) > MAX_BODY_BYTES:
