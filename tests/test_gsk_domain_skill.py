@@ -82,3 +82,20 @@ def test_three_successful_domain_tasks_activate_quarantined_note(monkeypatch, tm
     inject_domain_skills(next_context, task, manager)
     assert len(next_context.selected_skills) == 1
     assert "official docs" in render_execution_context(next_context)
+
+
+
+def test_domain_notes_use_existing_skills_tree_without_callable_manifest(monkeypatch, tmp_path):
+    skills_dir = tmp_path / "skills"
+    monkeypatch.setenv("VEYA_SKILLS_DIR", str(skills_dir))
+    monkeypatch.delenv("VEYA_GSK_DOMAIN_SKILLS_PATH", raising=False)
+    manager = DomainSkillManager()
+    manager.register_skill("docs.example", "Use the published API reference.")
+
+    notes = list((skills_dir / "gsk-domain-notes").rglob("SKILL.md"))
+    assert len(notes) == 1
+    assert "gsk-domain-note" in notes[0].read_text(encoding="utf-8").splitlines()[0]
+    assert not (skills_dir / "gsk-domain-notes" / "manifest.json").exists()
+    reloaded = DomainSkillManager()
+    assert reloaded.data["docs.example"][0]["status"] == "quarantine"
+    assert reloaded.data["docs.example"][0]["content"] == "Use the published API reference."
