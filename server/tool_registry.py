@@ -4859,9 +4859,19 @@ _register_bot_memory_tools(master_tools)
 
 # PR-08 GitHub review surface.  This is an additive MasterAgent capability,
 # not a second agent or orchestration path.
-from server.github_pr_tools import register_tools as _register_github_pr_tools  # noqa: E402
+from server.mab_router import register_mab_tools, is_mab_enabled
 
-_register_github_pr_tools(master_tools)
+def _register_mab_tools_to_master(master_tools: Any) -> None:
+    if not is_mab_enabled():
+        return
+    for t in register_mab_tools():
+        if hasattr(master_tools, "register_tool"):
+            master_tools.register_tool(t["name"], t["handler"], description=t["description"], parameters=t["parameters"])
+        elif hasattr(master_tools, "register"):
+            master_tools.register(t)
+
+    _register_github_pr_tools(master_tools)
+    _register_mab_tools_to_master(master_tools)
 
 # PR-09 GitHub Issue workflow.  This remains on the single MasterAgent path;
 # remote branch and Draft PR creation are explicit-approval capabilities.

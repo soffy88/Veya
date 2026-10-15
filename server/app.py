@@ -615,6 +615,8 @@ app.include_router(settings_router)
 app.include_router(supervised_router)
 app.include_router(channels_router)  # NANO-W7: flag-gated, 404 while off
 app.include_router(tailnet_router)  # W20: owner-only Tailnet management API
+from server.mab_router import router as mab_router
+app.include_router(mab_router)  # MAB: Multi-Account Browser API
 from server.routes.remote_control import router as remote_control_router
 
 app.include_router(remote_control_router)  # W13: flag-gated, 404 while off
