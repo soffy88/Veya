@@ -1,53 +1,58 @@
-from __future__ import annotations
-
 import os
 import re
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Tuple
+from veya.gsk import get_repo_root, is_enabled
 
-def check_careful_command(cmd: str) -> Optional[str]:
-    """Check command against dangerous patterns (rm -rf /, DROP TABLE, git push --force, etc.)."""
-    if not os.environ.get("VEYA_GSK_CAREFUL"):
-        return None
+def check_careful(command: str) -> Tuple[bool, str]:
+    if not is_enabled("VEYA_GSK_CAREFUL"):
+        return True, ""
 
-    norm = cmd.strip()
+    cmd_lower = command.lower()
 
-    # 1. rm -rf checking (matches any combination of r/f flags with rm)
-    if re.search(r"\brm\s+.*-[rR][fF]|\brm\s+.*-[fF][rR]|\brm\s+.*--recursive\s+--force|\brm\s+.*--force\s+--recursive|\brm\s+-[rR]\s+-[fF]|\brm\s+-[fF]\s+-[rR]|\brm\s+-[rf]+\b", norm, re.IGNORECASE):
-        if re.search(r"\b(?:/|\$ROOT|\$HOME|\*)\b", norm) or norm.endswith(" /") or " /" in norm or "/home" in norm:
-            return "Destructive rm -rf command detected targeting root or broad path."
+    # 1. rm -rf checking
+    if re.search(r"\brm\b", cmd_lower):
+        if "-rf" in cmd_lower or "-fr" in cmd_lower or ("--recursive" in cmd_lower and "--force" in cmd_lower):
+            if re.search(r"/\s*($|\s)", command) or "/*" in command or "$root" in cmd_lower:
+                return False, "Dangerous rm -rf targeting root or wildcard detected."
 
-    # 2. SQL DROP / TRUNCATE
-    if re.search(r"\b(?:DROP\s+(?:TABLE|DATABASE|SCHEMA)|TRUNCATE\s+TABLE)\b", norm, re.IGNORECASE):
-        return "Destructive SQL operation (DROP/TRUNCATE) detected."
+    # 2. SQL destructive operations
+    if any(kw in cmd_lower for kw in ["drop table", "drop database", "truncate"]):
+        return False, "Destructive SQL statement (DROP/TRUNCATE) detected."
 
-    # 3. git push force
-    if re.search(r"\bgit\s+push\b.*(?:--force|-f|--force-with-lease)", norm, re.IGNORECASE):
-        if re.search(r"\b(?:main|master)\b", norm):
-            return "Force push to main/master branch detected."
+    # 3. git push force to main
+    if "git push" in cmd_lower and any(f in cmd_lower for f in ["--force", "-f", "--force-with-lease"]):
+        if "main" in cmd_lower or "master" in cmd_lower:
+            return False, "Force push to main/master branch detected."
 
     # 4. git reset --hard
-    if re.search(r"\bgit\s+reset\s+--hard\b", norm, re.IGNORECASE):
-        return "Destructive git reset --hard detected."
+    if "git reset" in cmd_lower and "--hard" in cmd_lower:
+        return False, "Destructive git reset --hard detected."
 
-    # 5. mkfs / dd of=/dev
-    if re.search(r"\bmkfs\b|\bdd\s+of=/dev/", norm, re.IGNORECASE):
-        return "Destructive system-level command (mkfs/dd) detected."
+    # 5. system destructive commands
+    if any(kw in cmd_lower for kw in ["mkfs", "dd of=/dev", "chmod -R 777 /"]):
+        return False, "System-level destructive command detected."
 
-    # 6. chmod -R 777 /
-    if re.search(r"\bchmod\s+.*-R\s+777\s+/", norm, re.IGNORECASE):
-        return "Dangerous permissions change (chmod -R 777 /) detected."
+    return True, ""
 
-    return None
+def check_freeze(path_str: str) -> Tuple[bool, str]:
+    if not is_enabled("VEYA_GSK_CAREFUL"):
+        return True, ""
+    
+    freeze_dir_env = os.getenv("VEYA_GSK_FREEZE_DIR")
+    if not freeze_dir_env:
+        return True, ""
 
-def check_freeze_path(file_path: str) -> bool:
-    if not os.environ.get("VEYA_GSK_FREEZE_DIR"):
-        return True
-    freeze_dir = os.environ.get("VEYA_GSK_FREEZE_DIR")
+    root = get_repo_root().resolve()
+    freeze_path = (root / freeze_dir_env).resolve() if not Path(freeze_dir_env).is_absolute() else Path(freeze_dir_env).resolve()
+
     try:
-        from pathlib import Path
-        resolved_freeze = Path(freeze_dir).resolve()
-        resolved_target = Path(file_path).resolve()
-        resolved_target.relative_to(resolved_freeze)
-        return True
+        target_path = (root / path_str).resolve() if not Path(path_str).is_absolute() else Path(path_str).resolve()
     except Exception:
-        return False
+        target_path = Path(path_str).resolve()
+
+    try:
+        target_path.relative_to(freeze_path)
+        return True, ""
+    except ValueError:
+        return False, f"Path '{path_str}' is outside the frozen directory '{freeze_path}'."

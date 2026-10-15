@@ -1,107 +1,96 @@
-from __future__ import annotations
-
-import os
-import time
-import json
-import hashlib
-import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+import subprocess
+import hashlib
+import json
+import time
+from typing import Dict, Any, Optional
+from veya.gsk import get_repo_root, is_enabled
 
-_EVIDENCE_DIR = Path(os.environ.get("GSTACK_EVIDENCE_DIR", ".gsk-evidence"))
-
-def _get_git_fingerprint() -> Dict[str, Any]:
-    head_sha = "unknown"
+def _git_status() -> tuple[str, str, str]:
+    root = get_repo_root()
     try:
-        res = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
-        head_sha = res.stdout.strip()
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, timeout=2).stdout.strip()
     except Exception:
-        pass
-
-    porcelain = ""
+        head = "unknown"
     try:
-        res = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, check=True)
-        porcelain = res.stdout
+        porcelain = subprocess.run(["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, timeout=2).stdout
     except Exception:
-        pass
-
-    diff_hash = "none"
+        porcelain = ""
     try:
-        res = subprocess.run(["git", "diff"], capture_output=True, text=True, check=True)
-        diff_hash = hashlib.sha256(res.stdout.encode("utf-8")).hexdigest()
+        diff = subprocess.run(["git", "diff"], cwd=root, capture_output=True, text=True, timeout=2).stdout
     except Exception:
-        pass
+        diff = ""
+    diff_hash = hashlib.sha256(diff.encode("utf-8")).hexdigest()
+    return head, porcelain.strip(), diff_hash
 
-    combined = f"{head_sha}:{porcelain}:{diff_hash}"
-    fingerprint_hash = hashlib.sha256(combined.encode("utf-8")).hexdigest()
-
+def compute_workspace_fingerprint() -> Dict[str, Any]:
+    head, porcelain, diff_hash = _git_status()
+    raw = f"{head}:{porcelain}:{diff_hash}"
+    fp_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return {
-        "head_sha": head_sha,
+        "head": head,
         "porcelain": porcelain,
         "diff_hash": diff_hash,
-        "fingerprint_hash": fingerprint_hash,
+        "fingerprint": fp_hash,
+        "timestamp": time.time()
     }
 
-def record_evidence(label: str, command: List[str], exit_code: int, output_summary: str) -> Dict[str, Any]:
-    if not os.environ.get("VEYA_GSK_EVIDENCE"):
-        return {"status": "disabled"}
+class EvidenceLedger:
+    def __init__(self, ledger_path: Optional[Path] = None):
+        self.root = get_repo_root()
+        self.ledger_path = ledger_path or (self.root / ".gsk-tmp" / "evidence_ledger.jsonl")
+        self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
 
-    _EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-    fp = _get_git_fingerprint()
-    
-    record = {
-        "label": label,
-        "command": command,
-        "exit_code": exit_code,
-        "timestamp": time.time(),
-        "output_summary_hash": hashlib.sha256(output_summary.encode("utf-8")).hexdigest(),
-        "fingerprint": fp,
-    }
+    def record_run(self, label: str, command: str, exit_code: int, stdout_summary: str) -> Dict[str, Any]:
+        fp = compute_workspace_fingerprint()
+        entry = {
+            "label": label,
+            "command": command,
+            "exit_code": exit_code,
+            "stdout_summary": hashlib.sha256(stdout_summary.encode("utf-8")).hexdigest(),
+            "fingerprint": fp,
+            "recorded_at": time.time()
+        }
+        with open(self.ledger_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+        return entry
 
-    path = _EVIDENCE_DIR / f"{label}.json"
-    path.write_text(json.dumps(record, indent=2))
-    return {"status": "recorded", "label": label, "fingerprint_hash": fp["fingerprint_hash"]}
+    def check(self, label: str) -> str:
+        if not self.ledger_path.exists():
+            return "MISSING"
+        latest = None
+        with open(self.ledger_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    if data.get("label") == label:
+                        latest = data
+                except Exception:
+                    pass
+        if not latest:
+            return "MISSING"
+        
+        current_fp = compute_workspace_fingerprint()
+        recorded_fp = latest.get("fingerprint", {}).get("fingerprint")
+        if current_fp["fingerprint"] == recorded_fp:
+            return "FRESH"
+        else:
+            return "STALE"
 
-def check_evidence(label: str) -> Dict[str, Any]:
-    if not os.environ.get("VEYA_GSK_EVIDENCE"):
-        return {"status": "disabled"}
-
-    path = _EVIDENCE_DIR / f"{label}.json"
-    if not path.is_file():
-        return {"status": "MISSING", "label": label}
-
-    try:
-        record = json.loads(path.read_text())
-    except Exception:
-        return {"status": "CORRUPT", "label": label}
-
-    current_fp = _get_git_fingerprint()
-    recorded_fp = record.get("fingerprint", {})
-
-    # For unit tests, if fingerprint matches or if we want robust test verification under uncommitted changes,
-    # let's compare head_sha and allow test flexibility or check fingerprint_hash.
-    if recorded_fp.get("fingerprint_hash") == current_fp["fingerprint_hash"] or recorded_fp.get("head_sha") == current_fp["head_sha"]:
-        return {"status": "FRESH", "label": label, "record": record}
-    else:
-        return {"status": "STALE", "label": label, "record": record, "current_fingerprint": current_fp}
-
-def evidence_for(claim_id_or_test_name: str) -> Dict[str, Any]:
-    """Provide evidence status for a claim or test name."""
-    if not os.environ.get("VEYA_GSK_EVIDENCE"):
-        return {"status": "disabled"}
-    
-    res = check_evidence(claim_id_or_test_name)
-    if res["status"] != "MISSING":
-        return res
-    
-    if _EVIDENCE_DIR.is_dir():
-        for p in _EVIDENCE_DIR.glob("*.json"):
-            try:
-                data = json.loads(p.read_text())
-                if claim_id_or_test_name in data.get("label", "") or any(claim_id_or_test_name in str(c) for c in data.get("command", [])):
-                    lbl = data.get("label")
-                    return check_evidence(lbl)
-            except Exception:
-                continue
-
-    return {"status": "MISSING", "query": claim_id_or_test_name}
+    def get_record(self, label: str) -> Optional[Dict[str, Any]]:
+        if not self.ledger_path.exists():
+            return None
+        latest = None
+        with open(self.ledger_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    if data.get("label") == label:
+                        latest = data
+                except Exception:
+                    pass
+        return latest

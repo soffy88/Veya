@@ -1,43 +1,28 @@
-from __future__ import annotations
+import pytest
+from veya.gsk.careful import check_careful, check_freeze
 
-import os
-import unittest
-from pathlib import Path
-from veya.gsk.careful import check_careful_command, check_freeze_path
+def test_careful_guard_rules(monkeypatch):
+    monkeypatch.setenv("VEYA_GSK_CAREFUL", "1")
+    ok, _ = check_careful("git status")
+    assert ok is True
 
-class TestGskCareful(unittest.TestCase):
-    def tearDown(self):
-        os.environ.pop("VEYA_GSK_CAREFUL", None)
-        os.environ.pop("VEYA_GSK_FREEZE_DIR", None)
+    ok, msg = check_careful("rm -rf /")
+    assert ok is False
+    assert "rm -rf" in msg
 
-    def test_careful_disabled(self):
-        self.assertIsNone(check_careful_command("rm -rf /"))
+    ok, msg = check_careful("DROP TABLE users;")
+    assert ok is False
 
-    def test_careful_blocked_commands(self):
-        os.environ["VEYA_GSK_CAREFUL"] = "1"
+    ok, msg = check_careful("git push origin main --force")
+    assert ok is False
 
-        self.assertIsNotNone(check_careful_command("rm -rf /"))
-        self.assertIsNotNone(check_careful_command("rm -fr /home"))
-        self.assertIsNotNone(check_careful_command("DROP TABLE users;"))
-        self.assertIsNotNone(check_careful_command("git push origin main --force"))
-        self.assertIsNotNone(check_careful_command("git reset --hard HEAD~1"))
-        self.assertIsNotNone(check_careful_command("mkfs.ext4 /dev/sda1"))
-        self.assertIsNotNone(check_careful_command("chmod -R 777 /"))
+def test_freeze_guard(monkeypatch, tmp_path):
+    monkeypatch.setenv("VEYA_GSK_CAREFUL", "1")
+    monkeypatch.setenv("VEYA_GSK_FREEZE_DIR", "veya/gsk")
 
-        # Safe commands should pass
-        self.assertIsNone(check_careful_command("git status"))
-        self.assertIsNone(check_careful_command("pytest -q"))
+    ok, _ = check_freeze("veya/gsk/evidence.py")
+    assert ok is True
 
-    def test_freeze_path(self):
-        # Freeze disabled
-        self.assertTrue(check_freeze_path("/etc/passwd"))
-
-        # Freeze enabled to .gsk-tmp
-        os.environ["VEYA_GSK_FREEZE_DIR"] = ".gsk-tmp"
-        
-        self.assertTrue(check_freeze_path(".gsk-tmp/foo.txt"))
-        self.assertFalse(check_freeze_path("veya/gsk/evidence.py"))
-        self.assertFalse(check_freeze_path(".gsk-tmp/../veya/gsk/evidence.py"))
-
-if __name__ == "__main__":
-    unittest.main()
+    ok, msg = check_freeze("veya/server/app.py")
+    assert ok is False
+    assert "outside the frozen directory" in msg

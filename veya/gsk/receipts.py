@@ -1,101 +1,90 @@
-from __future__ import annotations
-
-import os
-import time
-import json
-import hashlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+import hashlib
+import json
+import time
+from typing import Dict, Any, List, Optional
+from veya.gsk import get_repo_root, is_enabled
 
-def _get_receipts_path() -> Path:
-    return Path(os.environ.get("GSTACK_RECEIPTS_PATH", ".gsk-data/egress_receipts.jsonl"))
+class EgressReceiptLedger:
+    def __init__(self, path: Optional[Path] = None):
+        self.root = get_repo_root()
+        self.path = path or (self.root / ".gsk-tmp" / "egress_receipts.jsonl")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
 
-def log_egress(destination: str, egress_type: str, size: int, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    if not os.environ.get("VEYA_GSK_EGRESS_RECEIPTS"):
-        return {"status": "disabled"}
+    def log_egress(self, destination: str, payload_type: str, payload_size: int, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        prev_hash = "0" * 64
+        if self.path.exists():
+            try:
+                with open(self.path, "r", encoding="utf-8") as f:
+                    lines = [l.strip() for l in f if l.strip()]
+                    if lines:
+                        last_entry = json.loads(lines[-1])
+                        prev_hash = last_entry.get("entry_hash", prev_hash)
+            except Exception:
+                pass
 
-    path = _get_receipts_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    
-    prev_hash = "GENESIS"
-    if path.is_file():
-        try:
-            lines = path.read_text().splitlines()
-            if lines:
-                last_record = json.loads(lines[-1])
-                prev_hash = last_record.get("record_hash", "GENESIS")
-        except Exception:
-            pass
+        timestamp = time.time()
+        content_raw = f"{destination}:{payload_type}:{payload_size}:{timestamp}"
+        content_hash = hashlib.sha256(content_raw.encode("utf-8")).hexdigest()
+        
+        entry_raw = f"{prev_hash}:{content_hash}:{timestamp}"
+        entry_hash = hashlib.sha256(entry_raw.encode("utf-8")).hexdigest()
 
-    content_dict = {
-        "destination": destination,
-        "type": egress_type,
-        "size": size,
-        "timestamp": time.time(),
-        "metadata": metadata or {},
-    }
-    content_str = json.dumps(content_dict, sort_keys=True)
-    content_hash = hashlib.sha256(content_str.encode("utf-8")).hexdigest()
-
-    record_to_hash = f"{prev_hash}:{content_hash}"
-    record_hash = hashlib.sha256(record_to_hash.encode("utf-8")).hexdigest()
-
-    entry = {
-        "prev_hash": prev_hash,
-        "content_hash": content_hash,
-        "record_hash": record_hash,
-        "destination": destination,
-        "type": egress_type,
-        "size": size,
-        "timestamp": content_dict["timestamp"],
-    }
-
-    with open(path, "a") as f:
-        f.write(json.dumps(entry) + "\n")
-
-    return {"status": "logged", "record_hash": record_hash}
-
-def verify_receipts() -> Dict[str, Any]:
-    if not os.environ.get("VEYA_GSK_EGRESS_RECEIPTS"):
-        return {"status": "disabled"}
-
-    path = _get_receipts_path()
-    if not path.is_file():
-        return {"valid": True, "count": 0, "entries": []}
-
-    lines = path.read_text().splitlines()
-    expected_prev = "GENESIS"
-    entries = []
-
-    for i, line in enumerate(lines):
-        try:
-            entry = json.loads(line)
-        except Exception:
-            return {"valid": False, "error": f"Invalid JSON at line {i+1}"}
-
-        if entry.get("prev_hash") != expected_prev:
-            return {"valid": False, "error": f"Chain broken at line {i+1}"}
-
-        # Recompute content_hash from fields to detect field tampering
-        content_dict = {
-            "destination": entry.get("destination"),
-            "type": entry.get("type"),
-            "size": entry.get("size"),
-            "timestamp": entry.get("timestamp"),
-            "metadata": entry.get("metadata", {}),
+        record = {
+            "prev_hash": prev_hash,
+            "content_hash": content_hash,
+            "entry_hash": entry_hash,
+            "destination": destination,
+            "payload_type": payload_type,
+            "payload_size": payload_size,
+            "timestamp": timestamp,
+            "metadata": metadata or {}
         }
-        content_str = json.dumps(content_dict, sort_keys=True)
-        recomputed_content_hash = hashlib.sha256(content_str.encode("utf-8")).hexdigest()
 
-        if recomputed_content_hash != entry.get("content_hash"):
-            return {"valid": False, "error": f"Content hash mismatch / tampering detected at line {i+1}"}
+        with open(self.path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+        return record
 
-        record_to_hash = f"{entry.get('prev_hash')}:{entry.get('content_hash')}"
-        computed_hash = hashlib.sha256(record_to_hash.encode("utf-8")).hexdigest()
-        if computed_hash != entry.get("record_hash"):
-            return {"valid": False, "error": f"Record hash mismatch at line {i+1}"}
+    def verify(self) -> Dict[str, Any]:
+        if not self.path.exists():
+            return {"valid": True, "count": 0, "error": None}
+        
+        expected_prev = "0" * 64
+        count = 0
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                for idx, line in enumerate(f):
+                    if not line.strip():
+                        continue
+                    data = json.loads(line)
+                    if data.get("prev_hash") != expected_prev:
+                        return {"valid": False, "count": count, "error": f"Chain broken at line {idx+1}: prev_hash mismatch"}
+                    
+                    content_raw = f"{data.get('destination')}:{data.get('payload_type')}:{data.get('payload_size')}:{data.get('timestamp')}"
+                    calc_content_hash = hashlib.sha256(content_raw.encode("utf-8")).hexdigest()
+                    if calc_content_hash != data.get("content_hash"):
+                        return {"valid": False, "count": count, "error": f"Content hash mismatch at line {idx+1}"}
 
-        expected_prev = entry.get("record_hash")
-        entries.append(entry)
+                    entry_raw = f"{data.get('prev_hash')}:{data.get('content_hash')}:{data.get('timestamp')}"
+                    calc_entry_hash = hashlib.sha256(entry_raw.encode("utf-8")).hexdigest()
+                    if calc_entry_hash != data.get("entry_hash"):
+                        return {"valid": False, "count": count, "error": f"Entry hash mismatch at line {idx+1}"}
 
-    return {"valid": True, "count": len(entries), "entries": entries}
+                    expected_prev = data.get("entry_hash")
+                    count += 1
+            return {"valid": True, "count": count, "error": None}
+        except Exception as e:
+            return {"valid": False, "count": count, "error": str(e)}
+
+    def list_receipts(self) -> List[Dict[str, Any]]:
+        if not self.path.exists():
+            return []
+        res = []
+        with open(self.path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        res.append(json.loads(line))
+                    except Exception:
+                        pass
+        return res
