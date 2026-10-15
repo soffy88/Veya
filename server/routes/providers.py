@@ -64,17 +64,18 @@ class BotModelSourceRequest(BaseModel):
 def _require_bot_owner(bot_id: str, user: dict[str, Any]) -> None:
     """Refuse a model-source change for a bot the caller does not own.
 
-    A bot that does not exist yet is allowed through: creating a bot and
-    pointing it at a provider are one user decision, and the catalog is
-    written by the bot route under the same owner check.
+    Missing non-default bots are rejected because there is no owner record to
+    authorize against. System default bots are the only explicit exception.
     """
     from server.goal_run.bot_identity import BotRegistry
 
     spec = BotRegistry().get(bot_id)
-    if spec is None:
-        return
     from server.goal_run.bot_identity import DEFAULT_BOT_ID
     from server.routes.bot_team import CHEF_BOT_ID
+    if spec is None:
+        if bot_id in {DEFAULT_BOT_ID, CHEF_BOT_ID}:
+            return
+        raise HTTPException(status_code=404, detail="bot not found")
 
     owner = str(spec.owner_id or "").strip()
     if bot_id not in {DEFAULT_BOT_ID, CHEF_BOT_ID} and (
@@ -120,7 +121,7 @@ async def list_providers(
 @router.post("/custom")
 async def register_custom_provider(
     req: ProviderSpecRequest,
-    user: dict[str, Any] = Depends(auth_mod.require_user),
+    user: dict[str, Any] = Depends(auth_mod.require_owner),
 ) -> dict[str, Any]:
     """Register a custom OpenAI-compatible provider."""
     _require_provider_registry()
@@ -147,7 +148,7 @@ async def register_custom_provider(
 @router.delete("/custom/{name}")
 async def unregister_custom_provider(
     name: str,
-    user: dict[str, Any] = Depends(auth_mod.require_user),
+    user: dict[str, Any] = Depends(auth_mod.require_owner),
 ) -> dict[str, Any]:
     """Unregister a custom provider."""
     _require_provider_registry()

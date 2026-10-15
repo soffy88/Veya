@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -47,15 +49,49 @@ class CLIAgentProfile:
         }
 
 
+_SHELL_METACHARACTERS = re.compile(r"[;&|<>`$()\n\r\x00]")
+_EXECUTABLE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
+_DEFAULT_EXECUTABLE_ALLOWLIST = frozenset(command for command, _flag in _BUILTIN_PROFILES.values())
+
+
+def _cli_executable_allowlist() -> frozenset[str]:
+    """Known CLI executables plus explicit operator-approved additions."""
+    import os
+
+    names = set(_DEFAULT_EXECUTABLE_ALLOWLIST)
+    for item in os.environ.get("VEYA_CLI_EXECUTABLE_ALLOWLIST", "").split(","):
+        name = item.strip()
+        if name and _EXECUTABLE_NAME.fullmatch(name):
+            names.add(name)
+    return frozenset(names)
+
+
 def _validate_command_template(template: str) -> str:
-    """Validate command template contains required placeholders."""
+    """Validate placeholders, executable identity, and shell-free syntax."""
     if not isinstance(template, str) or not template.strip():
         raise ValueError("command_template must be a non-empty string")
-    if "{prompt}" not in template:
+    value = template.strip()
+    if "{prompt}" not in value:
         raise ValueError("command_template must contain {prompt} placeholder")
-    if "{cwd}" not in template:
+    if "{cwd}" not in value:
         raise ValueError("command_template must contain {cwd} placeholder")
-    return template.strip()
+    if _SHELL_METACHARACTERS.search(value):
+        raise ValueError("command_template contains forbidden shell metacharacters")
+    placeholders = set(re.findall(r"\{([^{}]+)\}", value))
+    if placeholders - {"prompt", "cwd"}:
+        raise ValueError("command_template contains an unknown placeholder")
+    sentinel = value.replace("{prompt}", "VEYA_PROMPT_SENTINEL")
+    sentinel = sentinel.replace("{cwd}", "VEYA_CWD_SENTINEL")
+    try:
+        argv = shlex.split(sentinel, posix=True)
+    except ValueError as exc:
+        raise ValueError("command_template has invalid quoting") from exc
+    if not argv:
+        raise ValueError("command_template must start with a known executable")
+    executable = argv[0]
+    if not _EXECUTABLE_NAME.fullmatch(executable) or executable not in _cli_executable_allowlist():
+        raise ValueError(f"command executable {executable!r} is not allowlisted")
+    return value
 
 
 def _run_version_check(command: str) -> str | None:
@@ -117,7 +153,20 @@ def _load_custom_profiles(repo_root: Path) -> dict[str, CLIAgentProfile]:
                 continue
             name = item.get("name")
             template = item.get("command_template")
+            if (
+                not isinstance(name, str)
+                or not name.strip()
+                or name in _BUILTIN_PROFILES
+                or not isinstance(template, str)
+            ):
+                logger.warning("Ignoring invalid custom CLI profile record")
+                continue
             if name and template:
+                try:
+                    template = _validate_command_template(template)
+                except ValueError:
+                    logger.warning("Ignoring custom CLI profile with an unsafe command template: %s", name)
+                    continue
                 profiles[name] = CLIAgentProfile(
                     name=name,
                     command_template=template,
@@ -197,13 +246,21 @@ class CLIAgentRegistry:
         return profile
 
     def render_command(self, profile: CLIAgentProfile, prompt: str, cwd: str) -> list[str]:
-        """Render the command template with prompt and cwd."""
-        template = profile.command_template
-        rendered = template.replace("{prompt}", prompt).replace("{cwd}", cwd)
-        # Split into argv, respecting quoted strings
-        import shlex
-
-        return shlex.split(rendered)
+        """Render a validated template while preserving prompt/cwd as single argv values."""
+        template = _validate_command_template(profile.command_template)
+        prompt_sentinel = "VEYA_PROMPT_VALUE_SENTINEL"
+        cwd_sentinel = "VEYA_CWD_VALUE_SENTINEL"
+        if prompt_sentinel in prompt or cwd_sentinel in cwd:
+            raise ValueError("prompt or cwd contains a reserved command-template sentinel")
+        rendered = template.replace("{prompt}", prompt_sentinel).replace("{cwd}", cwd_sentinel)
+        try:
+            argv = shlex.split(rendered, posix=True)
+        except ValueError as exc:
+            raise ValueError("command_template has invalid quoting") from exc
+        return [
+            item.replace(prompt_sentinel, prompt).replace(cwd_sentinel, cwd)
+            for item in argv
+        ]
 
 
 def get_cli_agent_registry(repo_root: Path | str) -> CLIAgentRegistry:

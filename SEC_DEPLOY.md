@@ -31,6 +31,19 @@ git status --short --branch
 
 发布验收还需从非本机网络确认宿主公网/Tailscale 接口无法直连 `8767`、`9120`、`8768`；仅本机 loopback 检查不足以证明防火墙/Caddy 路由。
 
+## 8767/9120 的实际绑定修正步骤（需批准维护窗口）
+
+源码目标绑定必须保持为 `127.0.0.1:8767:8765` 和 `127.0.0.1:9120:8765`，不得使用 `8767:8765`、`0.0.0.0:8767:8765`、`[::]:8767:8765` 或其 `9120` 对应形式。当前 `deploy/docker-compose.yml` 已按 loopback 形式声明，但这不改变已经创建的容器发布端口。批准维护窗口内，在仓库根目录执行：
+
+```bash
+docker compose --env-file .env -f deploy/docker-compose.yml config | grep -E '127\.0\.0\.1:(8767|9120):8765'
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --force-recreate backend
+docker inspect veya-backend --format '{{json .HostConfig.PortBindings}}'
+docker ps --format 'table {{.Names}}\t{{.Ports}}' | grep veya-backend
+```
+
+验收时 `HostIp` 必须严格为 `127.0.0.1`，并且 `docker ps` 不得出现 `0.0.0.0:8767`、`0.0.0.0:9120`、`[::]:8767` 或 `[::]:9120`。如部署采用单独的 `backend-up.sh` 或 `docker run`（本 worktree 未发现名为 `backend-up.sh` 的脚本），将其中每个 `-p 8767:8765` 改为 `-p 127.0.0.1:8767:8765`，将 `-p 9120:8765` 改为 `-p 127.0.0.1:9120:8765`；Compose 路径则只更改 `deploy/docker-compose.yml` 的 `ports:` 发布行。不要只重启应用进程：Docker 端口绑定须通过重建容器生效。任务窗口外不执行这些重建命令。
+
 ## 2. 生产环境变量
 
 不要把真实值写进仓库或报告；由部署 secret store 注入：
@@ -57,7 +70,7 @@ VEYA_VERIFY_COMMAND_ALLOWLIST=["python -m pytest -q"]
 - `TrustedHostMiddleware` 默认只允许 localhost/127.0.0.1，正式入口需通过 `VEYA_ALLOWED_HOSTS` 显式配置。
 - CORS 使用精确 Origin 列表；不要恢复 `allow_origin_regex` 通配、任意 Origin 或 `allow_origins=["*"]`。
 - `VEYA_TOOL_GATE_ENFORCE` 与 `VEYA_EGRESS_ENFORCE` 当前默认 enforce。生产显式设为 `1`；`0` 是降级开关，不应作为长期配置。
-- URL fetch 在每个目标/重定向跳转前检查 scheme、host、DNS 解析和非公网地址，并限制跳转次数。但当前客户端的 DNS 解析与 HTTP 连接仍是两步，存在 DNS rebinding/代理解析差异的剩余风险；不能把现有检查等同于 IP pinning 或 egress firewall。生产应另外使用网络层出站白名单/代理策略。
+- 原生 `_tool_fetch_url` 对初始 URL 和每个重定向重新解析 DNS、拒绝任何非公网解析结果，并将实际 TCP 连接固定到该轮校验的 IP；该路径关闭系统/显式代理，避免代理独立 DNS 解析造成 rebinding 绕过。它依赖当前 httpx/httpcore transport 的 network-backend 接口，升级依赖时必须运行 SSRF 回归。此证明不覆盖 `browser_run`、MCP SDK transport 或其他外联路径；它们仍需独立 egress/目标地址审计，生产应另外使用网络层出站白名单。
 - `hicode-entrypoint.sh` 源码已切换 loopback + token auth。部署验证还必须确认 Reasonix 客户端的 token provisioning 与服务端 CLI 版本匹配；本次未重启运行时，也未做端到端 token 握手。
 - 调试表达式 HTTP 路由已移除；调试 guard 默认按生产拒绝。不要把 `VEYA_EXECUTION_PRODUCTION=0` 设置到生产环境。
 - 沙箱只向子进程传递白名单环境变量；实际网络隔离能力仍取决于运行环境对 bubblewrap/`--unshare-net` 的支持，应检查运行证据而不是只看环境变量。

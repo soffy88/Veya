@@ -111,6 +111,20 @@ class RemoteMCPGateway:
         remote_addr: str | None,
         session_header: str | None = None,
     ) -> dict[str, Any]:
+        # Authenticate first: anonymous initialize requests must not trigger
+        # startup recovery, durable reconciliation, or any other side effect.
+        try:
+            token = self.auth.verify(authorization)
+        except RemoteAuthError as exc:
+            self.audit.record(
+                tool="initialize",
+                status="auth_denied",
+                error_code=RemoteErrorCode.AUTH_DENIED,
+                remote_addr=remote_addr,
+            )
+            return _rpc_error(
+                request_id, _JSONRPC_ERROR["AUTH"], exc.message, error_code="AUTH_DENIED"
+            )
         try:
             await self.adapter.initialize()
         except Exception as exc:
@@ -123,20 +137,8 @@ class RemoteMCPGateway:
             return _rpc_error(
                 request_id,
                 _JSONRPC_ERROR["INTERNAL"],
-                f"remote startup recovery failed: {exc}",
+                f"remote startup recovery failed: {type(exc).__name__}",
                 error_code="STARTUP_RECOVERY_FAILED",
-            )
-        try:
-            token = self.auth.verify(authorization)
-        except RemoteAuthError as exc:
-            self.audit.record(
-                tool="initialize",
-                status="auth_denied",
-                error_code=RemoteErrorCode.AUTH_DENIED,
-                remote_addr=remote_addr,
-            )
-            return _rpc_error(
-                request_id, _JSONRPC_ERROR["AUTH"], exc.message, error_code="AUTH_DENIED"
             )
         requested_protocol = str(params.get("protocolVersion") or PROTOCOL_VERSION)
         protocol = (

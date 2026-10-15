@@ -21,6 +21,8 @@ anything; the concrete default is :func:`server.remote_control.process.spawn`.
 
 from __future__ import annotations
 
+import os
+import re
 import shlex
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -33,6 +35,18 @@ WORKSPACE_PLACEHOLDER = "{workspace}"
 
 #: Transports a host may declare.
 TRANSPORTS: tuple[str, ...] = ("local", "ssh")
+_DEFAULT_EXECUTABLES = frozenset({"pi", "claude-wb", "codex"})
+_EXECUTABLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
+_SHELL_META_RE = re.compile(r"[;&|<>`$()\n\r\x00]")
+
+
+def _allowed_executables() -> frozenset[str]:
+    values = set(_DEFAULT_EXECUTABLES)
+    for raw in os.environ.get("VEYA_REMOTE_AGENT_EXECUTABLE_ALLOWLIST", "").split(","):
+        executable = raw.strip()
+        if executable and _EXECUTABLE_RE.fullmatch(executable):
+            values.add(executable)
+    return frozenset(values)
 
 
 class CommandRejected(ValueError):
@@ -102,6 +116,11 @@ def render_command(
     raw = str(template or "").strip()
     if not raw:
         raise CommandRejected("empty command template")
+    if _SHELL_META_RE.search(raw):
+        raise CommandRejected("command template contains forbidden shell metacharacters")
+    placeholders = set(re.findall(r"\{([^{}]+)\}", raw))
+    if placeholders - {"task", "workspace"}:
+        raise CommandRejected("command template contains an unknown placeholder")
     text = str(task or "")
     if not text.strip():
         raise CommandRejected("task text is required")
@@ -116,6 +135,9 @@ def render_command(
     expanded = expanded.replace(WORKSPACE_PLACEHOLDER, sentinel_ws)
 
     argv = validate_argv(shlex.split(expanded))
+    executable = argv[0]
+    if not _EXECUTABLE_RE.fullmatch(executable) or executable not in _allowed_executables():
+        raise CommandRejected(f"command executable {executable!r} is not allowlisted")
     argv = [item.replace(sentinel, text).replace(sentinel_ws, workspace) for item in argv]
     return validate_argv(argv)
 
