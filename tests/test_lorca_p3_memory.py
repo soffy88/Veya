@@ -287,13 +287,18 @@ def client(tmp_path_factory):
     """TestClient with VEYA_BOTS_ROOT pointing to an isolated tmp directory."""
     bots_root = str(tmp_path_factory.mktemp("bots_root"))
     os.environ["VEYA_BOTS_ROOT"] = bots_root
-    # Import app after patching the env so the store picks up the override.
+    # Import the isolated app after patching the env so the store picks up the override.
+    from fastapi import FastAPI
     from server import auth as auth_mod
-    from server.app import app
     from server.auth import AuthGateMiddleware
+    from server.routes.bot_memory import router as bot_memory_router
 
+    # Each fixture owns its app. Never add middleware to server.app, which may
+    # already have started in another test module.
+    app = FastAPI()
     app.add_middleware(AuthGateMiddleware)
-    
+    app.include_router(bot_memory_router)
+
     db = tmp_path_factory.mktemp("sec-auth-mod") / "auth.db"
     auth_mod._DB_PATH = db
     os.environ.pop("VEYA_LOCAL_SINGLE_USER", None)
@@ -318,7 +323,7 @@ def client(tmp_path_factory):
     os.environ.setdefault(
         "VEYA_BOT_REGISTRY_PATH", str(tmp_path_factory.mktemp("reg") / "bot_registry.json")
     )
-    BotRegistry().register(BotSpec(bot_id=BOT, owner_id="sec-test-owner", name="rest"))
+    BotRegistry().register(BotSpec(bot_id=BOT, owner_id=user["user_id"], name="rest"))
     with TestClient(app, raise_server_exceptions=True) as c:
         c.headers.update({"Authorization": f"Bearer {token}"})
         yield c
