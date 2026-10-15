@@ -68,11 +68,17 @@ def fake_master(monkeypatch):
     async def fake_execute(request: Any) -> GoalRunResponse:
         captured.append(request)
         objective = str(getattr(request, "objective", "") or "")
+        lines = [line.strip() for line in objective.splitlines() if line.strip()]
+        # The canonical request appends a fixed response-style instruction;
+        # keep this fake's summary tied to the preceding user objective.
+        if lines and lines[-1].startswith("请使用中文"):
+            lines.pop()
+        summary_source = lines[-1] if lines else ""
         return GoalRunResponse(
             goal_id="goal-lorca-1",
             status=GoalStatus.completed,
             phase="finalized",
-            summary=f"done:{objective.splitlines()[-1][:24]}",
+            summary=f"done:{summary_source[:24]}",
         )
 
     from server.coordinator_master import master_coordinator
