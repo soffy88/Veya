@@ -4863,9 +4863,8 @@ from server.github_pr_tools import register_tools as _register_github_pr_tools  
 
 _register_github_pr_tools(master_tools)
 
-# MAB is an opt-in browser capability; do not import its router or register its
-# tool when the feature flag is off. GitHub PR registration above stays intact.
-if os.environ.get("VEYA_MAB_BROWSER", "OFF").upper() in {"1", "TRUE", "ON", "YES"}:
+# MAB is strictly opt-in; keep the canonical GitHub tool registration intact.
+if os.environ.get("VEYA_MAB_BROWSER", "OFF").strip().upper() in {"1", "TRUE", "ON", "YES"}:
     from server.mab_router import register_mab_tools as _register_mab_tools
 
     for _mab_tool in _register_mab_tools():
