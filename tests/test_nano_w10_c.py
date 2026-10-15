@@ -922,7 +922,7 @@ class TestNanoW10CRoutes:
 
         from server.app import app
 
-        client = TestClient(app)
+        client = TestClient(app, base_url="http://localhost")
         res_roles = client.patch(
             "/api/v1/nano-w10-c/groups/g1/roles", json={"reply_mode": "everyone"}
         )
@@ -950,7 +950,7 @@ class TestNanoW10CRoutes:
         grp = store.create(name="ApiGrp", bot_ids=["b_admin", "b_member"])
 
         headers = {"Authorization": auth_headers["Authorization"]}
-        client = TestClient(app)
+        client = TestClient(app, base_url="http://localhost")
 
         # Flag OFF: 404
         monkeypatch.setenv("VEYA_GROUP_ROLES", "0")
@@ -991,7 +991,7 @@ class TestNanoW10CRoutes:
         b_reg.register(BotSpec(bot_id="b_test", owner_id=auth_headers["user_id"]))
 
         headers = {"Authorization": auth_headers["Authorization"]}
-        client = TestClient(app)
+        client = TestClient(app, base_url="http://localhost")
 
         # Flag OFF: 404
         monkeypatch.setenv("VEYA_BOT_SECRETS", "0")
@@ -1057,7 +1057,7 @@ class TestNanoW10CRoutes:
         from server.goal_run.store import save_goal_run
 
         headers = {"Authorization": auth_headers["Authorization"]}
-        client = TestClient(app)
+        client = TestClient(app, base_url="http://localhost")
 
         b_reg = BotRegistry()
         b_reg.register(BotSpec(bot_id="bot_alien", owner_id="stranger_user"))
