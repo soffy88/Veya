@@ -331,13 +331,19 @@ class CLIWorkerExecutorAdapter(ExecutorAdapter):
             "BUILD",
         }
         try:
-            argv, env = _worker_command(
-                self.executor_id,
-                request.task_text,
-                worktree_path=request.worktree_path,
-                coding_mode=coding_mode,
-                agent=request.env.get("VEYA_OPENCODE_AGENT") if request.env else None,
-            )
+            runtime_id = request.task_contract.get("xrt_runtime_id")
+            if runtime_id:
+                from runtime.coding.cli_agents import build_xrt_command
+
+                argv, env = build_xrt_command(str(runtime_id), request.task_text)
+            else:
+                argv, env = _worker_command(
+                    self.executor_id,
+                    request.task_text,
+                    worktree_path=request.worktree_path,
+                    coding_mode=coding_mode,
+                    agent=request.env.get("VEYA_OPENCODE_AGENT") if request.env else None,
+                )
         except Exception as exc:
             reporter.failure(
                 failure_class="PROCESS_START_FAILURE", source=self.executor_id, detail=str(exc)
@@ -524,7 +530,14 @@ _LOCAL2_ID = "local2"
 
 
 def register_default_adapters() -> None:
-    """Register the built-in executor adapters (idempotent)."""
+    """Register built-in adapters and only opt-in XRT-specific adapters."""
+    from runtime.coding.cli_agents import (
+        XRT_RUNTIME_PROFILES,
+        xrt_feature_enabled,
+        xrt_runtime_enabled,
+    )
+    from veya.remote.executor_adapter import unregister_executor_adapter
+
     register_executor_adapter(_LOCAL2_ID, Local2ExecutorAdapter)
     for worker in (
         "pi",
@@ -536,6 +549,14 @@ def register_default_adapters() -> None:
         "dsh",
     ):
         register_executor_adapter(worker, CLIWorkerExecutorAdapter)
+
+    existing_workers = {"claude_code", "codex", "opencode", "grok"}
+    xrt_only_ids = set(XRT_RUNTIME_PROFILES) - existing_workers
+    for worker in sorted(xrt_only_ids):
+        if xrt_feature_enabled() and xrt_runtime_enabled(worker):
+            register_executor_adapter(worker, CLIWorkerExecutorAdapter)
+        else:
+            unregister_executor_adapter(worker)
 
 
 register_default_adapters()
