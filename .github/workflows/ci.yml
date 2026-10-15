@@ -76,37 +76,37 @@ jobs:
       - name: Direct I/O release gate
         continue-on-error: true
         run: |
-          python scripts/check_direct_io.py . \
+          .venv/bin/python scripts/check_direct_io.py . \
             --baseline scripts/baseline_direct_io.txt \
             --fail-on-new --format json --report direct-io-report.json
 
       - name: 3O SPEC v3.0 incremental hard gate
         continue-on-error: true
-        run: python scripts/check_3o_gates.py --strict
+        run: .venv/bin/python scripts/check_3o_gates.py --strict
 
       - name: 3O SPEC v3.0 Appendix B — full historical debt report
-        run: python .github/scripts/3o_lint/runner.py --report-only
+        run: .venv/bin/python .github/scripts/3o_lint/runner.py --report-only
 
       - name: Tracked-source secret scan hard gate
-        run: python scripts/release_integrity.py --check-secrets-only
+        run: .venv/bin/python scripts/release_integrity.py --check-secrets-only
 
       - name: G16 English-docstring gate (modern core)
-        run: python scripts/check_docstring_language.py
+        run: .venv/bin/python scripts/check_docstring_language.py
 
       - name: Architecture manifest hard gate
-        run: python scripts/check_architecture_manifest.py
+        run: .venv/bin/python scripts/check_architecture_manifest.py
 
       - name: Single-master production path hard gate
-        run: python scripts/check_single_master_path.py
+        run: .venv/bin/python scripts/check_single_master_path.py
 
       - name: Test evidence integrity hard gate
-        run: python scripts/check_test_evidence.py
+        run: .venv/bin/python scripts/check_test_evidence.py
 
       - name: Legacy import inventory
-        run: python scripts/legacy_import_scan.py
+        run: .venv/bin/python scripts/legacy_import_scan.py
 
       - name: Personal Agent Gold hard gate
-        run: python -m evals.personal_agent_gold.gate
+        run: .venv/bin/python -m evals.personal_agent_gold.gate
 
   typecheck:
     name: Type Check (mypy)
