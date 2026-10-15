@@ -15,6 +15,7 @@ Ops (``input_data["op"]``):
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,7 @@ STATUS_ERROR = "error"
 class PairingFlowConfig:
     """Injection points for the pairing flow."""
 
-    _enabled_pillars = {"decision_trail"}
+    _enabled_pillars: frozenset[str] = frozenset({"decision_trail"})
 
     def __init__(
         self,
@@ -47,10 +48,8 @@ class PairingFlowConfig:
 def _trail(config: PairingFlowConfig, topic: str, payload: dict[str, Any]) -> None:
     if config.trail is None:
         return
-    try:
+    with contextlib.suppress(Exception):
         config.trail(topic, payload)
-    except Exception:
-        pass
 
 
 async def run_pairing_flow(

@@ -129,6 +129,20 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "capture_browser_a11y",
     "capture_desktop_a11y",
     "format_a11y_tree",
+    # Web-reading channel probes (NANO-W10d, ADDENDUM V)
+    "WEB_CHANNEL_LADDERS",
+    "get_cached_channel_statuses",
+    "probe_all_channels",
+    "probe_backend",
+    "probe_channel",
+    # Search fallback ladder (NANO-W10d, ADDENDUM T)
+    "SEARCH_LADDER_ORDER",
+    "execute_search_backend",
+    "run_search_ladder_adapter",
+    "search_bing",
+    "search_configured_provider",
+    "search_duckduckgo",
+    "search_model_native",
 ]
 
 # 阶段 1: 句柄合同与全局单例句柄层

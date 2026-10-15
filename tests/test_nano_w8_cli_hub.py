@@ -302,9 +302,8 @@ class TestCLIHubRoutes:
         from veya.oprim.cli_hub import CLIHubUnsupportedError, search_cli
 
         # Remove flag and expect error
-        with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(CLIHubUnsupportedError):
-                search_cli(query="test")
+        with patch.dict("os.environ", {}, clear=True), pytest.raises(CLIHubUnsupportedError):
+            search_cli(query="test")
 
         app = FastAPI()
         app.include_router(cli_hub_router)

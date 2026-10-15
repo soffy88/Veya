@@ -13,6 +13,7 @@ pixels arrive as base64 on the oprim's result, so this layer never opens a file.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import os
@@ -416,7 +417,8 @@ async def hands_approval_gate(
 
     # Record in SideEffectLedger if available
     if side_effect_ledger is not None and executed:
-        try:
+        # Non-fatal: the audit record above is already written
+        with contextlib.suppress(Exception):
             await side_effect_ledger.execute(
                 goal_run_id=goal_run_id,
                 work_item_id=goal_run_id,
@@ -428,8 +430,6 @@ async def hands_approval_gate(
                 capability="manual_only",
                 bot_id=bot_id,
             )
-        except Exception:
-            pass  # Non-fatal: the audit record above is already written
 
     return {
         "approved": approved,
@@ -458,7 +458,7 @@ async def hands_pause_resume(
         Status dict.
     """
     if side_effect_ledger is not None:
-        try:
+        with contextlib.suppress(Exception):
             await side_effect_ledger.execute(
                 goal_run_id=goal_run_id,
                 work_item_id=goal_run_id,
@@ -470,8 +470,6 @@ async def hands_pause_resume(
                 capability="manual_only",
                 bot_id="",  # Filled by caller
             )
-        except Exception:
-            pass
 
     return {"status": "paused" if paused else "resumed", "goal_run_id": goal_run_id}
 

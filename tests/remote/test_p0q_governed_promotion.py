@@ -523,7 +523,7 @@ async def test_promotion_receipt_claims_match_observed_git_state(repo: Path) -> 
 
         # Every promotion claim is checkable against git itself.
         worktree = Path(receipt["worktree"])
-        assert receipt["commit_sha"] if "commit_sha" in receipt else True
+        assert receipt.get("commit_sha", True)
         assert receipt["candidate_sha"] == git(worktree, "rev-parse", "HEAD")
         assert receipt["verified_sha"] == receipt["candidate_sha"]
         assert (

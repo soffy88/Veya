@@ -100,4 +100,9 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "BotSecretConfig",
     "BotSecretInput",
     "bot_secrets_operation",
+    # W12/W13: governed approval + pairing flows (re-exported at package root)
+    "ApprovalFlowConfig",
+    "run_approval_flow",
+    "PairingFlowConfig",
+    "run_pairing_flow",
 ]

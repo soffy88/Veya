@@ -35,9 +35,7 @@ class SkillEligibility:
             return False
         if self.project and self.project != context.get("project"):
             return False
-        if self.repository and self.repository != context.get("repository"):
-            return False
-        return True
+        return not (self.repository and self.repository != context.get("repository"))
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

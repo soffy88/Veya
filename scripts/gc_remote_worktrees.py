@@ -154,9 +154,9 @@ def examine(
     if st.returncode != 0:
         return "git status failed: " + st.stderr.strip()[:80]
     dirty = [
-        l
-        for l in st.stdout.splitlines()
-        if l.strip() and l[3:].strip().rstrip("/") not in (".venv", "venv")
+        line
+        for line in st.stdout.splitlines()
+        if line.strip() and line[3:].strip().rstrip("/") not in (".venv", "venv")
     ]
     if dirty and not ignore_dirty:
         return f"uncommitted changes ({len(dirty)})"

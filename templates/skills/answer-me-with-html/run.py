@@ -16,6 +16,7 @@ Safety:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import subprocess
@@ -99,7 +100,8 @@ def main(
         tmp.write(draft)
         draft_file = tmp.name
 
-    cmd = _find_am() + [
+    cmd = [
+        *_find_am(),
         "render",
         draft_file,
         "-o",
@@ -133,10 +135,8 @@ def main(
             "output": str(out_path),
         }
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(draft_file)
-        except OSError:
-            pass
 
     elapsed = round(time.time() - started, 2)
     if proc.returncode != 0:

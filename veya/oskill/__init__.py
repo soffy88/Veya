@@ -166,6 +166,17 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     # NANO-W10 Group D: 主体 7c 6-step tool ladder
     "FULL_TOOL_LADDER_ORDER",
     "full_6step_tool_ladder",
+    # NANO-W10d: channel ladder + search fallback (ADDENDUM T/V)
+    "CHANNEL_LADDER",
+    "CHANNEL_MESSAGE_LIMIT",
+    "READ_LADDER",
+    "ChannelLadderError",
+    "ChannelPlan",
+    "ReadPlan",
+    "plan_channel_delivery",
+    "plan_chunks",
+    "plan_read",
+    "should_fall_back",
 ]
 
 

@@ -16,6 +16,7 @@ runs a subset.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import http.client
 import json
 import sys
@@ -149,10 +150,8 @@ class Client:
 
     def cleanup(self) -> None:
         for bot_id in self.bots:
-            try:
+            with contextlib.suppress(Exception):
                 self.call("DELETE", f"/api/v1/bots/{bot_id}")
-            except Exception:
-                pass
 
 
 def _text(msg: dict[str, Any]) -> str:

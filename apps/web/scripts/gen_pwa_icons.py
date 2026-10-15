@@ -29,7 +29,7 @@ def _gradient(size: int) -> Image.Image:
     for y in range(64):
         for x in range(64):
             t = (x + y) / 126  # the SVG's unit-square diagonal, normalised
-            pixels[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(SKY, VIOLET))
+            pixels[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(SKY, VIOLET, strict=False))
     return ramp.resize((size, size), Image.BICUBIC)
 
 
@@ -52,11 +52,11 @@ def _mark(size: int) -> Image.Image:
         (size * 358 / 512, size * 160 / 512),
     ]
     width = int(size * 42 / 512)
-    draw.line(points, fill=WHITE + (255,), width=width, joint="curve")
+    draw.line(points, fill=(*WHITE, 255), width=width, joint="curve")
     # Rounded caps: PIL only joints the polyline, so cap the two ends by hand.
     for x, y in (points[0], points[-1]):
         r = width / 2
-        draw.ellipse((x - r, y - r, x + r, y + r), fill=WHITE + (255,))
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=(*WHITE, 255))
     return layer
 
 

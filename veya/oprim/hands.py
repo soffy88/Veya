@@ -11,6 +11,7 @@ Flag: VEYA_HANDS (default OFF). Capability detection at import time.
 from __future__ import annotations
 
 import base64
+import contextlib
 import os
 import platform
 import shutil
@@ -240,10 +241,8 @@ def hands_screenshot(
     dim_result = _run_subprocess(["xdotool", "getdisplaygeometry"], env=_display_env(display))
     width, height = 0, 0
     if dim_result.returncode == 0:
-        try:
+        with contextlib.suppress(ValueError):
             width, height = map(int, dim_result.stdout.strip().split())
-        except ValueError:
-            pass
 
     return {
         "path": output_path,
@@ -302,10 +301,8 @@ def hands_list_windows(*, display: str | None = None) -> dict[str, Any]:
         pid_result = _run_subprocess(["xdotool", "getwindowpid", wid], env=env)
         pid = 0
         if pid_result.returncode == 0:
-            try:
+            with contextlib.suppress(ValueError):
                 pid = int(pid_result.stdout.strip())
-            except ValueError:
-                pass
 
         windows.append(
             {

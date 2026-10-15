@@ -247,7 +247,7 @@ def run_remote(
     control = cm_dir()
     if runner is None:
         _ensure_private_dir(control)
-    full = ssh_base_argv(host, key_path=key_path, control_dir=control) + ["--", quote_remote(argv)]
+    full = [*ssh_base_argv(host, key_path=key_path, control_dir=control), "--", quote_remote(argv)]
     try:
         result = (runner or _default_runner)(
             full, timeout_s=float(timeout_s or run_timeout()), input_bytes=input_bytes

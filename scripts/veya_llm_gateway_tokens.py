@@ -17,6 +17,7 @@ CLI 用法：
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import hashlib
 import hmac
@@ -77,14 +78,10 @@ def save_tokens(tokens: list[dict[str, Any]], tokens_file: Path | None = None) -
         temp_path.replace(path)
     finally:
         if temp_path.exists():
-            try:
+            with contextlib.suppress(OSError):
                 temp_path.unlink()
-            except OSError:
-                pass
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(path, 0o600)
-    except OSError:
-        pass
 
 
 def issue_token(
@@ -155,13 +152,13 @@ def revoke_token(name_or_hash: str, tokens_file: Path | None = None) -> bool:
     tokens = load_tokens(tokens_file)
     modified = False
     for record in tokens:
-        if record.get("name") == name_or_hash or record.get("token_hash", "").startswith(
-            name_or_hash
-        ):
-            if not record.get("revoked", False):
-                record["revoked"] = True
-                record["revoked_at"] = time.time()
-                modified = True
+        if (
+            record.get("name") == name_or_hash
+            or record.get("token_hash", "").startswith(name_or_hash)
+        ) and not record.get("revoked", False):
+            record["revoked"] = True
+            record["revoked_at"] = time.time()
+            modified = True
     if modified:
         save_tokens(tokens, tokens_file)
     return modified

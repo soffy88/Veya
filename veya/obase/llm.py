@@ -55,6 +55,8 @@ _MODEL_UNAVAILABLE_REPLY = "模型服务暂时没有响应，这条消息没有�
 
 # Re-export the extracted layers so ``veya.llm.<name>`` (import path +
 # monkeypatch surface) is unchanged after the god-module decomposition.
+import contextlib  # noqa: E402 — re-export block after logger definition
+
 from veya.obase import brain_breaker as _breaker  # noqa: E402 — W12 B1/B2
 from veya.obase import canonical_proxies as _cp  # noqa: E402 — SPEC v1.0 §2/§10 canonical proxies
 from veya.obase._llm_config import (  # noqa: E402, F401 — facade re-export after logger
@@ -1426,10 +1428,8 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         status = exc.response.status_code
         detail = exc.response.text.strip()[:300]
         # B1: a quota/limit 429 opens the provider breaker.
-        try:
+        with contextlib.suppress(Exception):
             _breaker.record_provider_failure(provider, exc)
-        except Exception:
-            pass
         content = kwargs.get(
             "default_content",
             f"{provider} rejected the request (HTTP {status}): {detail or 'no detail returned'}",

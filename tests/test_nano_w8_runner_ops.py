@@ -87,8 +87,8 @@ class TestRunnerOpsOprims:
         from veya.oprim.runner_ops import runner_self_update_stage
 
         with (
-            patch("veya.oprim.runner_ops.shutil.unpack_archive") as mock_unpack,
-            patch("veya.oprim.runner_ops.Path.rename") as mock_rename,
+            patch("veya.oprim.runner_ops.shutil.unpack_archive"),
+            patch("veya.oprim.runner_ops.Path.rename"),
         ):
             result = runner_self_update_stage(
                 archive_path="/tmp/veya-runner.tar.gz",
@@ -112,7 +112,7 @@ class TestRunnerOpsOprims:
         """Test runner_service_install oprim."""
         from veya.oprim.runner_ops import runner_service_install
 
-        with patch("veya.oprim.runner_ops.Path.write_text") as mock_write:
+        with patch("veya.oprim.runner_ops.Path.write_text"):
             result = runner_service_install(
                 runner_binary="/opt/veya/veya-runner",
                 user="testuser",
@@ -125,7 +125,7 @@ class TestRunnerOpsOprims:
         """Test runner_service_uninstall oprim."""
         from veya.oprim.runner_ops import runner_service_uninstall
 
-        with patch("veya.oprim.runner_ops.Path.unlink") as mock_unlink:
+        with patch("veya.oprim.runner_ops.Path.unlink"):
             result = runner_service_uninstall(user="testuser")
             assert result["success"] is True
 

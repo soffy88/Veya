@@ -1,3 +1,4 @@
+import contextlib
 import time
 import uuid
 
@@ -165,10 +166,8 @@ async def run_now(bot_id: str, routine_id: str):
     else:
         run_entry["status"] = "dispatched"
 
-    try:
+    with contextlib.suppress(Exception):
         RoutineHistoryStore(bot_id=bot_id).add_record(routine_id, run_entry)
-    except Exception:
-        pass
 
     # Skip dispatch if probe skipped or errored
     if not probe_result["success"] or (

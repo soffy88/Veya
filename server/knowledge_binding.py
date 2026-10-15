@@ -95,6 +95,4 @@ def binding_applies(
         return False
     if binding.goal_type is not None and binding.goal_type != goal_type:
         return False
-    if binding.skill_id is not None and binding.skill_id != skill_id:
-        return False
-    return True
+    return not (binding.skill_id is not None and binding.skill_id != skill_id)

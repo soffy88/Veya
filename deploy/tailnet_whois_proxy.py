@@ -7,6 +7,7 @@ mount does not restrict which LocalAPI endpoints a peer can call.
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import ipaddress
 import json
@@ -163,10 +164,8 @@ def make_handler(upstream_socket: str):
                 finally:
                     conn.close()
             except (OSError, ValueError, http.client.HTTPException):
-                try:
+                with contextlib.suppress(OSError):
                     json_response(self.request, 502, {"ok": False, "error": "whois unavailable"})
-                except OSError:
-                    pass
 
     return Handler
 

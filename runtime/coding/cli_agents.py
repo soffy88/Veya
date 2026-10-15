@@ -80,7 +80,7 @@ def _run_version_check(command: str) -> str | None:
 def _discover_builtin() -> dict[str, CLIAgentProfile]:
     """Discover built-in CLI agents via PATH lookup."""
     profiles = {}
-    for name, (command, version_flag) in _BUILTIN_PROFILES.items():
+    for name, (command, _version_flag) in _BUILTIN_PROFILES.items():
         detected_path = shutil.which(command)
         if detected_path:
             version = _run_version_check(command)

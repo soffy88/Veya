@@ -36,10 +36,10 @@ from server.tool_guard import global_tool_guard as _tool_guard
 from server.tool_guard_policies import install_default_tool_policies
 
 install_default_tool_policies(_tool_guard)
-from veya.obase import telemetry
-from veya.obase.async_utils import run_sync_in_daemon_thread
-from veya.oskill.pure.tool_error_text import explain_tool_error
-from veya.oskill.pure.validate_args import validate_args
+from veya.obase import telemetry  # noqa: E402 — installed after default policies
+from veya.obase.async_utils import run_sync_in_daemon_thread  # noqa: E402
+from veya.oskill.pure.tool_error_text import explain_tool_error  # noqa: E402
+from veya.oskill.pure.validate_args import validate_args  # noqa: E402
 
 logger = __import__("logging").getLogger("master.tools")
 
