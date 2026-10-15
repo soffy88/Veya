@@ -24,7 +24,7 @@ import { actionClass, cardClass, firstLine, inputClass, primaryClass } from "$li
 import { turnStore } from "$lib/team/turns.svelte";
 import NewBotSheet from "./NewBotSheet.svelte";
 import NeedsYouWidget from "./NeedsYouWidget.svelte";
-import NeedsYouWidget from "./NeedsYouWidget.svelte";
+import RunHistoryWidget from "./RunHistoryWidget.svelte";
 
 	let bots = $state<BotView[]>([]);
 	let groups = $state<GroupView[]>([]);
@@ -145,6 +145,7 @@ import NeedsYouWidget from "./NeedsYouWidget.svelte";
 
 <div class="mx-auto w-full max-w-3xl p-4 pb-24">
 	<NeedsYouWidget />
+	<RunHistoryWidget />
 	<header class="mb-5 flex items-center justify-between gap-3">
 		<div class="min-w-0">
 			<h1 class="text-xl font-semibold tracking-tight">Bot 团队</h1>
