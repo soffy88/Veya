@@ -1,6 +1,7 @@
 import pytest
 from veya.gsk.evidence import EvidenceLedger, compute_workspace_fingerprint
 
+
 def test_evidence_ledger_lifecycle(tmp_path):
     ledger_file = tmp_path / "evidence_ledger.jsonl"
     ledger = EvidenceLedger(ledger_path=ledger_file, event_root=tmp_path)
@@ -16,18 +17,18 @@ def test_evidence_ledger_lifecycle(tmp_path):
     assert ledger.check("non_existent") == "MISSING"
 
 
-
 def test_direct_execution_records_evidence_only_when_enabled(monkeypatch, tmp_path):
     import asyncio
     import hashlib
     import json
+    import sys
     from veya.remote.direct_exec import run_direct_command
 
     ledger_path = tmp_path / "evidence.jsonl"
     monkeypatch.setenv("VEYA_GSK_EVENT_ROOT", str(tmp_path))
     monkeypatch.setenv("VEYA_GSK_EVIDENCE_PATH", str(ledger_path))
     monkeypatch.delenv("VEYA_GSK_EVIDENCE", raising=False)
-    command = ["python", "-c", "print(6 * 7)"]
+    command = [sys.executable, "-c", "print(6 * 7)"]
 
     raw = asyncio.run(
         run_direct_command(
