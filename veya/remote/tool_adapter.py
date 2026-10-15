@@ -4631,6 +4631,7 @@ class RemoteToolAdapter:
                     action=retry_action,
                     error_class=retry_error_class,
                 )
+                self._record_gsk_domain_usage(context, success=False)
                 raise ExecutionBlocked("TIMEOUT", timeout_detail) from None
             except TimeoutError:
                 await terminate_process_group_id(pgid)
@@ -4651,6 +4652,7 @@ class RemoteToolAdapter:
                     action=retry_action,
                     error_class=retry_error_class,
                 )
+                self._record_gsk_domain_usage(context, success=False)
                 raise ExecutionBlocked("TIMEOUT", timeout_detail) from None
             except asyncio.CancelledError:
                 await terminate_process_group_id(pgid)
@@ -4669,6 +4671,7 @@ class RemoteToolAdapter:
                 stderr_tail = "".join(stderr_lines).strip()[-1200:]
                 stdout_tail = "".join(stdout_lines).strip()[-1200:]
                 detail = f"exit_code={proc.returncode}; stderr={stderr_tail}; stdout={stdout_tail}".strip()
+                self._record_gsk_domain_usage(context, success=False)
                 # Attribute to exactly one layer. A provider refusal (429 /
                 # 400 / 503 / timeout) is not an executor fault: the executor
                 # launched cleanly and was turned away upstream, so the
@@ -4775,6 +4778,7 @@ class RemoteToolAdapter:
                     json.dumps(finalization.to_dict(), default=str), kind="L1_FINALIZATION"
                 )
                 if not finalization.ok:
+                    self._record_gsk_domain_usage(context, success=False)
                     reporter.failure(
                         failure_class=finalization.failure_class or "FINALIZATION_FAILED",
                         source=worker,
@@ -4790,6 +4794,7 @@ class RemoteToolAdapter:
                     f"\npromotion_status={finalization.promotion_status}"
                 )[-4000:]
             self._write_task_memory_success(memory, reporter._execution_id, summary)
+            self._record_gsk_domain_usage(context, success=True)
             return summary
 
         return self._lease_wrapped_runner(
@@ -4829,6 +4834,13 @@ class RemoteToolAdapter:
             capability_ids=capability_ids,
             task_text=task,
         )
+        try:
+            from veya.gsk.domain_skills import inject_domain_skills
+
+            inject_domain_skills(context, task)
+        except Exception:
+            # The optional GSK skill layer must not disrupt the canonical context builder.
+            pass
         capability_results: list[dict[str, Any]] = []
         for capability_id in capability_ids:
             try:
@@ -4914,6 +4926,19 @@ class RemoteToolAdapter:
                 "SKILL_PERMISSION_DENIED", "selected skill denied by mission policy"
             )
         return context, rendered, memory
+
+    @staticmethod
+    def _record_gsk_domain_usage(context: ExecutionCapabilityContext, *, success: bool) -> None:
+        domain = context.project_context.get("_gsk_domain")
+        if not domain:
+            return
+        try:
+            from veya.gsk.domain_skills import record_domain_usage
+
+            record_domain_usage(str(domain), success=success)
+        except Exception:
+            # Skill accounting is supplementary telemetry, never the worker authority.
+            return
 
     @staticmethod
     def _write_task_memory_success(memory: TaskMemory, execution_id: str, output: str) -> None:
