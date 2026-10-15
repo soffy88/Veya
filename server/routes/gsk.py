@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -38,4 +37,4 @@ async def get_evidence(label: str) -> dict[str, Any]:
     return {"label": label, "status": ledger.check(label), "record": ledger.get_record(label)}
 
 
-__all__ = ["router", "require_owner"]
+__all__ = ["router"]
