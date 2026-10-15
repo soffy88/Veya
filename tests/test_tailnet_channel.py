@@ -52,7 +52,7 @@ def make_service(tmp_path: Path, **kwargs) -> TailnetService:
     return service
 
 
-def test_tailnet_ip_ranges_and_default_policy_deny_all(tmp_path: Path) -> None:
+def test_tailnet_ip_ranges_and_default_policy_allows_only_owner_login(tmp_path: Path) -> None:
     service = make_service(tmp_path)
     assert is_tailnet_ip("100.99.1.2")
     assert is_tailnet_ip("fd7a:115c:a1e0::1234")
@@ -60,8 +60,11 @@ def test_tailnet_ip_ranges_and_default_policy_deny_all(tmp_path: Path) -> None:
     assert not is_tailnet_ip("192.168.1.1")
     policy = service.load_policy()
     assert policy["mode"] == "allowlist"
-    assert policy["allow"] == []
+    assert policy["allow"] == ["user:soffy88@gmail.com"]
+    assert policy["deny"] == []
     assert authorize_peer(FAKE_PEER, policy) == (False, "not_allowed")
+    owner_peer = {**FAKE_PEER, "user": "soffy88@gmail.com"}
+    assert authorize_peer(owner_peer, policy) == (True, "allowlist")
 
 
 def test_deny_wins_and_hostname_tag_user_rules(tmp_path: Path) -> None:

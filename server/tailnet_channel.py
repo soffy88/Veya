@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import secrets
+import socket
 import threading
 import time
 import unicodedata
@@ -25,6 +26,7 @@ from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from veya.oprim.fs import (
     local_atomic_write,
@@ -299,24 +301,68 @@ def _json_read(path: Path, *, limit: int = MAX_MESSAGE_BYTES * 2) -> dict[str, A
         return None
 
 
-def _whois(ip: str, command: str = "tailscale") -> dict[str, Any] | None:
-    try:
-        completed = host_exec_args([command, "whois", "--json", ip], timeout=5)
-        if completed.returncode != 0:
-            return None
-        raw = json.loads(completed.stdout)
-        node = raw.get("Node") if isinstance(raw, dict) else None
-        if not isinstance(node, dict):
-            return None
-        node_name = normalize_host(node.get("DNSName") or node.get("Name") or node.get("HostName"))
-        hostname = normalize_host(node.get("HostName") or node_name)
-        tags = node.get("Tags") or []
-        profile = raw.get("UserProfile") or raw.get("User") or {}
-        user = str(profile.get("LoginName") or profile.get("DisplayName") or "") if isinstance(profile, dict) else ""
-        aliases = {node_name, hostname, normalize_host(node.get("Name")), normalize_host(node.get("DNSName"))} - {""}
-        return {"node": node_name, "hostname": hostname, "aliases": sorted(aliases), "tags": [str(t).lower() for t in tags if isinstance(t, str)], "user": user}
-    except (OSError, ValueError, HostCommandError, TypeError):
+class _UnixSocketHTTPConnection(http.client.HTTPConnection):
+    """HTTP client for the deliberately narrow host-side LocalAPI proxy socket."""
+
+    def __init__(self, socket_path: str, *, timeout: float = 5.0) -> None:
+        super().__init__("localhost", timeout=timeout)
+        self.socket_path = socket_path
+
+    def connect(self) -> None:
+        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        connection.settimeout(self.timeout)
+        try:
+            connection.connect(self.socket_path)
+        except BaseException:
+            connection.close()
+            raise
+        self.sock = connection
+
+
+def _parse_whois_identity(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
         return None
+    node = raw.get("Node")
+    if not isinstance(node, dict):
+        return None
+    node_name = normalize_host(node.get("DNSName") or node.get("Name") or node.get("HostName"))
+    hostname = normalize_host(node.get("HostName") or node_name)
+    tags = node.get("Tags") or []
+    profile = raw.get("UserProfile") or raw.get("User") or {}
+    user = str(profile.get("LoginName") or profile.get("DisplayName") or "") if isinstance(profile, dict) else ""
+    aliases = {node_name, hostname, normalize_host(node.get("Name")), normalize_host(node.get("DNSName"))} - {""}
+    if not node_name:
+        return None
+    return {"node": node_name, "hostname": hostname, "aliases": sorted(aliases), "tags": [str(t).lower() for t in tags if isinstance(t, str)], "user": user}
+
+
+def _whois(ip: str, command: str = "tailscale") -> dict[str, Any] | None:
+    """Resolve a peer fail-closed; configured socket is a whois-only proxy, never raw tailscaled."""
+    if not is_tailnet_ip(ip):
+        return None
+    socket_path = os.getenv("VEYA_TAILNET_WHOIS_SOCKET", "").strip()
+    connection: _UnixSocketHTTPConnection | None = None
+    try:
+        if socket_path:
+            connection = _UnixSocketHTTPConnection(socket_path, timeout=5)
+            target = "/localapi/v0/whois?addr=" + quote(ip, safe="")
+            connection.request("GET", target, headers={"Host": "localapi", "Connection": "close"})
+            response = connection.getresponse()
+            body = response.read(1024 * 1024 + 1)
+            if response.status != 200 or len(body) > 1024 * 1024:
+                return None
+            raw = json.loads(body.decode("utf-8"))
+        else:
+            completed = host_exec_args([command, "whois", "--json", ip], timeout=5)
+            if completed.returncode != 0:
+                return None
+            raw = json.loads(completed.stdout)
+        return _parse_whois_identity(raw)
+    except (OSError, ValueError, HostCommandError, TypeError, http.client.HTTPException):
+        return None
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def _identity_matches(rule: str, ident: Mapping[str, Any]) -> bool:
@@ -371,7 +417,8 @@ class TailnetService:
 
     def load_policy(self) -> dict[str, Any]:
         raw = _json_read(self.policy_file, limit=1024 * 1024)
-        default = {"mode": "allowlist", "allow": [], "deny": [], "bindings": {}, "wake_policy": {"default_max": "batch", "peers": {}}, "quiet_hours": None, "wake_rate": 6, "agents": {}, "max_message_bytes": MAX_MESSAGE_BYTES, "max_attachment_bytes": DEFAULT_MAX_ATTACHMENT_BYTES, "attachment_ttl_seconds": DEFAULT_TTL_SECONDS}
+        # Fresh policy admits only the owner login; deny rules still win. Existing saved policy is not rewritten.
+        default = {"mode": "allowlist", "allow": ["user:soffy88@gmail.com"], "deny": [], "bindings": {}, "wake_policy": {"default_max": "batch", "peers": {}}, "quiet_hours": None, "wake_rate": 6, "agents": {}, "max_message_bytes": MAX_MESSAGE_BYTES, "max_attachment_bytes": DEFAULT_MAX_ATTACHMENT_BYTES, "attachment_ttl_seconds": DEFAULT_TTL_SECONDS}
         if not raw:
             return default
         for key in ("allow", "deny"):
@@ -480,11 +527,18 @@ class TailnetService:
         return policy
 
     def identify(self, ip: str) -> dict[str, Any] | None:
+        # Docker bridge/gateway source addresses are untrusted and never reach whois.
         if self.allow_loopback and ip in {"127.0.0.1", "::1"}:
-            return self.whois_fn(ip)
+            try:
+                return self.whois_fn(ip)
+            except Exception:
+                return None
         if not is_tailnet_ip(ip):
             return None
-        ident = self.whois_fn(ip)
+        try:
+            ident = self.whois_fn(ip)
+        except Exception:
+            return None
         if not ident or not normalize_host(str(ident.get("node", ""))):
             return None
         return ident
@@ -1226,14 +1280,41 @@ def create_test_server(service: TailnetService) -> ThreadingHTTPServer:
     return server
 
 
+def _receiver_bind_address(service: TailnetService) -> str | None:
+    """Resolve a safe bind address, requiring an explicit Docker-publish trust contract."""
+    configured = os.getenv("VEYA_TAILNET_BIND", "").strip()
+    if configured == "0.0.0.0":
+        if os.getenv("VEYA_TAILNET_TRUST_DOCKER_PUBLISH", "") != "1":
+            raise ValueError("VEYA_TAILNET_BIND=0.0.0.0 requires VEYA_TAILNET_TRUST_DOCKER_PUBLISH=1")
+        publish_host = os.getenv("VEYA_TAILNET_PUBLISH_HOST", "").strip()
+        if not publish_host or ":" in publish_host or not is_tailnet_ip(publish_host):
+            raise ValueError("VEYA_TAILNET_PUBLISH_HOST must be an IPv4 Tailscale address")
+        whois_socket = os.getenv("VEYA_TAILNET_WHOIS_SOCKET", "").strip()
+        if not whois_socket or not Path(whois_socket).is_socket():
+            raise ValueError("VEYA_TAILNET_WHOIS_SOCKET must point to the mounted whois-only proxy socket")
+        if not os.getenv("VEYA_TAILNET_NODE", "").strip():
+            raise ValueError("VEYA_TAILNET_NODE must name this host's Tailscale node")
+        return "0.0.0.0"
+    if configured:
+        if not is_tailnet_ip(configured):
+            raise ValueError("VEYA_TAILNET_BIND must be a Tailscale IP or 0.0.0.0 with the trust contract")
+        return configured
+    bind_ip = service.tailscale_ip()
+    return bind_ip if bind_ip and is_tailnet_ip(bind_ip) else None
+
+
 def start_receiver_if_enabled(service: TailnetService | None = None) -> bool:
-    """Start an opt-in daemon listener only on a confirmed Tailscale interface."""
+    """Start the listener only after its bind and identity trust contracts validate."""
     if not enabled():
         return False
     service = service or TailnetService()
-    bind_ip = service.tailscale_ip()
-    if not bind_ip or not is_tailnet_ip(bind_ip):
-        log.error("VEYA_TAILNET_CHANNEL is ON but no Tailscale IP was available; receiver remains off")
+    try:
+        bind_ip = _receiver_bind_address(service)
+    except (OSError, ValueError) as exc:
+        log.error("Veya Tailnet receiver configuration rejected (%s)", type(exc).__name__)
+        return False
+    if not bind_ip:
+        log.error("VEYA_TAILNET_CHANNEL is ON but no Tailscale bind address was available; receiver remains off")
         return False
     node = service.self_node()
     if not node:
