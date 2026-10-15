@@ -835,6 +835,29 @@ class RemoteToolAdapterError(Exception):
         self.message = message
 
 
+def _remote_principal_is_owner(principal: str) -> bool:
+    """Resolve the token principal against the canonical account owner flag."""
+    if not principal:
+        return False
+    try:
+        from server.auth import is_owner, list_users
+
+        return any(
+            str(user.get("username") or "") == principal and is_owner(user)
+            for user in list_users()
+        )
+    except Exception:
+        return False
+
+
+def _configured_remote_verify_command(principal: str) -> str | None:
+    from veya.remote.verify_command_policy import select_server_verify_command
+
+    return select_server_verify_command(
+        None, owner_authorized=_remote_principal_is_owner(principal)
+    )
+
+
 def _obj(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
     schema: dict[str, Any] = {"type": "object", "properties": properties}
     if required:
@@ -1057,7 +1080,7 @@ BINDINGS: tuple[ToolBinding, ...] = (
                             "task_contract": {
                                 "type": "object",
                                 "description": "Caller-declared L1 effect/verification contract; preserved as received.",
-                                "additionalProperties": True,
+                                "additionalProperties": False,
                             },
                             "task_kind": {
                                 "type": "string",
@@ -4169,7 +4192,23 @@ class RemoteToolAdapter:
                 ("supports_shell_effect" if str(cap) == "supports_shell" else str(cap)): True
                 for cap in required_caps
             }
-        task_contract = L1TaskContract.from_dict(item.get("task_contract"))
+        raw_contract = item.get("task_contract")
+        raw_contract_command = (
+            raw_contract.get("verification_command")
+            if isinstance(raw_contract, dict)
+            else None
+        )
+        if item.get("verification_command") not in (None, "") or raw_contract_command not in (None, ""):
+            return self._fail(
+                "worker.dispatch",
+                session,
+                RemoteErrorCode.POLICY_BLOCKED,
+                "caller-supplied verification_command is not accepted; verification commands are server-configured",
+            )
+        server_verify_command = _configured_remote_verify_command(session.principal)
+        task_contract = L1TaskContract.from_dict(raw_contract)
+        if not task_contract.verification_command:
+            task_contract.verification_command = server_verify_command
         # The contract is explicit data.  Legacy dispatch callers are retained
         # as READ tasks; WRITE/TEST/BUILD callers must opt into their stronger
         # effect and finalization requirements.
@@ -4196,11 +4235,7 @@ class RemoteToolAdapter:
                 allowed_files=[str(v) for v in item.get("allowed_files") or []],
                 allowed_roots=[str(v) for v in item.get("allowed_roots") or []],
                 allow_noop=bool(item.get("allow_noop", False)),
-                verification_command=(
-                    str(item["verification_command"])
-                    if item.get("verification_command") is not None
-                    else None
-                ),
+                verification_command=server_verify_command,
             )
 
         # 1. load ExecutionSpec
@@ -5259,7 +5294,14 @@ class RemoteToolAdapter:
                     files = args.get("files")
                     expected_base_sha = args.get("expected_base_sha")
                     verify_after = bool(args.get("verify_after", True))
-                    verify_command = args.get("verify_command")
+                    if args.get("verify_command") not in (None, ""):
+                        return self._fail(
+                            name,
+                            session,
+                            RemoteErrorCode.POLICY_BLOCKED,
+                            "caller-supplied verify_command is not accepted; configure VEYA_VERIFY_COMMAND_ALLOWLIST server-side",
+                        )
+                    verify_command = _configured_remote_verify_command(session.principal)
                     rollback_on_failure = bool(args.get("rollback_on_failure", True))
 
                     try:
