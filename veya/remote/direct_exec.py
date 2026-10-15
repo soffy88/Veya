@@ -208,6 +208,17 @@ def _plan_execution(
     delegated to the canonical runner so there is exactly one sandbox authority.
     """
 
+    # GSK Careful and Freeze Check
+    from nebo.careful import check_careful, check_freeze
+    cmd_str = command if isinstance(command, str) else " ".join(command)
+    ok_careful, err_careful = check_careful(cmd_str)
+    if not ok_careful:
+        raise DirectDenied(f"GSK Careful guard blocked command: {err_careful}")
+    if cwd:
+        ok_freeze, err_freeze = check_freeze(str(cwd))
+        if not ok_freeze:
+            raise DirectDenied(f"GSK Freeze guard blocked path: {err_freeze}")
+
     runner = CommandRunner(workspace_root, profile=profile, runtime_profile=runtime_profile)
     argv = parse_command(command)
     command_text = command if isinstance(command, str) else " ".join(argv)
