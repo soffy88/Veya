@@ -50,6 +50,7 @@ from server.routes.mcp import router as mcp_router
 
 # W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
 from server.routes.mcp_presets import router as mcp_presets_router
+from veya.tdx import router as tdx_router
 from server.routes.models import router as models_router
 from server.routes.multimodal import router as multimodal_router
 from server.routes.nano_w9 import router as nano_w9_router
@@ -628,6 +629,7 @@ app.include_router(nano_w10_c_router)
 # W14: MCP preset pack — GET /api/v1/mcp-presets, POST /api/v1/mcp-presets/{name}/attach
 app.include_router(mcp_presets_router)
 app.include_router(role_skill_presets_router)
+app.include_router(tdx_router)
 
 
 @app.get("/health")
