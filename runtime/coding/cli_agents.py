@@ -99,7 +99,7 @@ def _run_version_check(command: str, runtime_id: str | None = None) -> str | Non
             [command, "--version"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=2,
             check=False,
             env=safe_runtime_env(runtime_id),
         )
