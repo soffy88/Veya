@@ -32,7 +32,7 @@ class EgressReceiptLedger:
         timestamp = time.time()
         content_raw = f"{destination}:{payload_type}:{payload_size}:{timestamp}"
         content_hash = hashlib.sha256(content_raw.encode("utf-8")).hexdigest()
-        
+
         entry_raw = f"{prev_hash}:{content_hash}:{timestamp}"
         entry_hash = hashlib.sha256(entry_raw.encode("utf-8")).hexdigest()
 
@@ -54,7 +54,7 @@ class EgressReceiptLedger:
     def verify(self) -> Dict[str, Any]:
         if not self.path.exists():
             return {"valid": True, "count": 0, "error": None}
-        
+
         expected_prev = "0" * 64
         count = 0
         try:
@@ -65,7 +65,7 @@ class EgressReceiptLedger:
                     data = json.loads(line)
                     if data.get("prev_hash") != expected_prev:
                         return {"valid": False, "count": count, "error": f"Chain broken at line {idx+1}: prev_hash mismatch"}
-                    
+
                     content_raw = f"{data.get('destination')}:{data.get('payload_type')}:{data.get('payload_size')}:{data.get('timestamp')}"
                     calc_content_hash = hashlib.sha256(content_raw.encode("utf-8")).hexdigest()
                     if calc_content_hash != data.get("content_hash"):

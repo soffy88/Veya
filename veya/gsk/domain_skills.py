@@ -36,7 +36,7 @@ class DomainSkillManager:
     def register_skill(self, domain: str, skill_content: str) -> Dict[str, Any]:
         if domain not in self.data:
             self.data[domain] = []
-        
+
         skill_entry = {
             "content": skill_content,
             "status": "quarantine", # quarantine, active, degraded

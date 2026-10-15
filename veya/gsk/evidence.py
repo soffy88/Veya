@@ -77,7 +77,7 @@ class EvidenceLedger:
                     pass
         if not latest:
             return "MISSING"
-        
+
         current_fp = compute_workspace_fingerprint()
         recorded_fp = latest.get("fingerprint", {}).get("fingerprint")
         if current_fp["fingerprint"] == recorded_fp:

@@ -22,7 +22,7 @@ def sanitize_and_wrap(text: str, source_type: str = "untrusted_input") -> str:
         r"tool_call",
         r"<\s*script\s*>",
     ]
-    
+
     flagged = False
     for pat in injection_patterns:
         if re.search(pat, cleaned, re.IGNORECASE):
