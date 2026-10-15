@@ -69,7 +69,7 @@ def _check_agent_context() -> None:
 @router.get("/artifacts")
 def get_artifact_sharing_settings(
     bot_id: str = DEFAULT_BOT_ID,
-    current_user: str = Depends(auth_mod.get_current_user),
+    current_user: dict = Depends(auth_mod.require_owner),
 ):
     """Get artifact sharing settings (owner only)."""
     settings = _load_settings(bot_id)
@@ -81,7 +81,7 @@ def get_artifact_sharing_settings(
 def update_artifact_sharing_settings(
     req: ArtifactSharingSettings,
     bot_id: str = DEFAULT_BOT_ID,
-    current_user: str = Depends(auth_mod.get_current_user),
+    current_user: dict = Depends(auth_mod.require_owner),
 ):
     """Update artifact sharing settings (owner only).
 
