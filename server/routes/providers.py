@@ -73,14 +73,20 @@ def _require_bot_owner(bot_id: str, user: dict[str, Any]) -> None:
     spec = BotRegistry().get(bot_id)
     if spec is None:
         return
+    from server.goal_run.bot_identity import DEFAULT_BOT_ID
+    from server.routes.bot_team import CHEF_BOT_ID
+
     owner = str(spec.owner_id or "").strip()
-    if owner and owner != str(user.get("user_id") or ""):
-        raise HTTPException(status_code=403, detail=f"bot {bot_id!r} belongs to another user")
+    if bot_id not in {DEFAULT_BOT_ID, CHEF_BOT_ID} and (
+        not owner or owner in {"system", "default", "anonymous"}
+        or owner != str(user.get("user_id") or "")
+    ):
+        raise HTTPException(status_code=404, detail="bot not found")
 
 
 @router.get("")
 async def list_providers(
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """List all providers (builtin + custom) with capabilities."""
     _require_provider_registry()
@@ -114,7 +120,7 @@ async def list_providers(
 @router.post("/custom")
 async def register_custom_provider(
     req: ProviderSpecRequest,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Register a custom OpenAI-compatible provider."""
     _require_provider_registry()
@@ -141,7 +147,7 @@ async def register_custom_provider(
 @router.delete("/custom/{name}")
 async def unregister_custom_provider(
     name: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Unregister a custom provider."""
     _require_provider_registry()
@@ -154,7 +160,7 @@ async def unregister_custom_provider(
 @router.post("/keys")
 async def set_user_api_key(
     req: ApiKeyRequest,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Store encrypted API key for the current user."""
     _require_provider_registry()
@@ -166,7 +172,7 @@ async def set_user_api_key(
 @router.delete("/keys/{provider}")
 async def delete_user_api_key(
     provider: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Delete a user's API key for a provider."""
     _require_provider_registry()
@@ -178,7 +184,7 @@ async def delete_user_api_key(
 
 @router.get("/cli-agents")
 async def list_cli_agents(
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """List detected CLI agents."""
     _require_provider_registry()
@@ -189,7 +195,7 @@ async def list_cli_agents(
 @router.post("/bot-model-source")
 async def set_bot_model_source(
     req: BotModelSourceRequest,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Set the model source for a bot."""
     _require_provider_registry()
@@ -212,7 +218,7 @@ async def set_bot_model_source(
 @router.get("/bot-model-source/{bot_id}")
 async def get_bot_model_source(
     bot_id: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Get the model source configuration for a bot."""
     _require_provider_registry()
@@ -227,7 +233,7 @@ async def get_bot_model_source(
 @router.get("/effective-model/{bot_id}")
 async def get_effective_model(
     bot_id: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Get the resolved effective model configuration for a bot."""
     _require_provider_registry()
