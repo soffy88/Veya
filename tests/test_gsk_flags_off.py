@@ -1,10 +1,8 @@
-import pytest
-import os
 from veya.gsk.envelope import sanitize_and_wrap
 from veya.gsk.careful import check_careful
 from veya.gsk.domain_skills import DomainSkillManager
 
-def test_flags_off_behavior(monkeypatch):
+def test_flags_off_behavior(monkeypatch, tmp_path):
     for flag in [
         "VEYA_GSK_EVIDENCE",
         "VEYA_GSK_EGRESS_RECEIPTS",
@@ -20,5 +18,5 @@ def test_flags_off_behavior(monkeypatch):
     ok, _ = check_careful("rm -rf /")
     assert ok is True
 
-    manager = DomainSkillManager()
+    manager = DomainSkillManager(storage_path=tmp_path / "skills.json")
     assert manager.get_context_skills("any") == []

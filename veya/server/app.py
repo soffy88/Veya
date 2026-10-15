@@ -547,11 +547,6 @@ def create_app() -> FastAPI:
         app.include_router(mcp.as_fastapi_router(), prefix="/mcp", tags=["MCP"])
     except Exception:
         pass
-    try:
-        from veya.server.routes.gsk import router as gsk_router
-        app.include_router(gsk_router)
-    except Exception:
-        pass
     api = app  # single app instance; routers registered inline below
 
     # ------------------------------------------------------------------
