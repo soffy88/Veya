@@ -65,11 +65,11 @@ def test_register_closed_by_default(app: FastAPI) -> None:
     assert resp.status_code == 403
 
 
-def test_register_open_when_enabled(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_open_when_enabled(app: FastAPI, auth_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VEYA_PUBLIC_SIGNUP", "1")
     client = TestClient(app)
     resp = client.post(
-        "/api/v1/auth/register", json={"username": "newbie", "password": "longenough123"}
+        "/api/v1/auth/register", json={"username": "newbie_open", "password": "longenough123"}
     )
     assert resp.status_code == 200
     assert resp.json()["token"]
@@ -84,12 +84,12 @@ def test_login_still_public(app: FastAPI, auth_db: Path) -> None:
     assert resp.status_code == 200
 
 
-def test_auth_key_requires_owner(app: FastAPI) -> None:
+def test_auth_key_requires_owner(app: FastAPI, auth_db: Path) -> None:
     """匿名 / 非 owner 不得替换全局 provider key。"""
     client = TestClient(app)
     assert client.post("/auth/key", json={"provider": "openai", "api_key": "x"}).status_code == 401
 
-    member = auth_mod.create_user("member", "a-very-long-password", is_owner=False)
+    member = auth_mod.create_user("member_key", "a-very-long-password", is_owner=False)
     token = auth_mod.issue_token(member["user_id"])
     resp = client.post(
         "/auth/key",

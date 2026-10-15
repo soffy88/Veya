@@ -24,12 +24,13 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 # ── Agent OS 单进程合并: 根 server.app(主脑/自动化/蜂群/金库/RAG/量化/防火墙/状态机) ──
 from server.app import app as _agentos_app
+from server.auth import require_owner as _require_owner
 from server.chat_stream import new_agent_stream_events
 from veya.im.pseudo import anonymize_user_id
 from veya.server.manifests import (
@@ -1101,9 +1102,16 @@ def create_app() -> FastAPI:
     # POST /api/v1/sandbox/execute  (isolated command/script execution)
     # ------------------------------------------------------------------
     @api.post("/api/v1/sandbox/execute")
-    async def sandbox_execute(req: SandboxRunRequest) -> dict[str, Any]:
-        """Run a shell command (or Python script) in the safe sandbox:
-        resource-limited, network-blocked by default, audit-logged."""
+    async def sandbox_execute(
+        req: SandboxRunRequest,
+        _owner: dict[str, Any] = Depends(_require_owner),
+    ) -> dict[str, Any]:
+        """Run a shell command (or Python script) in the sandbox.
+
+        SEC C2: 仅 owner。该端点把 ``command`` 交给 ProcessSandbox 执行, 旧实现
+        未鉴权 → 公网 RCE (审计 C2)。沙箱本身见 veya/obase/sandbox.py 的
+        env 白名单 + bwrap --unshare-net; 这里再加 owner 门禁。
+        """
         from veya.sandbox import SandboxConfig, create_safe_executor
 
         if not req.command and not req.script:
@@ -1611,15 +1619,18 @@ def create_app() -> FastAPI:
     # ==================================================================
 
     @api.get("/api/v1/spawn/agents")
-    async def spawn_list_agents() -> dict[str, Any]:
-        """List all registered external agents and their availability."""
+    async def spawn_list_agents(_owner: dict[str, Any] = Depends(_require_owner)) -> dict[str, Any]:
+        """List all registered external agents and their availability (SEC H1: owner)."""
         from veya.oskill.spawn import list_agents
 
         return {"agents": list_agents()}
 
     @api.post("/api/v1/spawn/run")
-    async def spawn_run(req: SpawnRunRequest) -> dict[str, Any]:
-        """Spawn an external AI coding agent to execute a task."""
+    async def spawn_run(
+        req: SpawnRunRequest,
+        _owner: dict[str, Any] = Depends(_require_owner),
+    ) -> dict[str, Any]:
+        """Spawn an external AI coding agent (SEC H1: owner — starts host processes)."""
         from pathlib import Path
 
         from veya.oskill.spawn import AgentSpawner
@@ -1643,8 +1654,11 @@ def create_app() -> FastAPI:
         }
 
     @api.post("/api/v1/spawn/install")
-    async def spawn_install(req: SpawnInstallRequest) -> dict[str, Any]:
-        """Install an external agent CLI tool."""
+    async def spawn_install(
+        req: SpawnInstallRequest,
+        _owner: dict[str, Any] = Depends(_require_owner),
+    ) -> dict[str, Any]:
+        """Install an external agent CLI tool (SEC H1: owner — installs software)."""
         from veya.oskill.spawn import AgentSpawner
 
         spawner = AgentSpawner()
@@ -1656,11 +1670,18 @@ def create_app() -> FastAPI:
     # ==================================================================
 
     @api.post("/api/v1/account/bind")
-    async def account_bind(req: AccountBindRequest) -> dict[str, Any]:
-        """Bind a user's account credentials for a platform."""
+    async def account_bind(
+        req: AccountBindRequest,
+        _owner: dict[str, Any] = Depends(_require_owner),
+    ) -> dict[str, Any]:
+        """Bind the authenticated owner's account credentials for a platform.
+
+        SEC H1/IDOR: user_id 以**认证身份**为准, 不再信任请求体 (旧实现可用任意
+        user_id 覆盖/删除他人平台凭据, 审计 H1)。仅 owner。
+        """
         from veya.im.account_binding import bind_account
 
-        binding = bind_account(req.user_id, req.platform, req.credentials)
+        binding = bind_account(_owner["user_id"], req.platform, req.credentials)
         return {
             "status": "bound",
             "platform": binding.platform,
@@ -1668,18 +1689,21 @@ def create_app() -> FastAPI:
         }
 
     @api.get("/api/v1/account/list")
-    async def account_list(user_id: str) -> dict[str, Any]:
-        """List a user's account bindings (no credentials exposed)."""
+    async def account_list(_owner: dict[str, Any] = Depends(_require_owner)) -> dict[str, Any]:
+        """List the authenticated owner's bindings (no credentials exposed)."""
         from veya.im.account_binding import list_user_bindings
 
-        return {"bindings": list_user_bindings(user_id)}
+        return {"bindings": list_user_bindings(_owner["user_id"])}
 
     @api.delete("/api/v1/account/unbind")
-    async def account_unbind(user_id: str, platform: str) -> dict[str, Any]:
-        """Remove a user's account binding."""
+    async def account_unbind(
+        platform: str,
+        _owner: dict[str, Any] = Depends(_require_owner),
+    ) -> dict[str, Any]:
+        """Remove the authenticated owner's binding for a platform."""
         from veya.im.account_binding import unbind_account
 
-        success = unbind_account(user_id, platform)
+        success = unbind_account(_owner["user_id"], platform)
         return {"status": "unbound" if success else "not_found"}
 
     # ==================================================================
@@ -1812,8 +1836,11 @@ def create_app() -> FastAPI:
         }
 
     @api.post("/api/v1/tools/install")
-    async def tools_install(tool_name: str) -> dict[str, Any]:
-        """Install a CLI tool."""
+    async def tools_install(
+        tool_name: str,
+        _owner: dict[str, Any] = Depends(_require_owner),
+    ) -> dict[str, Any]:
+        """Install a CLI tool (SEC H1: owner — installs software on the host)."""
         from veya.oskill.tool_manager import ToolManager
 
         tm = ToolManager()
