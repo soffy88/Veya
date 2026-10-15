@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-import xml.etree.ElementTree as ET
+from veya.obase.channels.safe_xml import ET
 from typing import Any
 
 import httpx

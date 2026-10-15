@@ -75,12 +75,15 @@ def channels_env(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(channels_env) -> TestClient:
-    """TestClient over the channels router only (server.app is not importable)."""
-
+    """TestClient over the channels router with a fixed authenticated principal."""
     app = FastAPI()
+    from server import auth as auth_mod
+
+    test_user = {"user_id": "u_owner", "username": "channel-test-owner", "is_owner": True}
+    app.dependency_overrides[auth_mod.require_user] = lambda: test_user
+    app.dependency_overrides[auth_mod.get_current_user] = lambda: test_user
     app.include_router(channel_routes.router)
     return TestClient(app)
-
 
 class _StubClient:
     """Records outbound sends instead of performing HTTP."""
@@ -473,7 +476,7 @@ def test_list_bindings_is_owner_scoped(client):
         target_type="bot",
         target_id="chef",
     )
-    # get_current_user falls back to "anonymous", so no other owner's rows leak.
+    # The route requires an authenticated account and returns only its own rows.
     rows = client.get("/api/v1/channels/bindings").json()["bindings"]
     assert rows == []
 
@@ -556,17 +559,19 @@ def test_dispatch_routes_to_bot_and_replies(channels_env, monkeypatch, tmp_path)
     stub = _StubClient()
     monkeypatch.setattr("server.channels.clients.client_for", _async_return(stub))
 
+    telegram_adapter = adapter_for("telegram")
+    inbound = telegram_adapter.parse_inbound(
+        payload=_telegram_update("ping"), headers={}
+    )
+    assert inbound is not None
     binding = {
         "owner_ref": "u_owner",
+        "external_user_id": inbound.external_user_id,
         "target_type": "bot",
         "target_id": "chef",
     }
     outcome = asyncio.run(
-        dispatch_inbound(
-            adapter_for("telegram").parse_inbound(payload=_telegram_update("ping"), headers={}),
-            binding=binding,
-            adapter=adapter_for("telegram"),
-        )
+        dispatch_inbound(inbound, binding=binding, adapter=telegram_adapter)
     )
 
     assert outcome.status == "answered"

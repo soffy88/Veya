@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-import xml.etree.ElementTree as ET
+from veya.obase.channels.safe_xml import ET
 from collections.abc import Mapping
 from typing import Any
 
