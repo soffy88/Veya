@@ -20,7 +20,9 @@ def _git(root: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True)
 
 
-def _prepare_fake_cli(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, list[str]]:
+def _prepare_fake_cli(
+    tmp_path: Path, monkeypatch, *, login: bool = True
+) -> tuple[Path, Path, Path, list[str]]:
     root = tmp_path / "repo"
     root.mkdir()
     _git(root, "init", "-q")
@@ -32,7 +34,8 @@ def _prepare_fake_cli(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, li
 
     home = tmp_path / "home"
     (home / ".devin").mkdir(parents=True)
-    (home / ".devin" / "credentials.json").write_text("test fixture only", encoding="utf-8")
+    if login:
+        (home / ".devin" / "credentials.json").write_text("test fixture only", encoding="utf-8")
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
@@ -43,8 +46,11 @@ def _prepare_fake_cli(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, li
         "if '--version' in sys.argv:\n"
         "    print('fake-devin 1.0')\n"
         "    raise SystemExit(0)\n"
-        "prompt = sys.argv[-1] if len(sys.argv) > 1 else ''\n"
+        "prompt = ' '.join(sys.argv[1:])\n"
         "print('FAKE_CLI_STARTED', flush=True)\n"
+        "if 'fail' in prompt:\n"
+        "    print('FAKE_CLI_FAILURE', flush=True)\n"
+        "    raise SystemExit(7)\n"
         "if 'slow' in prompt:\n"
         "    time.sleep(20)\n"
         "pathlib.Path('tracked.txt').write_text('changed by fake CLI\\n', encoding='utf-8')\n"
@@ -141,3 +147,23 @@ def test_missing_runtime_is_reported_without_a_real_cli(monkeypatch, tmp_path) -
     assert result["installed"] is False
     assert result["state"] == "not_installed"
     assert safe_runtime_env("devin")["HOME"] == str(home)
+
+
+def test_fake_cli_nonzero_exit_is_reported_as_failed(monkeypatch, tmp_path) -> None:
+    root, _home, _fake_cli, _captured = _prepare_fake_cli(tmp_path, monkeypatch)
+    async def scenario() -> tuple[dict, dict]:
+        started = await xrt_runtime.dispatch("devin", "please fail this task", str(root), 5)
+        return started, await _wait_for_status(started["execution_id"])
+    started, result = asyncio.run(scenario())
+    assert result["execution_id"] == started["execution_id"]
+    assert result["status"] == "FAILED"
+    assert result["exit_code"] == 7
+    assert "FAKE_CLI_FAILURE" in result["stdout"]
+
+
+def test_installed_fake_cli_without_login_is_not_ready(monkeypatch, tmp_path) -> None:
+    root, _home, _fake_cli, _captured = _prepare_fake_cli(tmp_path, monkeypatch, login=False)
+    result = probe_xrt_runtime("devin", root)
+    assert result["installed"] is True
+    assert result["logged_in"] is False
+    assert result["state"] == "installed_not_logged_in"
