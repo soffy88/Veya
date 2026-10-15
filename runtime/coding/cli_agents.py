@@ -198,15 +198,20 @@ def build_xrt_command(runtime_id: str, prompt: str) -> tuple[list[str], dict[str
     return [binary, *args, prompt], safe_runtime_env(runtime_id)
 
 
-def probe_xrt_runtime(runtime_id: str, repo_root: Path | str) -> dict[str, Any]:
+def probe_xrt_runtime(
+    runtime_id: str,
+    repo_root: Path | str,
+    *,
+    registry: CLIAgentRegistry | None = None,
+) -> dict[str, Any]:
     """Probe binary/version and login state without reading credential contents."""
     from pathlib import Path
 
     if runtime_id not in XRT_RUNTIME_PROFILES:
         raise ValueError(f"unknown XRT runtime: {runtime_id}")
     metadata = XRT_RUNTIME_PROFILES[runtime_id]
-    registry = get_cli_agent_registry(repo_root)
-    profile = registry.get(str(metadata["profile_name"]))
+    profile_registry = registry or get_cli_agent_registry(repo_root)
+    profile = profile_registry.get(str(metadata["profile_name"]))
     installed = bool(profile and profile.detected_path)
     state = "not_installed"
     logged_in = False
@@ -248,7 +253,14 @@ def probe_xrt_runtime(runtime_id: str, repo_root: Path | str) -> dict[str, Any]:
 
 
 def probe_xrt_runtimes(repo_root: Path | str) -> list[dict[str, Any]]:
-    return [probe_xrt_runtime(runtime_id, repo_root) for runtime_id in XRT_RUNTIME_PROFILES]
+    # Share one discovery cache across all probes; otherwise each runtime probe
+    # rediscovers every CLI and runs each detected binary's version command.
+    registry = get_cli_agent_registry(repo_root)
+    registry.list_all()
+    return [
+        probe_xrt_runtime(runtime_id, repo_root, registry=registry)
+        for runtime_id in XRT_RUNTIME_PROFILES
+    ]
 
 
 def _load_custom_profiles(repo_root: Path) -> dict[str, CLIAgentProfile]:
