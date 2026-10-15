@@ -71,6 +71,6 @@
 - 所有修复 commit 均在本地 `fix/security-audit` 分支；没有 push，也没有重启服务。
 - 本轮未更改生产实现文件。
 - 原有未跟踪文件 `SEC_REPORT_R5.md` 保持未修改；未清理 worktree 外的任何内容。
-- `SEC_REPORT_F5.md` 按任务要求写入，未单独提交报告文件。
+- `SEC_REPORT_F5.md` 已在本地提交，报告创建提交为 `e886f581`；本轮未 push。原有未跟踪文件 `SEC_REPORT_R5.md` 未修改。
 
 SEC_F5_DONE
