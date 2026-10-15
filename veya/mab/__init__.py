@@ -35,13 +35,15 @@ def redact_visible_text(value: str, limit: int = 8000) -> str:
     return pattern.sub(lambda match: match.group(1) + '=[redacted]', str(value or ''))[:limit]
 
 class MABManager:
-    def __init__(self):
+    def __init__(self, base_dir: Path | str | None = None, max_concurrent: int = 3):
         root = Path(os.environ.get('VEYA_HOME') or (Path.home() / '.veya'))
-        self.base_dir = root / 'mab'
+        self.base_dir = Path(base_dir) if base_dir is not None else root / 'mab'
         self.profiles_dir = self.base_dir / 'profiles'
-        self.max_instances = max(1, int(os.environ.get('VEYA_MAB_MAX_INSTANCES', '3')))
+        self.max_instances = max(1, int(os.environ.get('VEYA_MAB_MAX_INSTANCES', str(max_concurrent))))
+        self.max_concurrent = self.max_instances
         self.idle_timeout = max(1.0, float(os.environ.get('VEYA_MAB_IDLE_TIMEOUT_SECONDS', '300')))
         self._sessions: dict[str, dict[str, Any]] = {}
+        self._active_sessions = self._sessions
         self._session_factory = None
         self._lock = asyncio.Lock()
         self._loop = None
@@ -56,7 +58,7 @@ class MABManager:
         self._secure_dir(self.profiles_dir)
 
     def _profile_dir(self, pid: str) -> Path:
-        if not re.fullmatch(r'[a-f0-9]{32}', str(pid)): raise ValueError('invalid profile id')
+        if not re.fullmatch(r'(?:[a-f0-9]{32}|mab_[a-f0-9]{10})', str(pid)): raise ValueError('invalid profile id')
         root=self.profiles_dir.resolve(); path=(self.profiles_dir/pid).resolve()
         if path.parent != root: raise ValueError('profile path escapes storage root')
         return path
@@ -69,12 +71,12 @@ class MABManager:
     def _write(self,p:MABProfile):
         self._ensure_storage(); folder=self._profile_dir(p.id)
         self._secure_dir(folder); self._secure_dir(folder/'browser-data')
-        tmp=folder/'profile.json.tmp'; final=folder/'profile.json'
+        tmp=folder/'metadata.json.tmp'; final=folder/'metadata.json'
         tmp.write_text(json.dumps(p.public_dict(),ensure_ascii=False,indent=2),encoding='utf-8')
         os.chmod(tmp,0o600); tmp.replace(final); os.chmod(final,0o600)
     def list_profiles(self):
         self._ensure_storage(); result=[]
-        for path in sorted(self.profiles_dir.glob('*/profile.json')):
+        for path in sorted(self.profiles_dir.glob('*/metadata.json')):
             profile=self._read(path)
             if profile: result.append(profile)
         return result
@@ -82,7 +84,7 @@ class MABManager:
         key=str(key or '').strip()
         if not key: return None
         try:
-            path=self._profile_dir(key)/'profile.json'
+            path=self._profile_dir(key)/'metadata.json'
             if path.is_file(): return self._read(path)
         except ValueError: pass
         return next((p for p in self.list_profiles() if p.name.casefold()==key.casefold()),None)

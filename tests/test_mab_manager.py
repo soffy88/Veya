@@ -18,9 +18,9 @@ def test_profile_directory_modes(manager):
     assert stat.S_IMODE((folder/'browser-data').stat().st_mode)==0o700
 
 def test_metadata_has_only_public_fields(manager):
-    p=create(manager); data=json.loads((manager._profile_dir(p.id)/'profile.json').read_text())
+    p=create(manager); data=json.loads((manager._profile_dir(p.id)/'metadata.json').read_text())
     assert set(data)=={'id','name','site','account_label','status','created_at','last_used'}
-    assert stat.S_IMODE((manager._profile_dir(p.id)/'profile.json').stat().st_mode)==0o600
+    assert stat.S_IMODE((manager._profile_dir(p.id)/'metadata.json').stat().st_mode)==0o600
 
 def test_profile_crud_and_rename(manager):
     p=create(manager); changed=manager.update_profile(p.id,name='Renamed')
