@@ -150,8 +150,8 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
 
     if context.strip():
         parts.append(context.strip())
-    parts.append(str(text or "").strip())
     parts.append("请使用中文（与用户消息或回忆的语言保持一致）简洁、准确地回答用户。")
+    parts.append(str(text or "").strip())
     return "\n\n".join(part for part in parts if part)
 
 
