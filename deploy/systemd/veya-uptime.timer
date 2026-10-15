@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Veya uptime and available-memory check every two minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Unit=veya-uptime.service
+
+[Install]
+WantedBy=timers.target
