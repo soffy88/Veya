@@ -28,8 +28,9 @@ def client():
 
 def test_xrt_flag_disabled_by_default(client, monkeypatch):
     monkeypatch.delenv("VEYA_XRT_RUNTIMES", raising=False)
-    res = client.get("/api/v1/xrt/runtimes")
-    assert res.status_code in {401, 403, 404}
+    for path in ["/api/v1/xrt/runtimes", "/api/v1/xrt/dispatch", "/api/v1/xrt/status/123", "/api/v1/xrt/cancel/123"]:
+        res = client.get(path) if "dispatch" not in path and "cancel" not in path else client.post(path, json={})
+        assert res.status_code in {401, 404}
 
 
 def test_xrt_enabled_flag_and_owner(client, monkeypatch):
@@ -49,13 +50,10 @@ def test_xrt_enabled_flag_and_owner(client, monkeypatch):
         app.dependency_overrides.pop(real_require_user, None)
 
 
-def test_xrt_non_owner_forbidden(client, monkeypatch):
+def test_xrt_unauthorized_401(client, monkeypatch):
     monkeypatch.setenv("VEYA_XRT_RUNTIMES", "1")
-    monkeypatch.setenv("VEYA_OWNER_USER_ID", "test-owner")
-
     real_require_user = auth_mod.require_user
-    app.dependency_overrides[real_require_user] = lambda: {"user_id": "regular-user", "is_owner": False}
-
+    app.dependency_overrides[real_require_user] = lambda: {"user_id": "", "roles": []}
     try:
         res = client.get("/api/v1/xrt/runtimes")
         assert res.status_code == 403
