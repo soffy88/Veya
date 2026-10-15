@@ -7,6 +7,7 @@ from server.app import app
 
 @pytest.fixture
 def client_with_real_users(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEYA_GSK_EVENT_ROOT", str(tmp_path))
     monkeypatch.setattr(auth_mod, "_DB_PATH", tmp_path / "auth.db")
     auth_mod._init_db()
     client = TestClient(app)

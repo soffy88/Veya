@@ -202,34 +202,58 @@ async def _run_group(group_id: str, text: str, user: dict[str, Any]) -> str:
 
 
 async def _deliver(adapter: ChannelAdapter, external_chat_id: str, reply: str) -> None:
-    """Post the reply back through the platform client (chunking long ones)."""
-    from .clients import client_for
+    from . import clients
 
-    try:
-        client = await client_for(adapter.platform)
-    except Exception:
-        _log.warning("No client configured for platform %s", adapter.platform, exc_info=True)
-        return
-    try:
-        await adapter.send_reply(client, external_chat_id=external_chat_id, text=reply)
-    except Exception:
-        _log.warning("Failed to post reply to %s", adapter.platform, exc_info=True)
-        return
-
-    # Keep outbound evidence metadata-only and opt-in; never persist the reply body.
+    client = await clients.client_for(adapter.platform)
     from veya.gsk import is_enabled
 
+    ledger = None
+    body = reply.encode("utf-8")
+    body_hash = __import__("hashlib").sha256(body).hexdigest()
+    destination = f"channel:{adapter.platform}"
     if is_enabled("VEYA_GSK_EGRESS_RECEIPTS"):
         try:
             from veya.gsk.receipts import EgressReceiptLedger
 
-            EgressReceiptLedger().log_egress(
-                destination=f"channel:{adapter.platform}",
-                payload_type="channel_reply",
-                payload_size=len(reply.encode("utf-8")),
+            ledger = EgressReceiptLedger()
+            ledger.log_egress(
+                destination=destination,
+                payload_type="channel_reply_attempt",
+                payload_size=len(body),
+                metadata={"phase": "attempt"},
+                payload_hash=body_hash,
             )
         except Exception:
             _log.warning("Unable to record outbound GSK receipt", exc_info=True)
+
+    try:
+        await adapter.send_reply(client, external_chat_id=external_chat_id, text=reply)
+    except Exception:
+        _log.warning("Failed to post reply to %s", adapter.platform, exc_info=True)
+        if ledger is not None:
+            try:
+                ledger.log_egress(
+                    destination=destination,
+                    payload_type="channel_reply_failed",
+                    payload_size=len(body),
+                    metadata={"phase": "failed"},
+                    payload_hash=body_hash,
+                )
+            except Exception:
+                _log.warning("Unable to record failed outbound GSK receipt", exc_info=True)
+        return
+
+    if ledger is not None:
+        try:
+            ledger.log_egress(
+                destination=destination,
+                payload_type="channel_reply_delivered",
+                payload_size=len(body),
+                metadata={"phase": "delivered"},
+                payload_hash=body_hash,
+            )
+        except Exception:
+            _log.warning("Unable to record delivered outbound GSK receipt", exc_info=True)
 
 
 __all__ = ["DispatchOutcome", "anonymous_ref", "dispatch_inbound"]
