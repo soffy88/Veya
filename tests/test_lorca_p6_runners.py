@@ -128,18 +128,18 @@ def fake_master(monkeypatch):
 
 
 @pytest.fixture
-def client():
+def client(owner_headers):
     app = FastAPI()
     # W11-AUTH: bot routes now require a signed-in user (D2).
     from server import auth as _w11_auth
+    from server.auth import AuthGateMiddleware
 
-    app.dependency_overrides[_w11_auth.require_user] = lambda: {
-        "user_id": "anonymous",
-        "username": "anonymous",
-    }
+    app.add_middleware(AuthGateMiddleware)
     app.include_router(bots_router)
     app.include_router(runners_router)
-    return TestClient(app)
+    client = TestClient(app)
+    client.headers.update(owner_headers)
+    return client
 
 
 def _add_runner(runner_id: str = "mac") -> Any:

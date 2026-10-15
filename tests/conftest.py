@@ -11,6 +11,7 @@ import pytest
 
 # 测试套件内禁止 test_gate 递归启动 pytest(agent 执行分队 → H4 hook → pytest → 死循环)
 os.environ.setdefault("VEYA_SKIP_TEST_GATE", "1")
+os.environ.setdefault("VEYA_ALLOWED_HOSTS", "testserver")
 
 # The canonical EventStore and TaskStore default to ~/.veya/. Tests must never
 # append to (or replay) the developer's real, unbounded event log: on a long

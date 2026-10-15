@@ -288,23 +288,40 @@ def client(tmp_path_factory):
     bots_root = str(tmp_path_factory.mktemp("bots_root"))
     os.environ["VEYA_BOTS_ROOT"] = bots_root
     # Import app after patching the env so the store picks up the override.
-    from server import auth as _auth
+    from server import auth as auth_mod
     from server.app import app
+    from server.auth import AuthGateMiddleware
 
-    # W11 D2: memory routes require a signed-in user; keep the old caller.
-    app.dependency_overrides[_auth.require_user] = lambda: {
-        "user_id": "anonymous",
-        "username": "anonymous",
-    }
+    app.add_middleware(AuthGateMiddleware)
+    
+    db = tmp_path_factory.mktemp("sec-auth-mod") / "auth.db"
+    auth_mod._DB_PATH = db
+    os.environ.pop("VEYA_LOCAL_SINGLE_USER", None)
+    auth_mod._DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with auth_mod._lock, auth_mod._connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS users ("
+            "  id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE,"
+            "  password_hash TEXT NOT NULL, created_at INTEGER NOT NULL,"
+            "  is_owner INTEGER NOT NULL DEFAULT 0)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tokens ("
+            "  token TEXT PRIMARY KEY, user_id TEXT NOT NULL,"
+            "  created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)"
+        )
+    user = auth_mod.create_user("sec-test-owner", "a-very-long-password", is_owner=True)
+    token = auth_mod.issue_token(user["user_id"])
+
     from server.goal_run.bot_identity import BotRegistry, BotSpec
 
     os.environ.setdefault(
         "VEYA_BOT_REGISTRY_PATH", str(tmp_path_factory.mktemp("reg") / "bot_registry.json")
     )
-    BotRegistry().register(BotSpec(bot_id=BOT, owner_id="anonymous", name="rest"))
+    BotRegistry().register(BotSpec(bot_id=BOT, owner_id="sec-test-owner", name="rest"))
     with TestClient(app, raise_server_exceptions=True) as c:
+        c.headers.update({"Authorization": f"Bearer {token}"})
         yield c
-    app.dependency_overrides.pop(_auth.require_user, None)
     os.environ.pop("VEYA_BOTS_ROOT", None)
 
 
