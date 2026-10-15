@@ -12,6 +12,7 @@ from typing import Any
 from server import feature_flags
 from veya.obase.channel_probes import fetch_url_text
 from veya.oskill.pure.html_to_markdown import is_ssrf_safe_url, read_html
+from veya.gsk.envelope import sanitize_and_wrap
 
 
 async def tool_read_browser(
@@ -46,7 +47,7 @@ async def tool_read_browser(
     res = doc.markdown
     if max_chars and max_chars > 0 and len(res) > max_chars:
         res = res[:max_chars] + "\n\n[Content truncated by max_chars limit]"
-    return res
+    return sanitize_and_wrap(res, source_type="read_browser")
 
 
 def register_tools(registry: Any) -> int:
