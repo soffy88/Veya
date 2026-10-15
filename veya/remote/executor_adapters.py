@@ -397,6 +397,19 @@ class CLIWorkerExecutorAdapter(ExecutorAdapter):
         record["process"] = proc
         with contextlib.suppress(OSError):
             record["pgid"] = os.getpgid(proc.pid)
+        # XRT cancellation can arrive while create_subprocess_exec is pending.
+        # The adapter record already exists at that point, so honor the state
+        # transition as soon as the child process becomes available.
+        if record.get("status") == "CANCELLED":
+            await self._terminate(record)
+            return AdapterResult(
+                exit_code=130,
+                stdout="",
+                stderr="cancelled before process startup completed",
+                duration_ms=(time.monotonic() - started) * 1000,
+                failure_class="PROCESS_CANCELLED",
+                detail="cancelled before process startup completed",
+            )
 
         stdout_lines: list[str] = []
         stderr_lines: list[str] = []

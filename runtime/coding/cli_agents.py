@@ -92,7 +92,7 @@ def _validate_command_template(template: str) -> str:
     return template.strip()
 
 
-def _run_version_check(command: str) -> str | None:
+def _run_version_check(command: str, runtime_id: str | None = None) -> str | None:
     """Run command --version and return version string."""
     try:
         result = subprocess.run(
@@ -101,7 +101,7 @@ def _run_version_check(command: str) -> str | None:
             text=True,
             timeout=10,
             check=False,
-            env=safe_runtime_env(),
+            env=safe_runtime_env(runtime_id),
         )
         if result.returncode == 0:
             output = result.stdout.strip()
@@ -127,7 +127,7 @@ def _discover_builtin() -> dict[str, CLIAgentProfile]:
             "login_check_files": tuple(metadata.get("login_check_files", ())),
         }
         if detected_path:
-            version = _run_version_check(command)
+            version = _run_version_check(command, runtime_id)
             profiles[name] = CLIAgentProfile(
                 name=name,
                 command_template=f"{command} {{prompt}} --cwd {{cwd}}",
@@ -176,10 +176,7 @@ def xrt_runtime_enabled(runtime_id: str) -> bool:
 
 def safe_runtime_env(runtime_id: str | None = None) -> dict[str, str]:
     """Build a conservative environment without provider tokens or API keys."""
-    allowed = {
-        "PATH", "HOME", "LANG", "TERM", "USER", "LOGNAME", "SHELL",
-        "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME",
-    }
+    allowed = {"PATH", "HOME", "LANG", "TERM", "USER"}
     allowed.update(key for key in os.environ if key.startswith("LC_"))
     if runtime_id in XRT_RUNTIME_PROFILES:
         allowed.update(XRT_RUNTIME_PROFILES[runtime_id].get("env_allowlist", ()))

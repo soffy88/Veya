@@ -116,8 +116,41 @@ async def _execute(job: dict[str, Any], adapter: CLIWorkerExecutorAdapter, task:
     )
     try:
         append_canonical_event("xrt_execution_started", {"execution_id": execution_id, "runtime": runtime_id})
+        if _CANCEL.is_cancelled(execution_id):
+            with _LOCK:
+                job.update({"status": "CANCELLED", "exit_code": 130, "duration_ms": (time.monotonic() - job["_started"]) * 1000})
+            return
         result = await adapter.start(request, reporter)
         diff = await asyncio.to_thread(job["_manager"].diff, path=job["worktree_path"])
+        from runtime.execution.artifacts import ArtifactStore
+
+        artifact_store = ArtifactStore(job["_repo_root"], execution_id)
+        diff_path = artifact_store.path("outputs/worktree.diff")
+        diff_path.write_text(diff.get("patch", ""), encoding="utf-8")
+        diff_ref = artifact_store.register(
+            "outputs/worktree.diff", kind="text/x-diff", producer=runtime_id, status="draft"
+        )
+        artifact_store.write_json(
+            "evidence/execution_result.json",
+            {
+                "execution_id": execution_id,
+                "runtime_id": runtime_id,
+                "exit_code": result.exit_code,
+                "failure_class": result.failure_class,
+                "duration_ms": result.duration_ms,
+                "changed_files": diff.get("changed_files", []),
+                "git_diff_stat": diff.get("stat", ""),
+            },
+        )
+        result_ref = artifact_store.register(
+            "evidence/execution_result.json", kind="application/json", producer=runtime_id, status="draft"
+        )
+        manifest_path = artifact_store.write_manifest()
+        artifact_refs = [
+            {"path": diff_ref.path, "sha256": diff_ref.sha256, "size_bytes": diff_ref.size_bytes},
+            {"path": result_ref.path, "sha256": result_ref.sha256, "size_bytes": result_ref.size_bytes},
+            {"manifest_path": str(manifest_path)},
+        ]
         with _LOCK:
             job.update({
                 "status": "CANCELLED" if _CANCEL.is_cancelled(execution_id) else (
@@ -128,7 +161,8 @@ async def _execute(job: dict[str, Any], adapter: CLIWorkerExecutorAdapter, task:
                 "exit_code": result.exit_code, "stdout": result.stdout[-4000:],
                 "stderr": result.stderr[-4000:], "git_diff": diff.get("patch", "")[:12000],
                 "git_diff_stat": diff.get("stat", ""),
-                "changed_files": diff.get("changed_files", []),
+                "changed_files": diff.get("changed_files", []), "artifacts": artifact_refs,
+                "artifact_manifest": str(manifest_path),
                 "duration_ms": (time.monotonic() - job["_started"]) * 1000,
             })
         append_canonical_event("xrt_execution_finished", _public(job))
