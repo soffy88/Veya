@@ -1,349 +1,240 @@
 <script lang="ts">
 	/**
-	 * /remote — cross-device agent control (W13). Mobile-first.
-	 *
-	 * Hosts, running remote agents, a start-task form (text + browser
-	 * speech-to-text, progressive enhancement), approve/deny cards fed by the
-	 * existing approvals store, and the done notifications that arrive through
-	 * the app-wide notification stream (+layout.svelte → NotificationCenter).
+	 * XRTPanels — External Runtimes management panel for Veya web UI.
+	 * Lists runtime availability, status badge, execution dispatch and output streaming.
 	 */
 	import { onMount } from "svelte";
-	import { Mic, Play, Plus, RefreshCw, Trash2, X } from "lucide-svelte";
-	import {
-		RemoteDisabledError,
-		applySession,
-		cancelSession,
-		createHost,
-		deleteHost,
-		listHosts,
-		listPendingCards,
-		listSessions,
-		probeHost,
-		startSession,
-		type RemoteCardView,
-		type RemoteHostView,
-		type RemoteProbeView,
-		type RemoteSessionView,
-	} from "$lib/remote/api";
-	import { resolveApproval } from "$lib/approvals/api";
-	import { actionClass, cardClass, timeLabel } from "$lib/team/ui";
+	import { Bot, CheckCircle2, CircleAlert, Loader2, Play, RefreshCw, Terminal, XCircle } from "lucide-svelte";
+	import { API_BASE } from "$lib/api";
 
-	let hosts = $state<RemoteHostView[]>([]);
-	let sessions = $state<RemoteSessionView[]>([]);
-	let cards = $state<RemoteCardView[]>([]);
-	let loading = $state(true);
-	let disabled = $state(false);
-	let error = $state("");
-	let busy = $state("");
-	let probes = $state<Record<string, RemoteProbeView | { reachable: boolean; error?: string }>>({});
-	let probingHostId = $state<string>("");
-
-	async function probe(targetHostId: string): Promise<void> {
-		probingHostId = targetHostId;
-		try {
-			const res = await probeHost(targetHostId);
-			probes[targetHostId] = res;
-		} catch (err) {
-			probes[targetHostId] = {
-				reachable: false,
-				error: err instanceof Error ? err.message : String(err),
-			};
-		} finally {
-			probingHostId = "";
-		}
+	interface RuntimeInfo {
+		name: string;
+		display_name: string;
+		state: "ready" | "installed_not_logged_in" | "not_installed" | "disabled";
+		installed: boolean;
+		version: string | null;
+		logged_in: boolean;
+		path: string | null;
 	}
 
-	// start-task form
-	let task = $state("");
-	let hostId = $state("");
-	let wake = $state("now");
-	let listening = $state(false);
-	let speechSupported = $state(false);
-	let recognition: { start(): void; stop(): void } | null = null;
+	let runtimes = $state<RuntimeInfo[]>([]);
+	let loading = $state(false);
+	let error = $state<string | null>(null);
+	let selectedRuntime = $state<string>("claude_code");
+	let taskText = $state("");
+	let dispatching = $state(false);
+	let executionResult = $state<any>(null);
 
-	// add-host form
-	let showAddHost = $state(false);
-	let newHostId = $state("");
-	let newHostIp = $state("");
-	let newHostLabel = $state("pi");
-
-	async function load(): Promise<void> {
+	async function fetchRuntimes() {
 		loading = true;
-		error = "";
+		error = null;
 		try {
-			[hosts, sessions, cards] = await Promise.all([
-				listHosts(),
-				listSessions(false),
-				listPendingCards(),
-			]);
-			disabled = false;
-			if (!hostId && hosts.length) hostId = hosts[0].host_id;
-		} catch (err) {
-			disabled = err instanceof RemoteDisabledError;
-			error = disabled ? "" : err instanceof Error ? err.message : String(err);
+			const res = await fetch(`${API_BASE}/api/v1/xrt/runtimes`, {
+				headers: { "content-type": "application/json" },
+			});
+			if (!res.ok) {
+				if (res.status === 404) {
+					error = "外部运行时 (XRT) 未启用 (VEYA_XRT_RUNTIMES=0)";
+				} else if (res.status === 403) {
+					error = "需要 Owner 权限访问外部运行时管理";
+				} else {
+					error = `加载失败 (HTTP ${res.status})`;
+				}
+				runtimes = [];
+				return;
+			}
+			const data = await res.json();
+			runtimes = data.runtimes ?? [];
+		} catch (e: any) {
+			error = e?.message ?? "网络错误";
 		} finally {
 			loading = false;
 		}
 	}
 
-	async function guard(label: string, fn: () => Promise<void>): Promise<void> {
-		busy = label;
-		error = "";
+	async function dispatchTask() {
+		if (!taskText.trim() || dispatching) return;
+		dispatching = true;
+		executionResult = null;
 		try {
-			await fn();
-			await load();
-		} catch (err) {
-			error = err instanceof Error ? err.message : String(err);
-		} finally {
-			busy = "";
-		}
-	}
-
-	async function submitTask(): Promise<void> {
-		if (!task.trim() || !hostId) return;
-		await guard("start", async () => {
-			await startSession({ host_id: hostId, task: task.trim(), requested_wake: wake });
-			task = "";
-		});
-	}
-
-	function approve(card: RemoteCardView): void {
-		void guard(card.approval_id, async () => {
-			await resolveApproval(card.approval_id, "once");
-			// A remote start only runs after its approval lands: apply it now.
-			if (card.tool === "remote_agent_start" && card.session_id) {
-				await applySession(card.session_id, card.approval_id);
+			const res = await fetch(`${API_BASE}/api/v1/xrt/dispatch`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ runtime: selectedRuntime, task: taskText.trim() }),
+			});
+			const data = await res.json();
+			if (!res.ok) {
+				throw new Error(data.detail ?? `HTTP ${res.status}`);
 			}
-		});
-	}
-
-	function deny(card: RemoteCardView): void {
-		void guard(card.approval_id, () => resolveApproval(card.approval_id, "deny"));
-	}
-
-	function toggleSpeech(): void {
-		if (!recognition) return;
-		if (listening) {
-			recognition.stop();
-			listening = false;
-			return;
+			executionResult = data;
+		} catch (e: any) {
+			executionResult = { error: e?.message ?? "分派失败" };
+		} finally {
+			dispatching = false;
 		}
-		recognition.start();
-		listening = true;
 	}
 
 	onMount(() => {
-		void load();
-		// Progressive enhancement: voice input only where the browser offers it.
-		const Ctor =
-			(window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown })
-				.SpeechRecognition ??
-			(window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
-		if (typeof Ctor === "function") {
-			speechSupported = true;
-			const rec = new (Ctor as new () => {
-				lang: string;
-				interimResults: boolean;
-				onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
-				onend: () => void;
-				start(): void;
-				stop(): void;
-			})();
-			rec.lang = "zh-CN";
-			rec.interimResults = false;
-			rec.onresult = (event) => {
-				let text = "";
-				for (let i = 0; i < event.results.length; i += 1) {
-					text += event.results[i][0].transcript;
-				}
-				task = `${task}${task ? " " : ""}${text}`.trim();
-			};
-			rec.onend = () => {
-				listening = false;
-			};
-			recognition = rec;
-		}
+		void fetchRuntimes();
 	});
 
-	const activeSessions = $derived(sessions.filter((s) => !["done", "failed", "cancelled", "handed_off"].includes(s.state)));
+	function badgeClass(state: string) {
+		switch (state) {
+			case "ready":
+				return "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+			case "installed_not_logged_in":
+				return "bg-amber-500/10 text-amber-400 border-amber-500/30";
+			case "not_installed":
+				return "bg-zinc-500/10 text-zinc-400 border-zinc-500/30";
+			case "disabled":
+				return "bg-rose-500/10 text-rose-400 border-rose-500/30";
+			default:
+				return "bg-zinc-500/10 text-zinc-400 border-zinc-500/30";
+		}
+	}
+
+	function badgeText(state: string) {
+		switch (state) {
+			case "ready":
+				return "就绪";
+			case "installed_not_logged_in":
+				return "未登录";
+			case "not_installed":
+				return "未安装";
+			case "disabled":
+				return "已禁用";
+			default:
+				return state;
+		}
+	}
 </script>
 
-<div class="mx-auto flex max-w-2xl flex-col gap-4 p-4">
-	<div class="flex items-center justify-between">
-		<h1 class="text-lg font-semibold text-terminal-fg">远程控制</h1>
-		<button type="button" class={actionClass} onclick={() => void load()} aria-label="刷新"><RefreshCw class="size-4" /></button>
+<div class="flex h-full flex-col gap-6 p-6 text-terminal-fg">
+	<div class="flex items-center justify-between border-b border-terminal-edge pb-4">
+		<div>
+			<h1 class="text-xl font-bold tracking-tight">外部编码客户端 (External Runtimes)</h1>
+			<p class="text-sm text-terminal-dim">统一纳管本机已登录的第三方编码 Agent CLI（Devin、Claude Code、Codex、OpenCode 等）</p>
+		</div>
+		<button
+			type="button"
+			onclick={fetchRuntimes}
+			disabled={loading}
+			class="flex items-center gap-2 rounded-lg border border-terminal-edge bg-white/5 px-3 py-1.5 text-xs font-medium text-terminal-fg transition hover:bg-white/10 disabled:opacity-50"
+		>
+			<RefreshCw class={`size-3.5 ${loading ? "animate-spin" : ""}`} />
+			刷新状态
+		</button>
 	</div>
 
-	{#if loading}
-		<div class="text-sm text-white/50">加载中…</div>
-	{:else if disabled}
-		<div class={cardClass}><span class="text-sm text-white/70">远程控制未开启。设置 VEYA_REMOTE_CONTROL=1 后，这里可以驱动 tailnet 上的 agent。</span></div>
-	{:else}
-		{#if error}<div class="text-sm text-rose-300">{error}</div>{/if}
-
-		<!-- start a task -->
-		<section class={cardClass}>
-			<h2 class="mb-2 text-sm font-medium text-white/70">启动任务</h2>
-			{#if hosts.length === 0}
-				<div class="text-sm text-white/50">先添加一台主机。</div>
-			{:else}
-				<div class="flex flex-col gap-2">
-					<div class="flex items-center gap-2">
-						<span class="rounded bg-sky-500/20 px-2 py-1 text-xs font-mono text-sky-300">
-							@{hostId || "未指定"}
-						</span>
-						<select bind:value={hostId} class="min-h-11 flex-1 rounded-lg bg-white/[0.06] px-2 text-sm text-terminal-fg" aria-label="目标主机">
-							{#each hosts as host (host.host_id)}
-								<option value={host.host_id}>@{host.host_id} · {host.display_name} ({host.agent_label})</option>
-							{/each}
-						</select>
-					</div>
-					<div class="flex items-end gap-2">
-						<textarea
-							bind:value={task}
-							rows="3"
-							placeholder="要 agent 做什么？"
-							class="min-h-11 flex-1 resize-y rounded-lg bg-white/[0.06] px-2 py-2 text-sm text-terminal-fg placeholder:text-white/30"
-						></textarea>
-						{#if speechSupported}
-							<button
-								type="button"
-								onclick={toggleSpeech}
-								class="flex min-h-11 min-w-11 items-center justify-center rounded-lg {listening ? 'bg-rose-500/80 text-white' : 'bg-white/[0.06] text-terminal-dim'}"
-								aria-label={listening ? "停止语音输入" : "语音输入"}
-							>
-								<Mic class="size-4" />
-							</button>
-						{/if}
-					</div>
-					<div class="flex items-center gap-2">
-						<select bind:value={wake} class="min-h-9 rounded-lg bg-white/[0.06] px-2 text-xs text-terminal-fg" aria-label="唤醒策略">
-							<option value="now">立即</option>
-							<option value="batch">批量</option>
-							<option value="none">不唤醒</option>
-						</select>
-						<button type="button" class={actionClass} disabled={busy === "start" || !task.trim()} onclick={() => void submitTask()}>
-							<Play class="size-4" />启动
-						</button>
-					</div>
-				</div>
-			{/if}
-		</section>
-
-		<!-- approve / deny -->
-		{#if cards.length > 0}
-			<section class="flex flex-col gap-2">
-				<h2 class="text-sm font-medium text-white/70">待批准（{cards.length}）</h2>
-				{#each cards as card (card.approval_id)}
-					<div class="{cardClass} flex flex-col gap-2">
-						<div class="min-w-0">
-							<div class="text-sm text-terminal-fg">{card.tool}</div>
-							<div class="truncate text-[11px] text-white/40">{card.host_id} · {card.reason}</div>
-						</div>
-						<div class="flex gap-2">
-							<button type="button" class={actionClass} disabled={busy === card.approval_id} onclick={() => approve(card)}>批准</button>
-							<button type="button" class={actionClass} disabled={busy === card.approval_id} onclick={() => deny(card)}>拒绝</button>
-						</div>
-					</div>
-				{/each}
-			</section>
-		{/if}
-
-		<!-- running agents -->
-		<section class="flex flex-col gap-2">
-			<h2 class="text-sm font-medium text-white/70">远程 Agent（{activeSessions.length}）</h2>
-			{#each activeSessions as session (session.session_id)}
-				<div class="{cardClass} flex items-center gap-2">
-					<div class="min-w-0 flex-1">
-						<div class="truncate text-sm text-terminal-fg">{session.task}</div>
-						<div class="text-[11px] text-white/40">
-							{session.host_id} · {session.agent_label} · {session.state}
-							{#if session.wake_outcome} · {session.wake_outcome}{/if}
-						</div>
-					</div>
-					<button type="button" class={actionClass} onclick={() => void guard(session.session_id, () => cancelSession(session.session_id))} aria-label="取消">
-						<X class="size-4" />
-					</button>
-				</div>
-			{:else}
-				<div class="text-sm text-white/50">没有正在运行的远程 agent。</div>
-			{/each}
-		</section>
-
-		<!-- hosts -->
-		<section class="flex flex-col gap-2">
-			<div class="flex items-center justify-between">
-				<h2 class="text-sm font-medium text-white/70">主机（{hosts.length}）</h2>
-				<button type="button" class={actionClass} onclick={() => (showAddHost = !showAddHost)} aria-label="添加主机"><Plus class="size-4" /></button>
+	{#if error}
+		<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">
+			<div class="flex items-center gap-2 font-semibold">
+				<CircleAlert class="size-4" />
+				提示
 			</div>
-			{#if showAddHost}
-				<div class="{cardClass} flex flex-col gap-2">
-					<input bind:value={newHostId} placeholder="host id（小写，如 ubuntu26）" class="min-h-9 rounded-lg bg-white/[0.06] px-2 text-sm text-terminal-fg placeholder:text-white/30" />
-					<input bind:value={newHostIp} placeholder="tailnet IP（100.x.y.z）" class="min-h-9 rounded-lg bg-white/[0.06] px-2 text-sm text-terminal-fg placeholder:text-white/30" />
-					<select bind:value={newHostLabel} class="min-h-9 rounded-lg bg-white/[0.06] px-2 text-sm text-terminal-fg" aria-label="执行器">
-						<option value="pi">pi</option>
-						<option value="claude-wb">claude-wb</option>
-						<option value="codex">codex</option>
-					</select>
+			<p class="mt-1">{error}</p>
+			<p class="mt-2 text-xs text-rose-300/80">
+				提示：外部运行时需要设置环境变量 <code class="rounded bg-black/30 px-1 py-0.5">VEYA_XRT_RUNTIMES=1</code> 方可启用。
+			</p>
+		</div>
+	{/if}
+
+	<div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+		<!-- Runtime List Card -->
+		<div class="rounded-xl border border-terminal-edge bg-terminal-card p-5 lg:col-span-1">
+			<h2 class="text-sm font-semibold text-terminal-fg">客户端实例状态</h2>
+			<div class="mt-4 flex flex-col gap-3">
+				{#if loading && runtimes.length === 0}
+					<div class="flex items-center justify-center py-8 text-terminal-dim">
+						<Loader2 class="size-5 animate-spin" />
+					</div>
+				{:else if runtimes.length === 0}
+					<p class="text-xs text-terminal-dim">无可用运行时，或 XRT 系统未开启。</p>
+				{:else}
+					{#each runtimes as rt}
+						<button
+							type="button"
+							onclick={() => { selectedRuntime = rt.name; }}
+							class={`flex items-center justify-between rounded-lg border p-3 text-left transition ${selectedRuntime === rt.name ? "border-violet-500/60 bg-violet-500/10" : "border-terminal-edge bg-white/2 hover:bg-white/5"}`}
+						>
+							<div>
+								<div class="font-medium text-terminal-fg">{rt.display_name}</div>
+								<div class="text-[11px] text-terminal-dim">{rt.path ?? "未在 PATH 中找到"}</div>
+								{#if rt.version}
+									<div class="mt-0.5 text-[10px] text-violet-400 font-mono">{rt.version}</div>
+								{/if}
+							</div>
+							<span class={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badgeClass(rt.state)}`}>
+								{badgeText(rt.state)}
+							</span>
+						</button>
+					{/each}
+				{/if}
+			</div>
+		</div>
+
+		<!-- Dispatch Task Card -->
+		<div class="flex flex-col rounded-xl border border-terminal-edge bg-terminal-card p-5 lg:col-span-2">
+			<h2 class="text-sm font-semibold text-terminal-fg">隔离 Worktree 任务派发</h2>
+			<p class="mt-1 text-xs text-terminal-dim">
+				当前选中: <span class="font-semibold text-violet-400">{selectedRuntime}</span>
+			</p>
+
+			<div class="mt-4 flex flex-col gap-4 flex-1">
+				<div>
+					<label for="task-input" class="block text-xs font-medium text-terminal-dim">任务说明 / Prompt</label>
+					<textarea
+						id="task-input"
+						bind:value={taskText}
+						rows="4"
+						placeholder="输入派发给该客户端的编码任务指令..."
+						class="mt-1.5 w-full rounded-lg border border-terminal-edge bg-terminal-bg p-3 text-sm text-terminal-fg placeholder:text-terminal-dim focus:border-violet-500 focus:outline-none"
+					></textarea>
+				</div>
+
+				<div class="flex items-center justify-between">
+					<span class="text-[11px] text-terminal-dim">非交互模式运行，自动产出 Worktree Git Diff 与产物。</span>
 					<button
 						type="button"
-						class={actionClass}
-						disabled={!newHostId || !newHostIp}
-						onclick={() =>
-							void guard("add-host", async () => {
-								await createHost({ host_id: newHostId, tailnet_ip: newHostIp, agent_label: newHostLabel });
-								newHostId = "";
-								newHostIp = "";
-								showAddHost = false;
-							})}
+						onclick={dispatchTask}
+						disabled={dispatching || !taskText.trim()}
+						class="flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-500 disabled:opacity-50"
 					>
-						保存
+						{#if dispatching}
+							<Loader2 class="size-3.5 animate-spin" />
+							正在执行...
+						{:else}
+							<Play class="size-3.5" />
+							派发任务
+						{/if}
 					</button>
 				</div>
-			{/if}
-			{#each hosts as host (host.host_id)}
-				<div class="{cardClass} flex flex-col gap-2">
-					<div class="flex items-center justify-between">
-						<div class="flex items-center gap-2 min-w-0">
-							<span class="font-mono text-xs text-sky-300">@{host.host_id}</span>
-							<span class="text-sm font-medium text-terminal-fg truncate">{host.display_name}</span>
-							{#if probes[host.host_id]}
-								{#if probes[host.host_id].reachable}
-									<span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] text-emerald-300">在线</span>
-								{:else}
-									<span class="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] text-rose-300" title={probes[host.host_id].error}>离线</span>
-								{/if}
-							{:else}
-								<span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/50">未探测</span>
-							{/if}
+
+				{#if executionResult}
+					<div class="mt-4 flex flex-col gap-2 rounded-lg border border-terminal-edge bg-terminal-bg p-4">
+						<div class="flex items-center justify-between border-b border-terminal-edge pb-2">
+							<span class="text-xs font-semibold text-terminal-fg">执行结果 ({executionResult.execution_id ?? "N/A"})</span>
+							<span class={`rounded px-1.5 py-0.5 text-[10px] font-bold ${executionResult.status === "COMPLETED" ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
+								{executionResult.status ?? "ERROR"} (Exit: {executionResult.exit_code ?? -1})
+							</span>
 						</div>
-						<div class="flex items-center gap-1">
-							<button
-								type="button"
-								class="{actionClass} text-xs px-2 py-1"
-								disabled={probingHostId === host.host_id}
-								onclick={() => void probe(host.host_id)}
-								aria-label="探测连通性"
-							>
-								{probingHostId === host.host_id ? "探测中…" : "探测"}
-							</button>
-							<button type="button" class={actionClass} onclick={() => void guard(host.host_id, () => deleteHost(host.host_id))} aria-label="删除"><Trash2 class="size-4" /></button>
-						</div>
+						{#if executionResult.error}
+							<p class="text-xs text-rose-400">{executionResult.error}</p>
+						{:else}
+							<div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+								<div>
+									<span class="text-[10px] text-terminal-dim">Stdout 输出尾部:</span>
+									<pre class="mt-1 max-h-40 overflow-auto rounded bg-black/40 p-2 text-[11px] font-mono text-terminal-fg">{executionResult.stdout || "(无输出)"}</pre>
+								</div>
+								<div>
+									<span class="text-[10px] text-terminal-dim">Worktree Git Diff:</span>
+									<pre class="mt-1 max-h-40 overflow-auto rounded bg-black/40 p-2 text-[11px] font-mono text-emerald-300">{executionResult.git_diff || "(无代码变更)"}</pre>
+								</div>
+							</div>
+						{/if}
 					</div>
-					<div class="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-white/40">
-						<div>IP: {host.tailnet_ip}</div>
-						<div>OS: {host.os_family || "linux"}</div>
-						<div>SSH: {host.ssh_user ? `${host.ssh_user}@` : ""}{host.tailnet_ip}:{host.ssh_port || 22}</div>
-						<div>Write Root: {host.write_root || "~/.veya/work"}</div>
-					</div>
-					<div class="text-[11px] text-white/30">
-						{host.last_seen_at ? `seen ${timeLabel(host.last_seen_at)}` : "never seen"}
-						{#if !host.enabled} · 已停用{/if}
-					</div>
-				</div>
-			{:else}
-				<div class="text-sm text-white/50">还没有主机。</div>
-			{/each}
-		</section>
-	{/if}
+				{/if}
+			</div>
+		</div>
+	</div>
 </div>
