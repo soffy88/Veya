@@ -114,11 +114,17 @@ def fake_master(monkeypatch):
     async def fake_execute(request: Any) -> GoalRunResponse:
         captured.append(request)
         objective = str(getattr(request, "objective", "") or "")
+        lines = [line.strip() for line in objective.splitlines() if line.strip()]
+        # The canonical request now appends a fixed response-style instruction.
+        # Keep the deterministic fake focused on the preceding user objective.
+        if lines and lines[-1].startswith("请使用中文"):
+            lines.pop()
+        summary_source = lines[-1] if lines else ""
         return GoalRunResponse(
             goal_id="goal-lorca-1",
             status=GoalStatus.completed,
             phase="finalized",
-            summary=f"done:{objective.splitlines()[-1][:24]}",
+            summary=f"done:{summary_source[:24]}",
         )
 
     from server.coordinator_master import master_coordinator
@@ -140,6 +146,14 @@ def client(owner_headers):
     client = TestClient(app)
     client.headers.update(owner_headers)
     return client
+
+
+@pytest.fixture
+def runner_client():
+    """Exercise the runner's own RemoteToken boundary without the app-wide user gate."""
+    app = FastAPI()
+    app.include_router(runners_router)
+    return TestClient(app)
 
 
 def _add_runner(runner_id: str = "mac") -> Any:
@@ -592,14 +606,14 @@ def _write_token_auth(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_runner_turn_endpoint_executes_the_hubs_bot_locally(
-    product_env, fake_master, client, monkeypatch
+    product_env, fake_master, runner_client, monkeypatch
 ):
     _write_token_auth(monkeypatch)
     payload = build_turn_payload(
         bot=_remote_bot(), text="summarise three sources", user=USER, trace_id="tr-hub-1"
     )
 
-    answered = client.post(
+    answered = runner_client.post(
         "/api/v1/runners/turn",
         json=payload,
         headers={"Authorization": "Bearer hub-write-token"},
@@ -622,7 +636,7 @@ async def test_runner_turn_endpoint_executes_the_hubs_bot_locally(
     assert "Cite every claim." in request.objective
 
 
-def test_runner_turn_endpoint_fails_closed(product_env, fake_master, client, monkeypatch):
+def test_runner_turn_endpoint_fails_closed(product_env, fake_master, client, runner_client, monkeypatch):
     _write_token_auth(monkeypatch)
     payload = {
         "version": 1,
@@ -632,10 +646,14 @@ def test_runner_turn_endpoint_fails_closed(product_env, fake_master, client, mon
         "text": "hi",
     }
 
-    # No token, a wrong token, and nothing configured at all: all denied.
-    assert client.post("/api/v1/runners/turn", json=payload).status_code == 401
+    # An unauthenticated request may be stopped by the global auth gate (401)
+    # or the runner boundary (403); both are fail-closed outcomes.
+    unauthenticated = client.post("/api/v1/runners/turn", json=payload, headers={"Authorization": ""})
+    assert unauthenticated.status_code in (401, 403)
+
+    # A wrong token and an empty runner authority must still be denied.
     assert (
-        client.post(
+        runner_client.post(
             "/api/v1/runners/turn",
             json=payload,
             headers={"Authorization": "Bearer wrong-token"},
@@ -646,7 +664,7 @@ def test_runner_turn_endpoint_fails_closed(product_env, fake_master, client, mon
 
     monkeypatch.setattr(runners_routes, "runner_auth", lambda: RemoteAuth())
     assert (
-        client.post(
+        runner_client.post(
             "/api/v1/runners/turn",
             json=payload,
             headers={"Authorization": "Bearer hub-write-token"},
@@ -654,9 +672,10 @@ def test_runner_turn_endpoint_fails_closed(product_env, fake_master, client, mon
         == 401
     )
 
-    # A read-only token may not cause real work to run.
+    # A recognized, valid read-only runner credential is not enough to execute
+    # work; the route must return 403 and never reach the semantic executor.
     _write_token_auth(monkeypatch)
-    refused = client.post(
+    refused = runner_client.post(
         "/api/v1/runners/turn",
         json=payload,
         headers={"Authorization": "Bearer hub-read-token"},
