@@ -1,0 +1,28 @@
+[Unit]
+Description=Veya Tailnet whois-only LocalAPI proxy
+After=tailscaled.service
+Requires=tailscaled.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+RuntimeDirectory=veya
+RuntimeDirectoryMode=0750
+UMask=0007
+ExecStart=/usr/bin/python3 /data/soffy/projects/veya-tnw/deploy/tailnet_whois_proxy.py --listen /run/veya/tailnet-whois.sock --upstream /var/run/tailscale/tailscaled.sock
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/veya
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+PrivateDevices=true
+
+[Install]
+WantedBy=multi-user.target

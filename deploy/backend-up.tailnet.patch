@@ -1,0 +1,8 @@
+--- backend-up.sh
++++ backend-up.sh
+@@ -1,4 +1,4 @@
+ #!/bin/bash
+ # Recreate veya-backend with the reconstructed override (config/ mounted). Usage: backend-up.sh [extra compose up args]
+ cd /data/soffy/projects/veya/deploy
+-exec docker compose -p deploy -f docker-compose.yml -f $HOME/.config/veya/backend-override.yml --env-file .env --env-file $HOME/.config/veya/backend.interp.env up -d --no-deps --no-build "$@" backend
++exec docker compose -p deploy -f docker-compose.yml -f "$HOME/.config/veya/backend-override.yml" -f /data/soffy/projects/veya-tnw/deploy/tnw-tailnet.override.yml --env-file .env --env-file "$HOME/.config/veya/backend.interp.env" up -d --no-deps --no-build "$@" backend
