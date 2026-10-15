@@ -1,5 +1,6 @@
 import uuid
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -133,7 +134,12 @@ def delete_routine(bot_id: str, routine_id: str):
 
 
 @router.post("/{routine_id}/run_now")
-async def run_now(bot_id: str, routine_id: str):
+async def run_now(
+    bot_id: str,
+    routine_id: str,
+    approval_id: str | None = None,
+    user: dict = Depends(auth_mod.require_user),
+):
     registry = _get_registry(bot_id)
     spec = registry.get(routine_id)
     if not spec:
@@ -141,10 +147,82 @@ async def run_now(bot_id: str, routine_id: str):
 
     require_same_bot(spec.bot_id, bot_id, f"routine:{routine_id}")
 
-    # ORCA-W4: run_now works even on disabled routines
-    # Run probe first
+    # ORCA-W4: run_now works even on disabled routines.
+    # Arbitrary command probes require the platform owner and a durable,
+    # account-scoped, exact-arguments approval. Approval never trusts a body
+    # boolean or command string supplied by the caller.
     from server.goal_run.routine_dispatch import run_probe
-    probe_result = run_probe(spec.probe, spec.workspace_path or None)
+    probe = spec.probe or {"kind": "none"}
+    command_probe_approved = False
+    if probe.get("kind") == "command":
+        if not auth_mod.is_owner(user):
+            raise HTTPException(status_code=403, detail="command probes are owner-only")
+        argv = probe.get("execute_args")
+        if (
+            not isinstance(argv, list)
+            or not argv
+            or len(argv) > 32
+            or any(not isinstance(arg, str) or not arg or "\x00" in arg or len(arg) > 2048 for arg in argv)
+            or probe.get("command") not in (None, "")
+        ):
+            raise HTTPException(status_code=400, detail="command probes require execute_args as a bounded string array; shell command strings are disabled")
+        if not spec.workspace_path:
+            raise HTTPException(status_code=400, detail="command probes require an explicitly bound workspace")
+        try:
+            workspace = Path(spec.workspace_path).expanduser().resolve(strict=True)
+            if not workspace.is_dir():
+                raise ValueError("workspace is not a directory")
+            requested_cwd = Path(probe.get("cwd") or ".").expanduser()
+            cwd = (requested_cwd if requested_cwd.is_absolute() else workspace / requested_cwd).resolve(strict=True)
+            if not cwd.is_relative_to(workspace) or not cwd.is_dir():
+                raise ValueError("cwd escapes workspace")
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="command cwd must resolve to a directory inside the bound workspace") from exc
+
+        from server.approvals import get_approval_service
+        service = get_approval_service()
+        binding = {
+            "bot_id": bot_id,
+            "routine_id": routine_id,
+            "execute_args": argv,
+            "cwd": str(cwd),
+        }
+        scope = service.scope_for(str(user.get("user_id") or ""))
+        if not approval_id:
+            request_id = uuid.uuid4().hex
+            service.store.create_approval({
+                "request_id": request_id,
+                "scope": scope,
+                "tool": "routine.command_probe",
+                "tool_args": binding,
+                "actor": "human",
+                "session_id": "",
+                "delegate_policy": "",
+            })
+            return {
+                "triggered": False,
+                "approval_required": True,
+                "approval_id": request_id,
+                "message": "Resolve this exact command probe approval, then retry run_now with approval_id.",
+            }
+        approval = service.get(approval_id)
+        if (
+            not approval
+            or approval.get("scope") != scope
+            or approval.get("tool") != "routine.command_probe"
+            or approval.get("tool_args") != binding
+        ):
+            raise HTTPException(status_code=404, detail="matching command probe approval not found")
+        if approval.get("status") != "resolved" or approval.get("decision") not in {"once", "session", "always"}:
+            raise HTTPException(status_code=403, detail="command probe approval is not approved")
+        command_probe_approved = True
+
+    probe_result = run_probe(
+        probe,
+        spec.workspace_path or None,
+        owner_authorized=bool(auth_mod.is_owner(user)),
+        approved=command_probe_approved,
+    )
     
     # Record run history
     trigger_id = f"run_now:{uuid.uuid4().hex}"

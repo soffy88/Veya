@@ -418,9 +418,13 @@ def _rest_client():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
+    from server import auth as auth_mod
     from server.approvals import router
 
     app = FastAPI()
+    app.dependency_overrides[auth_mod.require_user] = lambda: {
+        "user_id": "anonymous", "username": "test-anonymous", "is_owner": False
+    }
     app.include_router(router)
     return TestClient(app)
 

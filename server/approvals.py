@@ -374,7 +374,7 @@ def _principal_of(request: Any, body: ApprovalResolveRequest | None) -> str:
 @router.get("/approvals")
 async def list_approvals(
     status: str = "pending",
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Pending approvals for the signed-in user (pseudonymized scope)."""
 
@@ -387,7 +387,7 @@ async def list_approvals(
 async def resolve_approval_endpoint(
     approval_id: str,
     body: ApprovalResolveRequest,
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Resolve a pending approval (guard L: human unless delegated)."""
 
@@ -412,7 +412,7 @@ def _principal_of_request(body: ApprovalResolveRequest) -> str:
 
 @router.get("/grants")
 async def list_grants(
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """The signed-in user's 'always allow' grants."""
 
@@ -423,7 +423,7 @@ async def list_grants(
 @router.delete("/grants/{grant_id}")
 async def revoke_grant_endpoint(
     grant_id: int,
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Revoke one 'always allow' grant."""
 
@@ -435,7 +435,7 @@ async def revoke_grant_endpoint(
 @router.post("/handoff")
 async def create_handoff(
     body: HandoffCreateRequest,
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Open a human-handoff request (agent side: 'user must do this step')."""
 
@@ -457,7 +457,7 @@ def _own_handoff_or_404(handoff_id: str, user: dict[str, Any]) -> None:
 @router.post("/handoff/{handoff_id}/done")
 async def handoff_done(
     handoff_id: str,
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     _own_handoff_or_404(handoff_id, user)
     return await get_approval_service().resume_handoff(handoff_id=handoff_id, done=True)
@@ -466,7 +466,7 @@ async def handoff_done(
 @router.post("/handoff/{handoff_id}/cancel")
 async def handoff_cancel(
     handoff_id: str,
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     _own_handoff_or_404(handoff_id, user)
     return await get_approval_service().resume_handoff(handoff_id=handoff_id, done=False)
