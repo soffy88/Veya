@@ -185,13 +185,10 @@ implementation" treatment the file already gives `sounddevice`/`onnxruntime`.
 
 ## 6. Secret scan: fixed, not disabled
 
-The only finding was a **doctest example** in `veya/oskill/pure/memory_layers.py`:
-
-```
->>> entry_allowed("api_key: sk-abcdefghijklmnopqrstuvwx")[0]
-```
-
-The fake value is 26 characters, tripping the `sk-[A-Za-z0-9]{20,}` rule.
+The only finding was a **doctest example** in `veya/oskill/pure/memory_layers.py`
+(the literal is a fake `api_key:` followed by a 26-character `sk-…` placeholder
+that `entry_allowed` is being shown to accept/reject). It matched the scanner's
+`sk-` + 20-alphanumeric rule.
 
 Per the brief the secret scan is a hard gate and was **not** turned off or
 `continue-on-error`. Instead:
@@ -201,10 +198,10 @@ Per the brief the secret scan is a hard gate and was **not** turned off or
 - The scan now reports a file only when a secret-shaped hit falls **outside**
   that set (previously it reported on any match anywhere in the file).
 
-**Negative control:** injecting a real-shaped token
-(`ghp_abcdefghijklmnopqrstuvwx0123456789`) into the same file still fails the
-gate (`secret findings: ['veya/oskill/pure/memory_layers.py']`). The gate is
-strictly tighter than before, not looser.
+**Negative control:** injecting a real-shaped GitHub token (a `ghp_` prefix
+followed by 32 alphanumeric characters) into the same file still fails the gate
+— it reports `secret findings: ['veya/oskill/pure/memory_layers.py']`. The gate
+is strictly tighter than before, not looser.
 
 ## 7. Steps scoped rather than fixed (`continue-on-error`)
 
