@@ -16,25 +16,12 @@ router = APIRouter(prefix="/api/v1/tdx", tags=["tdx"])
 
 
 def require_owner(user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, Any]:
-    """Owner-only security dependency for TDX endpoints, matching VEYA_OWNER_USER_ID / is_owner."""
+    """Use the repository owner decision: configured owner ID or explicit is_owner."""
     user_id = str(user.get("user_id") or "")
     configured_owner = (
         os.getenv("VEYA_OWNER_USER_ID") or os.getenv("VEYA_TAILNET_OWNER_USER_ID") or ""
     ).strip()
-    roles = (
-        {str(role).lower() for role in user.get("roles", [])}
-        if isinstance(user.get("roles", []), (list, tuple, set))
-        else set()
-    )
-    role = str(user.get("role") or "").lower()
-    allowed = bool(configured_owner and user_id == configured_owner) or bool(
-        user.get("is_owner") is True
-        or user.get("is_admin") is True
-        or role in {"owner", "admin"}
-        or roles.intersection({"owner", "admin"})
-        or user_id in {"owner-123", "tester"}
-    )
-    if not allowed:
+    if not ((configured_owner and user_id == configured_owner) or user.get("is_owner") is True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="TDX endpoints are owner-only",

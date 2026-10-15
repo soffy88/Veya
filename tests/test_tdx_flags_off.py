@@ -6,6 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server.app import app
+from server import auth as auth_mod
+
+
+_ORIGINAL_REQUIRE_USER = auth_mod.require_user
 
 
 client = TestClient(app)
@@ -16,7 +20,7 @@ def test_all_tdx_flags_off(monkeypatch):
     monkeypatch.delenv("VEYA_TDX_AGENT_PUBLISH_PERMS", raising=False)
     monkeypatch.delenv("VEYA_TDX_RUN_HISTORY", raising=False)
     monkeypatch.setenv("VEYA_OWNER_USER_ID", "owner-123")
-    monkeypatch.setattr("server.auth.require_user", lambda: {"user_id": "owner-123", "is_owner": True})
+    monkeypatch.setitem(app.dependency_overrides, _ORIGINAL_REQUIRE_USER, lambda: {"user_id": "owner-123", "is_owner": True})
 
     assert client.get("/api/v1/tdx/needs-you").status_code == 404
     assert client.get("/api/v1/tdx/publish-perms").status_code == 404
