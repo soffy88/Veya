@@ -331,7 +331,6 @@ def _resolve_request_user(
 
     loopback 判定取 **socket 对端地址**, 不取任何请求头 — 头是客户端可伪造的。
     """
-    del request  # 保留签名: get_current_user 需要 Request 做依赖注入
     token = _bearer_token(authorization)
     if token:
         resolved = resolve_token(token)
@@ -339,6 +338,12 @@ def _resolve_request_user(
             _user_ctx.set(resolved)
             return resolved
         return None
+    # SEC H1: AuthGateMiddleware 已解析的请求身份 (来自 ?token= / cookie)。
+    # 中间件只在通过校验后 set; 这里读回, 让依赖与中间件用同一个身份。
+    if request is not None:
+        existing = _user_ctx.get()
+        if existing is not None:
+            return existing
     if _local_single_user_enabled() and _is_loopback(_peer_host(request)):
         local = {"user_id": "local", "username": "local", "is_owner": True}
         _user_ctx.set(local)
