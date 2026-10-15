@@ -94,3 +94,4 @@ deploy/hevi_deps/
 # local backup copies (audit 2026-10-11)
 *.bak-*
 *.py.bak*
+.qualification-provider-real
