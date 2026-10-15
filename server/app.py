@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from config.loader import load_config
 from server.assembly import Infra
@@ -486,24 +487,47 @@ from server.auth import AuthGateMiddleware as _AuthGateMiddleware  # noqa: E402
 
 app.add_middleware(_AuthGateMiddleware)
 
+# Exact CORS origins only. Additional deployments must opt in explicitly.
+_allowed_cors_origins = {
+    "http://localhost:3000",
+    "http://localhost:3006",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+}
+_allowed_cors_origins.update(
+    origin.strip()
+    for origin in os.environ.get("VEYA_CORS_ORIGINS", "").split(",")
+    if origin.strip()
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3006",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://172.23.229.195:3000",
-        # Tauri 桌面版 WebView origin (Linux/macOS/Windows)
-        "http://tauri.localhost",
-        "https://tauri.localhost",
-        "tauri://localhost",
-    ],
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origins=sorted(_allowed_cors_origins),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
+
+# Host header protection blocks DNS-rebinding hosts; add public hostnames explicitly.
+from urllib.parse import urlsplit  # noqa: E402
+
+_allowed_hosts = {"localhost", "127.0.0.1"}
+_allowed_hosts.update(
+    host.strip().lower()
+    for host in os.environ.get("VEYA_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+)
+_public_issuer = os.environ.get("VEYA_PUBLIC_ISSUER", "").strip()
+if _public_issuer:
+    try:
+        _issuer_host = urlsplit(_public_issuer).hostname
+        if _issuer_host:
+            _allowed_hosts.add(_issuer_host.lower())
+    except ValueError:
+        pass
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(_allowed_hosts))
 
 app.include_router(prompt_router)
 app.include_router(chat_router)
