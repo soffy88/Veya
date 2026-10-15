@@ -60,6 +60,7 @@ _MIME_TYPES: dict[str, str] = {
     "wav": "audio/wav",
 }
 
+
 def cli_hub_tool_ladder(
     task_tags: list[str],
     available_tools: dict[str, list[str]],
@@ -81,50 +82,65 @@ def cli_hub_tool_ladder(
     api_tools = list(available_tools.get("api") or [])
     mcp_tools = list(available_tools.get("mcp") or [])
     if api_tools:
-        ranked.append({
-            "source": "api",
-            "tools": api_tools,
-            "reason": "an API is the contract the app already publishes",
-        })
+        ranked.append(
+            {
+                "source": "api",
+                "tools": api_tools,
+                "reason": "an API is the contract the app already publishes",
+            }
+        )
     if mcp_tools:
-        ranked.append({
-            "source": "mcp",
-            "tools": mcp_tools,
-            "reason": "an MCP server exposes the same capability as a typed tool",
-        })
+        ranked.append(
+            {
+                "source": "mcp",
+                "tools": mcp_tools,
+                "reason": "an MCP server exposes the same capability as a typed tool",
+            }
+        )
 
     cli_tools = list(available_tools.get("cli_hub") or [])
     if cli_tools:
-        ranked.append({
-            "source": "cli_hub",
-            "tools": cli_tools,
-            "reason": "no API or MCP tool covers this task; a CLI is structured and scriptable",
-        })
+        ranked.append(
+            {
+                "source": "cli_hub",
+                "tools": cli_tools,
+                "reason": "no API or MCP tool covers this task; a CLI is structured and scriptable",
+            }
+        )
 
     hands_tools = list(available_tools.get("hands") or [])
     if hands_tools:
         # The reason is the point of this entry: screen-driving is the fragile
         # option and a run must be able to show why it was chosen.
         missing = [name for name in ("api", "mcp", "cli_hub") if not available_tools.get(name)]
-        ranked.append({
-            "source": "hands",
-            "tools": hands_tools,
-            "reason": (
-                "desktop hands used because no usable CLI or API exists for "
-                f"tags {tags or ['unspecified']} (unavailable: {', '.join(missing) or 'none'})"
-            ),
-            "unavailable_sources": missing,
-        })
+        ranked.append(
+            {
+                "source": "hands",
+                "tools": hands_tools,
+                "reason": (
+                    "desktop hands used because no usable CLI or API exists for "
+                    f"tags {tags or ['unspecified']} (unavailable: {', '.join(missing) or 'none'})"
+                ),
+                "unavailable_sources": missing,
+            }
+        )
 
     if not ranked:
-        ranked.append({
-            "source": "none",
-            "tools": [],
-            "reason": "no API, MCP, CLI or hands tool is available for this task",
-        })
+        ranked.append(
+            {
+                "source": "none",
+                "tools": [],
+                "reason": "no API, MCP, CLI or hands tool is available for this task",
+            }
+        )
 
-    ranked.sort(key=lambda entry: LADDER_ORDER.index(entry["source"])
-                if entry["source"] in LADDER_ORDER else len(LADDER_ORDER))
+    ranked.sort(
+        key=lambda entry: (
+            LADDER_ORDER.index(entry["source"])
+            if entry["source"] in LADDER_ORDER
+            else len(LADDER_ORDER)
+        )
+    )
     return {
         "tags": tags,
         "ranked": ranked,
@@ -154,11 +170,13 @@ def full_6step_tool_ladder(
     # 1. context
     ctx = list(available_sources.get("context") or [])
     if ctx:
-        ranked.append({
-            "step": "context",
-            "tools": ctx,
-            "reason": "in-context memory and recent artifacts have zero overhead and no side effects",
-        })
+        ranked.append(
+            {
+                "step": "context",
+                "tools": ctx,
+                "reason": "in-context memory and recent artifacts have zero overhead and no side effects",
+            }
+        )
 
     # 2. connector/MCP/API
     api_tools = list(
@@ -168,68 +186,79 @@ def full_6step_tool_ladder(
         + (available_sources.get("cli_hub") or [])
     )
     if api_tools:
-        ranked.append({
-            "step": "connector_api",
-            "tools": api_tools,
-            "reason": "structured programmatic interfaces (API/MCP/CLI) are typed and scriptable",
-        })
+        ranked.append(
+            {
+                "step": "connector_api",
+                "tools": api_tools,
+                "reason": "structured programmatic interfaces (API/MCP/CLI) are typed and scriptable",
+            }
+        )
 
     # 3. web search
     search_tools = list(available_sources.get("web_search") or [])
     if search_tools:
-        ranked.append({
-            "step": "web_search",
-            "tools": search_tools,
-            "reason": "search fallback ladder resolves public questions without executing code",
-        })
+        ranked.append(
+            {
+                "step": "web_search",
+                "tools": search_tools,
+                "reason": "search fallback ladder resolves public questions without executing code",
+            }
+        )
 
     # 4. browser
     browser_tools = list(
-        (available_sources.get("browser") or [])
-        + (available_sources.get("read_browser") or [])
+        (available_sources.get("browser") or []) + (available_sources.get("read_browser") or [])
     )
     if browser_tools:
-        ranked.append({
-            "step": "browser",
-            "tools": browser_tools,
-            "reason": "DOM reader or headless browser reads unstructured web pages",
-        })
+        ranked.append(
+            {
+                "step": "browser",
+                "tools": browser_tools,
+                "reason": "DOM reader or headless browser reads unstructured web pages",
+            }
+        )
 
     # 5. desktop
     desktop_tools = list(
-        (available_sources.get("desktop") or [])
-        + (available_sources.get("hands") or [])
+        (available_sources.get("desktop") or []) + (available_sources.get("hands") or [])
     )
     if desktop_tools:
-        ranked.append({
-            "step": "desktop",
-            "tools": desktop_tools,
-            "reason": "desktop GUI automation is fragile and used only when no programmatic interface exists",
-        })
+        ranked.append(
+            {
+                "step": "desktop",
+                "tools": desktop_tools,
+                "reason": "desktop GUI automation is fragile and used only when no programmatic interface exists",
+            }
+        )
 
     # 6. ask human
     human_tools = list(
-        (available_sources.get("ask_human") or [])
-        + (available_sources.get("human") or [])
+        (available_sources.get("ask_human") or []) + (available_sources.get("human") or [])
     )
     if human_tools:
-        ranked.append({
-            "step": "ask_human",
-            "tools": human_tools,
-            "reason": "human escalation requested when automated tools cannot resolve ambiguous intent",
-        })
+        ranked.append(
+            {
+                "step": "ask_human",
+                "tools": human_tools,
+                "reason": "human escalation requested when automated tools cannot resolve ambiguous intent",
+            }
+        )
 
     if not ranked:
-        ranked.append({
-            "step": "none",
-            "tools": [],
-            "reason": "no tools available across the 6-step ladder",
-        })
+        ranked.append(
+            {
+                "step": "none",
+                "tools": [],
+                "reason": "no tools available across the 6-step ladder",
+            }
+        )
 
     ranked.sort(
-        key=lambda entry: FULL_TOOL_LADDER_ORDER.index(entry["step"])
-        if entry["step"] in FULL_TOOL_LADDER_ORDER
-        else len(FULL_TOOL_LADDER_ORDER)
+        key=lambda entry: (
+            FULL_TOOL_LADDER_ORDER.index(entry["step"])
+            if entry["step"] in FULL_TOOL_LADDER_ORDER
+            else len(FULL_TOOL_LADDER_ORDER)
+        )
     )
 
     return {
@@ -298,9 +327,7 @@ def cli_hub_verify_output(
     if expected_type == "mp4" and b"ftyp" not in content[:32]:
         return {**verdict, "reason": "missing mp4 ftyp box"}
 
-    if expected_type == "wav" and not (
-        content.startswith(b"RIFF") and b"WAVE" in content[8:16]
-    ):
+    if expected_type == "wav" and not (content.startswith(b"RIFF") and b"WAVE" in content[8:16]):
         return {**verdict, "reason": "missing wav RIFF/WAVE header"}
 
     return {**verdict, "verified": True, "reason": "content matches the declared type"}

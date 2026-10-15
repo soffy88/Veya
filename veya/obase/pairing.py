@@ -241,14 +241,14 @@ class PairingCodeStore:
 
 
 __all__ = [
-    "PairingCodeStore",
-    "default_pairing_path",
-    "PAIRING_ALPHABET",
-    "PAIRING_CODE_LENGTH",
     "DEFAULT_PAIRING_TTL_S",
     "MAX_ATTEMPTS_PER_CODE",
-    "RATE_LIMIT_WINDOW_S",
+    "PAIRING_ALPHABET",
+    "PAIRING_CODE_LENGTH",
     "RATE_LIMIT_MAX_PER_WINDOW",
-    "STATUS_PENDING",
+    "RATE_LIMIT_WINDOW_S",
     "STATUS_CONSUMED",
+    "STATUS_PENDING",
+    "PairingCodeStore",
+    "default_pairing_path",
 ]

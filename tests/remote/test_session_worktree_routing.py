@@ -408,7 +408,9 @@ async def test_r8_reported_target_matches_reality(repo: Path) -> None:
             identity_root = result.get("repo_root")
             if identity_root:
                 assert Path(identity_root).resolve() == repo.resolve(), (
-                    target, identity_root, repo,
+                    target,
+                    identity_root,
+                    repo,
                 )
 
 

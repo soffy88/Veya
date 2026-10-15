@@ -3705,7 +3705,9 @@ class DurableExecutionRepository:
         scan_time = now if now is not None else time.time()
         cutoff = scan_time - stale_after_s
         reason = "abandoned_no_live_worker"
-        error = canonical_json({"message": "abandoned: no live worker owns this run", "reason": reason})
+        error = canonical_json(
+            {"message": "abandoned: no live worker owns this run", "reason": reason}
+        )
 
         def op(conn: Any) -> list[str]:
             rows = conn.execute(

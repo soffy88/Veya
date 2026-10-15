@@ -34,18 +34,13 @@ def test_provider_400_configuration_maps_to_configuration_failure() -> None:
         detail="exit_code=1; stderr=400: User location is not supported for the API use",
     )
     assert attribution.is_provider_fault
-    assert (
-        attribution.provider_failure_class
-        == ProviderFailureClass.PROVIDER_CONFIGURATION_FAILURE
-    )
+    assert attribution.provider_failure_class == ProviderFailureClass.PROVIDER_CONFIGURATION_FAILURE
 
 
 def test_provider_unreachable_maps_to_unavailable() -> None:
     attribution = classify_failure(exit_code=1, detail="503 service unavailable upstream")
     assert attribution.is_provider_fault
-    assert (
-        attribution.provider_failure_class == ProviderFailureClass.PROVIDER_UNAVAILABLE
-    )
+    assert attribution.provider_failure_class == ProviderFailureClass.PROVIDER_UNAVAILABLE
 
 
 def test_worker_segfault_stays_executor_crash() -> None:

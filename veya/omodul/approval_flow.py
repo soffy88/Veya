@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from veya.oprim.approval import (
     approval_create,
@@ -198,9 +199,7 @@ def _op_handoff_request(config: ApprovalFlowConfig, data: dict[str, Any]) -> dic
     }
 
 
-def _op_handoff_resume(
-    config: ApprovalFlowConfig, data: dict[str, Any], op: str
-) -> dict[str, Any]:
+def _op_handoff_resume(config: ApprovalFlowConfig, data: dict[str, Any], op: str) -> dict[str, Any]:
     handoff_id = str(data.get("handoff_id") or "")
     status = "done" if op == "handoff_done" else "cancelled"
     row = handoff_resolve(handoff_id, status=status, store=config.store)
@@ -223,4 +222,4 @@ def _op_handoff_resume(
     }
 
 
-__all__ = ["ApprovalFlowConfig", "run_approval_flow", "STATUS_COMPLETED", "STATUS_ERROR"]
+__all__ = ["STATUS_COMPLETED", "STATUS_ERROR", "ApprovalFlowConfig", "run_approval_flow"]

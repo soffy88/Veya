@@ -81,13 +81,17 @@ async def supervisor_handoff(
     # (funcfix: this used to be reset to "now" on every report, so a run that
     # never started looked alive and one that did looked stalled at random).
     if goal_state is not None:
-        fingerprint = "|".join(
-            str(report.get(k)) for k in ("status", "tasks_done", "tasks_total", "tasks_blocked")
-        ) + f"|{getattr(goal_state, 'started_at', None)}"
+        fingerprint = (
+            "|".join(
+                str(report.get(k)) for k in ("status", "tasks_done", "tasks_total", "tasks_blocked")
+            )
+            + f"|{getattr(goal_state, 'started_at', None)}"
+        )
         if fingerprint != binding.last_report_fingerprint or binding.last_activity_at is None:
             binding.last_activity_at = time.time()
             binding.last_report_fingerprint = fingerprint
         from server.supervisor import binding as bind_mod
+
         bind_mod.save_binding(binding)
 
     # A4: if stalled and under max_repairs, emit a HEARTBEAT nudge.

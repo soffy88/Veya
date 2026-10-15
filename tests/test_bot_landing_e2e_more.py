@@ -128,7 +128,9 @@ def test_s5_memory(test_user, client):
     bot_id = "bot_coffee_expert"
     bot_reg = BotRegistry()
     bot_reg.register(
-        BotSpec(bot_id=bot_id, owner_id=test_user["user_id"], name="CoffeeExpert", runner_id="local")
+        BotSpec(
+            bot_id=bot_id, owner_id=test_user["user_id"], name="CoffeeExpert", runner_id="local"
+        )
     )
 
     token = bot_scope.bind_current_bot(bot_id)
@@ -211,24 +213,28 @@ async def test_s6_routine_always_on(test_user, client, tmp_path):
     clock._save_state()
 
     # Tick fires routine
-    from unittest.mock import AsyncMock, patch
-
     from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
 
     from server.bot_team.conversations import conversation_store
 
     async def _fake_routine_turn(*, bot, text, user, context="", reply_meta=None, **_kw):
-        conversation_store().append(bot.bot_id, role="bot", text="现在时间是 11:15", meta=reply_meta)
+        conversation_store().append(
+            bot.bot_id, role="bot", text="现在时间是 11:15", meta=reply_meta
+        )
         return SimpleNamespace(reply="现在时间是 11:15")
 
     # W11-D: a bot-owned routine runs as a real bot turn (run_bot_turn); the
     # legacy execute_structured path only serves routines with no bot entry.
-    with patch(
-        "server.coordinator_master.master_coordinator.execute_structured",
-        AsyncMock(return_value="现在时间是 11:15"),
-    ), patch(
-        "server.bot_team.turns.run_bot_turn",
-        AsyncMock(side_effect=_fake_routine_turn),
+    with (
+        patch(
+            "server.coordinator_master.master_coordinator.execute_structured",
+            AsyncMock(return_value="现在时间是 11:15"),
+        ),
+        patch(
+            "server.bot_team.turns.run_bot_turn",
+            AsyncMock(side_effect=_fake_routine_turn),
+        ),
     ):
         handoffs = await clock.tick()
     assert len(handoffs) == 1

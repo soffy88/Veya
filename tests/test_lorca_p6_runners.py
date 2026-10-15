@@ -132,7 +132,11 @@ def client():
     app = FastAPI()
     # W11-AUTH: bot routes now require a signed-in user (D2).
     from server import auth as _w11_auth
-    app.dependency_overrides[_w11_auth.require_user] = lambda: {"user_id": "anonymous", "username": "anonymous"}
+
+    app.dependency_overrides[_w11_auth.require_user] = lambda: {
+        "user_id": "anonymous",
+        "username": "anonymous",
+    }
     app.include_router(bots_router)
     app.include_router(runners_router)
     return TestClient(app)

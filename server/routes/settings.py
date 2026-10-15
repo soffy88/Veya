@@ -2,6 +2,7 @@
 
 ORCA-W4: Artifact sharing global toggle.
 """
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -18,6 +19,7 @@ router = APIRouter(
 
 class ArtifactSharingSettings(BaseModel):
     """Artifact sharing global settings."""
+
     enabled: bool
 
 
@@ -25,6 +27,7 @@ def _get_settings_file(bot_id: str):
     """Get the path to the settings storage file."""
     import os
     from pathlib import Path
+
     if "VEYA_SETTINGS_PATH" in os.environ:
         return Path(os.environ["VEYA_SETTINGS_PATH"])
     settings_dir = Path(os.environ.get("VEYA_SETTINGS_DIR", os.path.expanduser("~/.veya/settings")))
@@ -37,6 +40,7 @@ def _load_settings(bot_id: str) -> dict:
     if path.exists():
         try:
             import json
+
             return json.loads(path.read_text())
         except Exception:
             return {}
@@ -48,6 +52,7 @@ def _save_settings(bot_id: str, settings: dict) -> None:
     path = _get_settings_file(bot_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     import json
+
     path.write_text(json.dumps(settings, indent=2))
 
 
@@ -62,7 +67,7 @@ def _check_agent_context() -> None:
     if depth > 0:
         raise HTTPException(
             status_code=403,
-            detail="Artifact sharing settings can only be changed via direct REST call, not from agent/tool context"
+            detail="Artifact sharing settings can only be changed via direct REST call, not from agent/tool context",
         )
 
 

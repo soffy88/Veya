@@ -1,5 +1,5 @@
-import uuid
 import time
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -8,8 +8,9 @@ from server import auth as auth_mod
 from server.bot_team.routine_clock import _default_handoff_consumer
 from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.models import RoutineSpec
-from server.goal_run.routine_registry import RoutineRegistry
 from server.goal_run.routine_history import RoutineHistoryStore
+from server.goal_run.routine_registry import RoutineRegistry
+
 
 def _require_owned_bot(
     bot_id: str,
@@ -41,7 +42,7 @@ class RoutineCreateRequest(BaseModel):
     enabled: bool = False  # ORCA-W4: default to disabled on create
     routine_id: str | None = None
     probe: dict | None = None  # ORCA-W4: probe spec
-    model: str | None = None   # ORCA-W4: per-routine model
+    model: str | None = None  # ORCA-W4: per-routine model
     workspace_path: str | None = None  # ORCA-W4: workspace binding
 
 
@@ -51,7 +52,7 @@ class RoutinePatchRequest(BaseModel):
     timezone: str | None = None
     enabled: bool | None = None
     probe: dict | None = None  # ORCA-W4: probe spec
-    model: str | None = None   # ORCA-W4: per-routine model
+    model: str | None = None  # ORCA-W4: per-routine model
     workspace_path: str | None = None  # ORCA-W4: workspace binding
 
 
@@ -144,8 +145,9 @@ async def run_now(bot_id: str, routine_id: str):
     # ORCA-W4: run_now works even on disabled routines
     # Run probe first
     from server.goal_run.routine_dispatch import run_probe
+
     probe_result = run_probe(spec.probe, spec.workspace_path or None)
-    
+
     # Record run history
     trigger_id = f"run_now:{uuid.uuid4().hex}"
     run_entry = {
@@ -156,7 +158,9 @@ async def run_now(bot_id: str, routine_id: str):
     }
     if not probe_result["success"]:
         run_entry["status"] = "probe_error"
-    elif probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False):
+    elif probe_result["kind"] == "git_changes" and not probe_result["data"].get(
+        "has_changes", False
+    ):
         run_entry["status"] = "skipped"
     else:
         run_entry["status"] = "dispatched"
@@ -165,9 +169,11 @@ async def run_now(bot_id: str, routine_id: str):
         RoutineHistoryStore(bot_id=bot_id).add_record(routine_id, run_entry)
     except Exception:
         pass
-    
+
     # Skip dispatch if probe skipped or errored
-    if not probe_result["success"] or (probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False)):
+    if not probe_result["success"] or (
+        probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False)
+    ):
         return {"triggered": False, "reason": run_entry["status"], "probe": probe_result}
 
     handoff = {

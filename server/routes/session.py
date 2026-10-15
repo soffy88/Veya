@@ -239,9 +239,7 @@ async def compact_session(
         from server.bot_team.workers import persistent_workers_enabled, resume_brief_for
 
         if persistent_workers_enabled():
-            summary_msg["content"] = resume_brief_for(
-                str(s.get("bot_id") or ""), summary_text
-            )
+            summary_msg["content"] = resume_brief_for(str(s.get("bot_id") or ""), summary_text)
     s["messages"] = [summary_msg, *msgs[-_KEEP_RECENT:]]
     s["compacted"] = True
     _persist(session_id)

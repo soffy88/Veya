@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any
 
 #: Seconds before a whois lookup is considered dead. A hung tailscaled must
 #: never hold an HTTP request open.
@@ -78,7 +79,7 @@ def run_tailscale(argv: Sequence[str], *, timeout_s: float = WHOIS_TIMEOUT_S) ->
         raise ProcessUnavailable("only `tailscale ...` may be run here")
     binary = _resolve("tailscale")
     try:
-        completed = subprocess.run(  # noqa: S603 — argv list, shell=False, fixed binary
+        completed = subprocess.run(
             [binary, *args[1:]],
             capture_output=True,
             text=True,
@@ -114,7 +115,7 @@ def spawn(
         raise ProcessUnavailable("empty argv")
     binary = _resolve(args[0])
     try:
-        process = subprocess.Popen(  # noqa: S603 — argv list, shell=False
+        process = subprocess.Popen(
             [binary, *args[1:]],
             cwd=cwd or None,
             stdout=subprocess.PIPE,
@@ -141,7 +142,7 @@ def run_capture(
     *,
     timeout_s: float,
     input_bytes: bytes | None = None,
-) -> "CaptureResult":
+) -> CaptureResult:
     """W17: run one argv-list command to completion and capture its output.
 
     Unlike :func:`spawn` (launch-only, never kills), this is for short
@@ -155,7 +156,7 @@ def run_capture(
         raise ProcessUnavailable("empty argv")
     binary = _resolve(args[0])
     try:
-        completed = subprocess.run(  # noqa: S603 — argv list, shell=False
+        completed = subprocess.run(
             [binary, *args[1:]],
             input=input_bytes if input_bytes is not None else b"",
             capture_output=True,
@@ -192,9 +193,9 @@ class CaptureResult:
 
 
 __all__ = [
-    "CaptureResult",
     "SPAWN_TIMEOUT_S",
     "WHOIS_TIMEOUT_S",
+    "CaptureResult",
     "ProcessHandle",
     "ProcessUnavailable",
     "run_capture",

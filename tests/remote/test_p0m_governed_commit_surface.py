@@ -100,8 +100,13 @@ def test_the_two_tools_are_added_and_nothing_else_moved() -> None:
     # P0-M's surface is exactly the git group it introduced, and P0-N's addition
     # is the only thing that has moved since.
     assert {n for n in names if n.startswith("git.")} == {
-        "git.status", "git.diff", "git.stage", "git.commit",
-        "git.verify", "git.log", "git.promote",
+        "git.status",
+        "git.diff",
+        "git.stage",
+        "git.commit",
+        "git.verify",
+        "git.log",
+        "git.promote",
     }
 
 
@@ -273,8 +278,18 @@ class Executor:
         if name == "write_file":
             from server.tool_registry import _tool_write_file
 
-            return json.dumps({"status": "ok", "data": {"result": str(_tool_write_file(
-                str(kwargs.get("filepath")), str(kwargs.get("content", "")), True))}})
+            return json.dumps(
+                {
+                    "status": "ok",
+                    "data": {
+                        "result": str(
+                            _tool_write_file(
+                                str(kwargs.get("filepath")), str(kwargs.get("content", "")), True
+                            )
+                        )
+                    },
+                }
+            )
         return json.dumps({"status": "ok", "data": {"stdout": "unused"}})
 
 
@@ -301,18 +316,25 @@ async def _open(tmp_path: Path, repo: Path):
         audit=audit,
         adapter=adapter,
     )
-    session = (await gateway.handle_message(
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(repo)}},
-        authorization=f"Bearer {secret}",
-    ))["result"]["sessionId"]
+    session = (
+        await gateway.handle_message(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(repo)}},
+            authorization=f"Bearer {secret}",
+        )
+    )["result"]["sessionId"]
     return gateway, secret, session
 
 
 async def _call(gateway, secret, session, name, arguments):
     response = await gateway.handle_message(
-        {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-         "params": {"name": name, "arguments": arguments}},
-        authorization=f"Bearer {secret}", session_header=session,
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        },
+        authorization=f"Bearer {secret}",
+        session_header=session,
     )
     return response["result"]["structuredContent"]
 
@@ -323,23 +345,46 @@ async def test_stage_and_commit_through_the_gateway(tmp_path: Path) -> None:
     gateway, secret, session = await _open(tmp_path, repo)
 
     # Create the isolated worktree through a governed mutation.
-    write = await _call(gateway, secret, session, "file.write", {
-        "path": "calc.py", "content": "def add(a, b):\n    return a + b\n",
-        "workspace": str(repo), "execution_target": "NEW_ISOLATED_WORKTREE",
-    })
+    write = await _call(
+        gateway,
+        secret,
+        session,
+        "file.write",
+        {
+            "path": "calc.py",
+            "content": "def add(a, b):\n    return a + b\n",
+            "workspace": str(repo),
+            "execution_target": "NEW_ISOLATED_WORKTREE",
+        },
+    )
     assert write["ok"] is True, write
 
-    staged = await _call(gateway, secret, session, "git.stage", {
-        "workspace": str(repo), "execution_target": "NEW_ISOLATED_WORKTREE",
-        "paths": ["calc.py"],
-    })
+    staged = await _call(
+        gateway,
+        secret,
+        session,
+        "git.stage",
+        {
+            "workspace": str(repo),
+            "execution_target": "NEW_ISOLATED_WORKTREE",
+            "paths": ["calc.py"],
+        },
+    )
     assert staged["ok"] is True, staged
     assert staged["result"]["staged_paths"] == ["calc.py"]
 
-    committed = await _call(gateway, secret, session, "git.commit", {
-        "workspace": str(repo), "execution_target": "NEW_ISOLATED_WORKTREE",
-        "message": "fix add", "expect_paths": ["calc.py"],
-    })
+    committed = await _call(
+        gateway,
+        secret,
+        session,
+        "git.commit",
+        {
+            "workspace": str(repo),
+            "execution_target": "NEW_ISOLATED_WORKTREE",
+            "message": "fix add",
+            "expect_paths": ["calc.py"],
+        },
+    )
     assert committed["ok"] is True, committed
 
     payload = committed["result"]
@@ -371,10 +416,17 @@ async def test_the_explicit_target_is_what_reaches_the_manager(tmp_path: Path) -
     # honouring execution_target can reach an isolated tree from here.
     assert not adapter_session_worktrees(gateway), "session should start with none"
 
-    staged = await _call(gateway, secret, session, "git.stage", {
-        "workspace": str(repo), "execution_target": "NEW_ISOLATED_WORKTREE",
-        "paths": ["calc.py"],
-    })
+    staged = await _call(
+        gateway,
+        secret,
+        session,
+        "git.stage",
+        {
+            "workspace": str(repo),
+            "execution_target": "NEW_ISOLATED_WORKTREE",
+            "paths": ["calc.py"],
+        },
+    )
 
     assert staged["ok"] is True, staged
     worktree = Path(staged["result"]["path"])
@@ -387,9 +439,17 @@ async def test_the_gateway_refuses_a_canonical_commit(tmp_path: Path) -> None:
     canonical_head = git(repo, "rev-parse", "HEAD").strip()
     gateway, secret, session = await _open(tmp_path, repo)
 
-    staged = await _call(gateway, secret, session, "git.stage", {
-        "workspace": str(repo), "execution_target": "CANONICAL_WORKTREE", "paths": ["calc.py"],
-    })
+    staged = await _call(
+        gateway,
+        secret,
+        session,
+        "git.stage",
+        {
+            "workspace": str(repo),
+            "execution_target": "CANONICAL_WORKTREE",
+            "paths": ["calc.py"],
+        },
+    )
     assert staged["ok"] is False, staged
     assert staged["error_code"] == "POLICY_BLOCKED", staged
     assert git(repo, "rev-parse", "HEAD").strip() == canonical_head
@@ -398,22 +458,53 @@ async def test_the_gateway_refuses_a_canonical_commit(tmp_path: Path) -> None:
 async def test_the_gateway_refuses_an_empty_commit(tmp_path: Path) -> None:
     repo, _manager, _worktree = _seed(tmp_path)
     gateway, secret, session = await _open(tmp_path, repo)
-    await _call(gateway, secret, session, "file.write", {
-        "path": "calc.py", "content": "def add(a, b):\n    return a + b\n",
-        "workspace": str(repo), "execution_target": "NEW_ISOLATED_WORKTREE",
-    })
-    await _call(gateway, secret, session, "git.stage", {
-        "workspace": str(repo), "execution_target": "NEW_ISOLATED_WORKTREE", "paths": ["README.md"],
-    })
-    await _call(gateway, secret, session, "git.commit", {
-        "workspace": str(repo), "execution_target": "NEW_ISOLATED_WORKTREE", "paths": [],
-        "message": "nothing to say",
-    })
+    await _call(
+        gateway,
+        secret,
+        session,
+        "file.write",
+        {
+            "path": "calc.py",
+            "content": "def add(a, b):\n    return a + b\n",
+            "workspace": str(repo),
+            "execution_target": "NEW_ISOLATED_WORKTREE",
+        },
+    )
+    await _call(
+        gateway,
+        secret,
+        session,
+        "git.stage",
+        {
+            "workspace": str(repo),
+            "execution_target": "NEW_ISOLATED_WORKTREE",
+            "paths": ["README.md"],
+        },
+    )
+    await _call(
+        gateway,
+        secret,
+        session,
+        "git.commit",
+        {
+            "workspace": str(repo),
+            "execution_target": "NEW_ISOLATED_WORKTREE",
+            "paths": [],
+            "message": "nothing to say",
+        },
+    )
 
-    envelope = await _call(gateway, secret, session, "git.commit", {
-        "workspace": str(repo), "execution_target": "NEW_ISOLATED_WORKTREE",
-        "message": "should fail closed",
-    })
+    envelope = await _call(
+        gateway,
+        secret,
+        session,
+        "git.commit",
+        {
+            "workspace": str(repo),
+            "execution_target": "NEW_ISOLATED_WORKTREE",
+            "message": "should fail closed",
+        },
+    )
 
     assert envelope["ok"] is False, envelope
     assert envelope["error_code"] == "POLICY_BLOCKED", envelope

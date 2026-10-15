@@ -2,29 +2,23 @@
 
 from __future__ import annotations
 
-import json
-import os
-import shutil
 import subprocess
-import sys
-import tempfile
 from pathlib import Path
 
 import pytest
 
+from runtime.coding.cli_agents import (
+    _validate_command_template,
+    get_cli_agent_registry,
+)
+from runtime.coding.quota import get_quota_meter
 from runtime.coding.worktree_manifest import (
     WorktreeManifest,
+    _validate_relative_path,
+    apply_manifest,
     load_manifest,
     write_manifest,
-    apply_manifest,
-    _validate_relative_path,
 )
-from runtime.coding.cli_agents import (
-    CLIAgentRegistry,
-    get_cli_agent_registry,
-    _validate_command_template,
-)
-from runtime.coding.quota import QuotaMeter, get_quota_meter
 
 
 class TestWorktreeManifest:
@@ -318,7 +312,7 @@ class TestIntegration:
         )
 
         # Apply manifest
-        from runtime.coding.worktree_manifest import load_manifest, apply_manifest
+        from runtime.coding.worktree_manifest import apply_manifest, load_manifest
 
         manifest = load_manifest(repo)
         result = apply_manifest(repo, worktree, manifest)

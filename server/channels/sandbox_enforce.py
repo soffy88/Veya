@@ -100,7 +100,9 @@ def is_im_non_owner_turn() -> bool:
     user = auth_mod.current_user()
 
     # Public chat turn: enforced under VEYA_BOT_PUBLIC_SHARE
-    is_public = (ctx is not None and ctx.get("is_public_chat")) or bool(user.get("is_public_chatter"))
+    is_public = (ctx is not None and ctx.get("is_public_chat")) or bool(
+        user.get("is_public_chatter")
+    )
     if is_public:
         is_owner = (ctx is not None and ctx.get("is_owner")) or bool(user.get("is_owner"))
         if not is_owner and feature_flags.enabled("VEYA_BOT_PUBLIC_SHARE"):
@@ -129,7 +131,9 @@ def check_im_sandbox_tool(name: str, kwargs: dict[str, Any]) -> str | None:
     # 1. Exec / Shell tools
     if name == "run_in_sandbox":
         if kwargs.get("host"):
-            return "remote host execution is denied for non-owner IM chatter; use local run_in_sandbox"
+            return (
+                "remote host execution is denied for non-owner IM chatter; use local run_in_sandbox"
+            )
         # Local run_in_sandbox runs inside omodul.sandbox_scope ("chat_verify").
         # This IS the existing canonical sandbox path.
         return None

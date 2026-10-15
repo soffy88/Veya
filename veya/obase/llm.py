@@ -516,7 +516,9 @@ def _frognano_candidate() -> dict[str, str] | None:
     from veya.obase._llm_config import pi_provider_entry
 
     entry = pi_provider_entry("frognano")
-    endpoint = os.environ.get("VEYA_FROGNANO_ENDPOINT", "").strip() or str(entry.get("baseUrl") or "")
+    endpoint = os.environ.get("VEYA_FROGNANO_ENDPOINT", "").strip() or str(
+        entry.get("baseUrl") or ""
+    )
     if not endpoint:
         return None
     models = entry.get("models") or [{}]
@@ -787,9 +789,7 @@ async def _veya12_flash_call(messages: list[dict], kwargs: dict) -> dict:
     # through providers that are all known-bad.
     if _breaker.enabled() and _breaker.all_tiers_open([c["provider"] for c in _veya12_pool()]):
         return {
-            "choices": [
-                {"message": {"role": "assistant", "content": _MODEL_UNAVAILABLE_REPLY}}
-            ],
+            "choices": [{"message": {"role": "assistant", "content": _MODEL_UNAVAILABLE_REPLY}}],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             "error": True,
             "router": {"route": "breaker_all_open", "reason": "all brain tiers open"},
@@ -870,7 +870,7 @@ async def _veya12_free_call(messages: list[dict], kwargs: dict) -> dict:
     if gateway:
         # The gateway does its own round robin; keep it first and rotate only
         # the direct candidates behind it.
-        rest = pool[len(gateway):]
+        rest = pool[len(gateway) :]
         if rest:
             k = start % len(rest)
             rest = rest[k:] + rest[:k]

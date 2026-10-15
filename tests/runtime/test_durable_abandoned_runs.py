@@ -29,7 +29,9 @@ async def _repo(path) -> DurableExecutionRepository:
 
 
 async def _goal_with_leaf(repo, goal_id: str):
-    await repo.create_goal_run(goal_run_id=goal_id, idempotency_key=f"k-{goal_id}", status="running")
+    await repo.create_goal_run(
+        goal_run_id=goal_id, idempotency_key=f"k-{goal_id}", status="running"
+    )
     await repo.enqueue_work_item(
         WorkItemSpec(goal_run_id=goal_id, logical_key="t1", kind="goal_leaf", max_attempts=3),
         idempotency_key=f"{goal_id}:leaf",
@@ -51,16 +53,16 @@ async def test_orphaned_retry_wait_run_is_terminated(tmp_path):
         # Fresh runs are left alone.
         assert await repo.close_abandoned_goal_runs(stale_after_s=3600) == []
 
-        closed = await repo.close_abandoned_goal_runs(
-            stale_after_s=3600, now=time.time() + 7200
-        )
+        closed = await repo.close_abandoned_goal_runs(stale_after_s=3600, now=time.time() + 7200)
         assert closed == ["g-orphan"]
         goal = await repo.get_goal_run("g-orphan")
         assert goal["status"] == "failed"
         items = await repo.list_work_items("g-orphan")
         assert items[0]["state"] == "cancelled"
         # Idempotent.
-        assert await repo.close_abandoned_goal_runs(stale_after_s=3600, now=time.time() + 7200) == []
+        assert (
+            await repo.close_abandoned_goal_runs(stale_after_s=3600, now=time.time() + 7200) == []
+        )
     finally:
         await repo.close()
 

@@ -22,16 +22,20 @@ router = APIRouter(prefix="/api/v1/providers", tags=["providers"])
 
 def _require_provider_registry() -> None:
     if not flag_enabled("VEYA_PROVIDER_REGISTRY"):
-        raise HTTPException(status_code=404, detail="provider registry not enabled (VEYA_PROVIDER_REGISTRY=1)")
+        raise HTTPException(
+            status_code=404, detail="provider registry not enabled (VEYA_PROVIDER_REGISTRY=1)"
+        )
 
 
 def get_provider_registry():
     """Get the VeyaProviderRegistry instance."""
     from veya.obase.provider_registry import get_veya_provider_registry
+
     return get_veya_provider_registry()
 
 
 # ── Request Models ────────────────────────────────────────────────────────
+
 
 class ProviderSpecRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
@@ -60,6 +64,7 @@ class BotModelSourceRequest(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────
+
 
 def _require_bot_owner(bot_id: str, user: dict[str, Any]) -> None:
     """Refuse a model-source change for a bot the caller does not own.
@@ -121,6 +126,7 @@ async def register_custom_provider(
     registry = get_provider_registry()
 
     from veya.obase.provider_registry import VeyaProviderSpec
+
     spec = VeyaProviderSpec(
         name=req.name,
         display_name=req.display_name,
@@ -197,6 +203,7 @@ async def set_bot_model_source(
     registry = get_provider_registry()
 
     from veya.obase.provider_registry import ModelSourceConfig
+
     config = ModelSourceConfig(
         source=req.source,
         provider=req.provider or "",

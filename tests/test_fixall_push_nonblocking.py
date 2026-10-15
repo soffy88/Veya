@@ -43,9 +43,13 @@ def test_observe_with_real_sender_does_not_block_the_caller(monkeypatch, tmp_pat
         return {}
 
     monkeypatch.setattr(PushNotifier, "send", slow_send)
-    notifier = PushNotifier(store=SubscriptionStore(tmp_path / "s"), vapid=VapidKeyManager(tmp_path / "v"))
+    notifier = PushNotifier(
+        store=SubscriptionStore(tmp_path / "s"), vapid=VapidKeyManager(tmp_path / "v")
+    )
     assert notifier.sender is default_sender
-    notifier.observe({"title": "hi", "content": "c", "user_id": "u1", "payload": {WEB_PUSH_FLAG: True}})
+    notifier.observe(
+        {"title": "hi", "content": "c", "user_id": "u1", "payload": {WEB_PUSH_FLAG: True}}
+    )
     # observe() returned while the send is still in flight
     assert not done.is_set()
     release.set()

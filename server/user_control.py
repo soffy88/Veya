@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from server.approvals import approval_gates_enabled
 from server.events import (
     append_canonical_event,
     append_observability_event,
@@ -26,7 +27,6 @@ from server.events import (
     fire_step,
 )
 from server.governance_store import ApprovalRecord, SessionGovernanceState, governance_store
-from server.approvals import approval_gates_enabled
 
 _mode: contextvars.ContextVar[str] = contextvars.ContextVar("veya_mode", default="agent")
 _require_approval: contextvars.ContextVar[bool] = contextvars.ContextVar(

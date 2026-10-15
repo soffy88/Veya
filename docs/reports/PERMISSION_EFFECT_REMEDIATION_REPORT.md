@@ -29,7 +29,7 @@ mypy / ruff                             clean
 
 ```python
 # veya/remote/policy_resolver.py:454
-effect = "write" if request.tool in {"file.write","file.patch","artifact.write"} else "read"
+effect = "write" if request.tool in {"file.write", "file.patch", "artifact.write"} else "read"
 ```
 
 这正是 `SF-001-permission-effect-dropped.md` 标题所述"governed actions 以 read
@@ -98,8 +98,7 @@ local_write→ write             (其余)        → none
 ```python
 if context.remote_effect not in {"none", "read"}:
     return PermissionDecision(
-        Decision.APPROVAL_REQUIRED,
-        ReasonCode.APPROVAL_IRREVERSIBLE_REMOTE, ...
+        Decision.APPROVAL_REQUIRED, ReasonCode.APPROVAL_IRREVERSIBLE_REMOTE, ...
     )
 ```
 

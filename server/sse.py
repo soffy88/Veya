@@ -194,8 +194,12 @@ def _authorize_stream(authorization: str | None, working_directory: str | None) 
         raise HTTPException(status_code=403, detail="read permission required")
     if working_directory and token.workspaces:
         from pathlib import Path
+
         target = Path(working_directory).resolve()
-        allowed = any(target == Path(root).resolve() or Path(root).resolve() in target.parents for root in token.workspaces)
+        allowed = any(
+            target == Path(root).resolve() or Path(root).resolve() in target.parents
+            for root in token.workspaces
+        )
         if not allowed:
             raise HTTPException(status_code=403, detail="workspace access denied")
 
@@ -218,7 +222,9 @@ async def execution_events_generator(
     if last_seen_sequence < 0:
         yield 'event: error\ndata: {"error":"INVALID_CURSOR"}\n\n'
         return
-    store = ExecutionEventStore.shared(record.requested_realpath or record.requested_workspace, execution_id)
+    store = ExecutionEventStore.shared(
+        record.requested_realpath or record.requested_workspace, execution_id
+    )
     subscriber = store.subscribe_live()
     cursor = last_seen_sequence
     try:
@@ -231,7 +237,8 @@ async def execution_events_generator(
             if event.event_type == ExecutionEventType.COMPLETED or (
                 event.event_type == ExecutionEventType.EXECUTION_STATE_CHANGED
                 and event.payload.get("kind") == "status"
-                and event.payload.get("status") in {"COMPLETED", "FAILED", "BLOCKED", "CANCELLED", "TIMED_OUT", "TERMINATED"}
+                and event.payload.get("status")
+                in {"COMPLETED", "FAILED", "BLOCKED", "CANCELLED", "TIMED_OUT", "TERMINATED"}
             ):
                 yield "data: [DONE]\n\n"
                 return
@@ -252,7 +259,8 @@ async def execution_events_generator(
             if event.event_type == ExecutionEventType.COMPLETED or (
                 event.event_type == ExecutionEventType.EXECUTION_STATE_CHANGED
                 and event.payload.get("kind") == "status"
-                and event.payload.get("status") in {"COMPLETED", "FAILED", "BLOCKED", "CANCELLED", "TIMED_OUT", "TERMINATED"}
+                and event.payload.get("status")
+                in {"COMPLETED", "FAILED", "BLOCKED", "CANCELLED", "TIMED_OUT", "TERMINATED"}
             ):
                 yield "data: [DONE]\n\n"
                 return
@@ -268,6 +276,7 @@ async def stream_execution(
     last_seen_sequence: int = Query(0, ge=0),
 ) -> StreamingResponse:
     from veya.remote.execution import ExecutionStore
+
     record = ExecutionStore.from_env(default_persistent=True).get(execution_id)
     if record is None:
         raise HTTPException(status_code=404, detail="execution not found")

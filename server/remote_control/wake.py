@@ -66,7 +66,7 @@ class WakePolicy:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "WakePolicy":
+    def from_dict(cls, value: dict[str, Any]) -> WakePolicy:
         return cls(
             sender=str(value.get("sender") or ""),
             agent_label=str(value.get("agent_label") or ""),

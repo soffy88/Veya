@@ -215,4 +215,6 @@ def _setup_repo(repo: Path) -> None:
         subprocess.run(command, check=True, capture_output=True)
     (repo / "seed.txt").write_text("p4-seed-value\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "init"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-qm", "init"], check=True, capture_output=True
+    )

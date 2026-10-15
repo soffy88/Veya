@@ -4,6 +4,7 @@
 Do not mount tailscaled.sock into an application container: a read-only bind
 mount does not restrict which LocalAPI endpoints a peer can call.
 """
+
 from __future__ import annotations
 
 import http.client
@@ -115,27 +116,41 @@ def make_handler(upstream_socket: str):
                     elif key.strip().lower() == "transfer-encoding":
                         transfer_encoding = value.strip()
                 if transfer_encoding or content_length not in {"", "0"}:
-                    json_response(self.request, 403, {"ok": False, "error": "request body is not permitted"})
+                    json_response(
+                        self.request, 403, {"ok": False, "error": "request body is not permitted"}
+                    )
                     return
                 upstream_target = parse_whois_target(method, target, version)
                 if upstream_target is None:
-                    json_response(self.request, 403, {"ok": False, "error": "only Tailnet whois is permitted"})
+                    json_response(
+                        self.request, 403, {"ok": False, "error": "only Tailnet whois is permitted"}
+                    )
                     return
                 conn = UnixHTTPConnection(upstream_socket, timeout=5.0)
                 try:
-                    conn.request("GET", upstream_target, headers={"Host": "local-tailscaled.sock", "Connection": "close"})
+                    conn.request(
+                        "GET",
+                        upstream_target,
+                        headers={"Host": "local-tailscaled.sock", "Connection": "close"},
+                    )
                     response = conn.getresponse()
                     body = response.read(MAX_BODY_BYTES + 1)
                     if response.status != 200 or len(body) > MAX_BODY_BYTES:
-                        json_response(self.request, 502, {"ok": False, "error": "whois unavailable"})
+                        json_response(
+                            self.request, 502, {"ok": False, "error": "whois unavailable"}
+                        )
                         return
                     try:
                         parsed = json.loads(body.decode("utf-8"))
                     except (UnicodeDecodeError, ValueError):
-                        json_response(self.request, 502, {"ok": False, "error": "invalid whois response"})
+                        json_response(
+                            self.request, 502, {"ok": False, "error": "invalid whois response"}
+                        )
                         return
                     if not isinstance(parsed, dict) or not isinstance(parsed.get("Node"), dict):
-                        json_response(self.request, 502, {"ok": False, "error": "invalid whois response"})
+                        json_response(
+                            self.request, 502, {"ok": False, "error": "invalid whois response"}
+                        )
                         return
                     header = (
                         "HTTP/1.1 200 OK\r\n"
@@ -162,7 +177,10 @@ class ThreadingUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamSe
 
 def main() -> int:
     if len(sys.argv) != 5 or sys.argv[1] != "--listen" or sys.argv[3] != "--upstream":
-        print("usage: tailnet_whois_proxy.py --listen SOCKET --upstream TAILSCALED_SOCKET", file=sys.stderr)
+        print(
+            "usage: tailnet_whois_proxy.py --listen SOCKET --upstream TAILSCALED_SOCKET",
+            file=sys.stderr,
+        )
         return 2
     listen_path = Path(sys.argv[2])
     upstream_path = sys.argv[4]

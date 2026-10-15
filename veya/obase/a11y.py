@@ -170,8 +170,7 @@ def format_a11y_tree(node: Any, depth: int = 0, max_depth: int = 8) -> str:
     children = node.get("children", [])
     if children and isinstance(children, list):
         child_lines = [
-            format_a11y_tree(child, depth=depth + 1, max_depth=max_depth)
-            for child in children
+            format_a11y_tree(child, depth=depth + 1, max_depth=max_depth) for child in children
         ]
         child_rendered = "\n".join(c for c in child_lines if c)
         if child_rendered:

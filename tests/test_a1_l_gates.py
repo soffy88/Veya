@@ -8,16 +8,11 @@ class MockCheckpoint:
         self.session_id = session_id
         self.payload = payload
 
+
 @pytest.mark.asyncio
 async def test_resume_without_goal_id_fails_closed():
     # Legacy checkpoint with tasks but NO goal_id
-    payload = {
-        "data": {
-            "squads": [
-                {"id": "t1", "title": "t1"}
-            ]
-        }
-    }
+    payload = {"data": {"squads": [{"id": "t1", "title": "t1"}]}}
     checkpoint = MockCheckpoint("sid-123", payload)
 
     result = await resume_legacy_checkpoint(checkpoint)

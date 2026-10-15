@@ -67,7 +67,12 @@ def client(prod_env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestCli
 
 @pytest.mark.parametrize(
     "path",
-    ["/api/v1/remote/hosts", "/api/v1/remote/sessions", "/api/v1/channels/bindings", "/api/v1/providers"],
+    [
+        "/api/v1/remote/hosts",
+        "/api/v1/remote/sessions",
+        "/api/v1/channels/bindings",
+        "/api/v1/providers",
+    ],
 )
 def test_gated_endpoints_answer_with_prod_flags(client: TestClient, path: str) -> None:
     resp = client.get(path)

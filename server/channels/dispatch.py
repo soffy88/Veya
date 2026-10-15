@@ -79,10 +79,13 @@ async def dispatch_inbound(
     is_owner = False
     if message.platform != "tailnet":
         if bound_ext_user is not None and str(bound_ext_user).strip():
-            if str(message.external_user_id) == str(bound_ext_user) or (owner_ref and (
-                str(message.external_user_id) == owner_ref
-                or anonymous_ref(message.platform, message.external_user_id) == owner_ref
-            )):
+            if str(message.external_user_id) == str(bound_ext_user) or (
+                owner_ref
+                and (
+                    str(message.external_user_id) == owner_ref
+                    or anonymous_ref(message.platform, message.external_user_id) == owner_ref
+                )
+            ):
                 is_owner = True
         elif owner_ref:
             # Legacy/mock binding without explicit external_user_id: treat as owner

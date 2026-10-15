@@ -475,8 +475,6 @@ def run_matrix() -> int:
         shutil.rmtree(fake.parent, ignore_errors=True)
 
 
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(

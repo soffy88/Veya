@@ -32,13 +32,13 @@ class Severity(StrEnum):
 
 
 class HicodeError(Exception):
-
     severity: Severity = Severity.ERROR
 
 
 # ── Veya-specific error base ──────────────────────────────────────────────
 class VeyaError(HicodeError):
     """Base exception for Veya-specific errors."""
+
     #: Stable machine-readable error code
     code: str = "VEYA_ERROR"
     component: str = "veya"

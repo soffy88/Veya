@@ -172,9 +172,15 @@ async def test_side_effect_action_creates_pending_approval_and_writes_nothing(
         runner_id="local",
     )
     fake_llm = _FakeLLM(str(target))
-    coordinator = cm.MasterCoordinator(llm_fn=fake_llm, model="fake-model", provider="fake-provider")
+    coordinator = cm.MasterCoordinator(
+        llm_fn=fake_llm, model="fake-model", provider="fake-provider"
+    )
     auth_mod.set_user(test_user)
-    conversations = ConversationStore(root=tmp_path / "conv") if "root" in ConversationStore.__init__.__code__.co_varnames else None
+    conversations = (
+        ConversationStore(root=tmp_path / "conv")
+        if "root" in ConversationStore.__init__.__code__.co_varnames
+        else None
+    )
 
     from server.routes import product as product_routes
 
@@ -208,9 +214,16 @@ async def test_side_effect_action_creates_pending_approval_and_writes_nothing(
         background = list(turns_mod._BACKGROUND_TURNS)
         assert background, "the paused turn must keep running in the background"
         try:
-            await asyncio.wait_for(asyncio.gather(*background, return_exceptions=True), timeout=60.0)
+            await asyncio.wait_for(
+                asyncio.gather(*background, return_exceptions=True), timeout=60.0
+            )
         except TimeoutError:
-            print("AFTER", target.exists(), fake_llm.calls, [(r["request_id"], r["tool"]) for r in _approval_service_records()])
+            print(
+                "AFTER",
+                target.exists(),
+                fake_llm.calls,
+                [(r["request_id"], r["tool"]) for r in _approval_service_records()],
+            )
             raise
     finally:
         cm.master_coordinator = original

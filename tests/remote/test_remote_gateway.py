@@ -207,7 +207,11 @@ async def test_path_escape_denied_at_call(tmp_path: Path) -> None:
     # Scope escapes are rejected by the canonical permission engine before
     # workspace resolution; the public contract is policy denial, not a
     # filesystem-resolution detail.
-    assert response["result"]["structuredContent"]["error_code"] in {"POLICY_BLOCKED", "WORKSPACE_DENIED", "APPROVAL_REQUIRED"}
+    assert response["result"]["structuredContent"]["error_code"] in {
+        "POLICY_BLOCKED",
+        "WORKSPACE_DENIED",
+        "APPROVAL_REQUIRED",
+    }
 
 
 async def test_read_only_session_cannot_write(tmp_path: Path) -> None:

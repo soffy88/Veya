@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from runtime.coding.worktree_manifest import (
     WorktreeManifest,
+    _validate_relative_path,
     load_manifest,
     write_manifest,
-    _validate_relative_path,
 )
 
 router = APIRouter(tags=["workspace"])

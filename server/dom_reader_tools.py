@@ -35,7 +35,9 @@ async def tool_read_browser(
             return f"Error: URL rejected by security policy ({reason})"
 
         try:
-            html_content = await fetch_url_text(target_url, timeout=5.0, user_agent="Veya-DOM-Reader/1.0")
+            html_content = await fetch_url_text(
+                target_url, timeout=5.0, user_agent="Veya-DOM-Reader/1.0"
+            )
         except Exception as exc:
             return f"Failed to fetch {target_url}: {type(exc).__name__}: {exc}"
 

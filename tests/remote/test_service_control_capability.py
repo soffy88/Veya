@@ -31,7 +31,7 @@ def _never_touch_a_real_systemd_unit(monkeypatch: pytest.MonkeyPatch) -> None:
     which simply wins.
     """
 
-    async def fake_exec(*argv: str, **kwargs: Any) -> "FakeProcess":
+    async def fake_exec(*argv: str, **kwargs: Any) -> FakeProcess:
         raise AssertionError(f"real systemctl execution attempted in test: {argv}")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)

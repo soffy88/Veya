@@ -185,8 +185,6 @@ class AgentMailbox:
         out: list[dict[str, Any]] = []
         for m in msgs:
             row = dict(m)
-            row["delivery_state"] = self.derive_delivery_state(
-                AgentMessage.from_dict(m), None
-            )
+            row["delivery_state"] = self.derive_delivery_state(AgentMessage.from_dict(m), None)
             out.append(row)
         return out

@@ -55,7 +55,9 @@ def _user_id(user: dict[str, Any]) -> str:
     return str(user.get("user_id") or user.get("username") or "anonymous")
 
 
-def _owned_binding(binding_id: str, bot_id: str, user: dict[str, Any]) -> supervisor_binding.SupervisorBinding:
+def _owned_binding(
+    binding_id: str, bot_id: str, user: dict[str, Any]
+) -> supervisor_binding.SupervisorBinding:
     """Load a binding only when it belongs to this bot and this user.
 
     Returns the binding or raises 404. The 404 (not 403) is deliberate:

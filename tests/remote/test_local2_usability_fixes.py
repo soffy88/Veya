@@ -1,4 +1,5 @@
 """LOCAL2-U1..U5 regression tests (ChatGPT-as-Codex usability fixes)."""
+
 from __future__ import annotations
 
 import subprocess
@@ -105,8 +106,21 @@ def test_submodules_initialised_from_canonical_without_network(tmp_path: Path) -
     from veya.remote.tool_adapter import _init_worktree_submodules
 
     def g(*a: str, cwd: Path) -> None:
-        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always", *a],
-                       cwd=cwd, check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "protocol.file.allow=always",
+                *a,
+            ],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+        )
 
     sub = tmp_path / "sub"
     sub.mkdir()
@@ -120,7 +134,14 @@ def test_submodules_initialised_from_canonical_without_network(tmp_path: Path) -
     g("submodule", "add", "-q", str(sub), "lib/sub", cwd=repo)
     g("commit", "-qm", "r", cwd=repo)
     # pretend the public URL is unreachable: canonical checkout must be used
-    g("config", "-f", ".gitmodules", "submodule.lib/sub.url", "https://invalid.example/sub.git", cwd=repo)
+    g(
+        "config",
+        "-f",
+        ".gitmodules",
+        "submodule.lib/sub.url",
+        "https://invalid.example/sub.git",
+        cwd=repo,
+    )
     g("commit", "-qam", "url", cwd=repo)
     wt = tmp_path / "wt"
     g("worktree", "add", "-q", "--detach", str(wt), cwd=repo)

@@ -939,7 +939,6 @@ class TestNanoW10CRoutes:
 
         from server.app import app
         from server.bot_team.groups import GroupStore
-
         from server.goal_run.bot_identity import BotRegistry, BotSpec
 
         # W11 D2: roles are editable only by the owner of every member bot.

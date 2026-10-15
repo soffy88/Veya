@@ -57,7 +57,9 @@ async def test_burst_of_messages_is_answered_in_one_run(monkeypatch, tmp_path):
         queue.steer(bot.bot_id, "第三条：请复述。")
 
     pieces = asyncio.create_task(later_pieces())
-    result = await turns_mod.run_bot_turn(bot=bot, text="第一条：我叫小林。", user={"user_id": "u1"})
+    result = await turns_mod.run_bot_turn(
+        bot=bot, text="第一条：我叫小林。", user={"user_id": "u1"}
+    )
     await pieces
     assert len(objectives) == 1, "a burst must cost one model run"
     assert "杭州" in objectives[0] and "复述" in objectives[0]

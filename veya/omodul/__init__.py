@@ -15,7 +15,16 @@ Following the 3O paradigm:
 # 阶段 4: 注入式流程控制核心 (session_tree / tool_pipeline / agent_loop / evidence_refine)
 from veya.omodul.agent_loop import AgentLoop, LoopResult
 from veya.omodul.approval_flow import ApprovalFlowConfig, run_approval_flow
-from veya.omodul.pairing_flow import PairingFlowConfig, run_pairing_flow
+from veya.omodul.auto_review import (
+    AutoReviewConfig,
+    AutoReviewInput,
+    auto_review,
+)
+from veya.omodul.bot_secrets import (
+    BotSecretConfig,
+    BotSecretInput,
+    bot_secrets_operation,
+)
 
 # NANO-W7: morning feed omodul (same-layer re-export from package __init__)
 from veya.omodul.daily_brief import (
@@ -32,6 +41,7 @@ from veya.omodul.multimodal_agent import (
     MultiModalState,
     run_multimodal_session,
 )
+from veya.omodul.pairing_flow import PairingFlowConfig, run_pairing_flow
 from veya.omodul.session_tree import SessionTreeMgr
 from veya.omodul.tool_pipeline import ToolPipeline, ToolRunResult, ToolSpec
 from veya.omodul.vision_agent import (
@@ -48,17 +58,6 @@ from veya.omodul.voice_agent import (
     VoiceSessionResult,
     run_voice_conversation,
 )
-from veya.omodul.auto_review import (
-    AutoReviewConfig,
-    AutoReviewInput,
-    auto_review,
-)
-from veya.omodul.bot_secrets import (
-    BotSecretConfig,
-    BotSecretInput,
-    bot_secrets_operation,
-)
-
 
 __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     # Voice
@@ -102,4 +101,3 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "BotSecretInput",
     "bot_secrets_operation",
 ]
-

@@ -32,11 +32,40 @@ _SHELL_OPERATOR_TOKENS = {";", "&", "&&", "|", "||", "<", ">", "<<", ">>", "(", 
 # PROCESS_START_FAILURE; they must run through the shell like operator commands.
 _SHELL_BUILTINS = frozenset(
     {
-        ".", "alias", "builtin", "cd", "command", "declare", "dirs", "exit",
-        "export", "getopts", "hash", "help", "history", "jobs", "let", "local",
-        "popd", "pushd", "read", "readonly", "return", "set", "shift", "shopt",
-        "source", "times", "trap", "type", "typeset", "ulimit", "umask",
-        "unalias", "unset", "wait",
+        ".",
+        "alias",
+        "builtin",
+        "cd",
+        "command",
+        "declare",
+        "dirs",
+        "exit",
+        "export",
+        "getopts",
+        "hash",
+        "help",
+        "history",
+        "jobs",
+        "let",
+        "local",
+        "popd",
+        "pushd",
+        "read",
+        "readonly",
+        "return",
+        "set",
+        "shift",
+        "shopt",
+        "source",
+        "times",
+        "trap",
+        "type",
+        "typeset",
+        "ulimit",
+        "umask",
+        "unalias",
+        "unset",
+        "wait",
     }
 )
 # Destructive-command semantics live in the canonical PermissionEngine
@@ -76,6 +105,8 @@ def _has_shell_operators(command: str) -> bool:
     except ValueError:
         return True
     return any(token in _SHELL_OPERATOR_TOKENS for token in tokens)
+
+
 _SECRET_NAME = re.compile(r"(?i)(api[_-]?key|auth(?:orization)?|password|passwd|secret|token)")
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)(\b(?:api[_-]?key|authorization|password|passwd|secret|token)\b\s*[=:]\s*)([^\s,;]+)"

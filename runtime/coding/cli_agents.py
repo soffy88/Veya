@@ -6,7 +6,7 @@ import json
 import logging
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -212,9 +212,9 @@ def get_cli_agent_registry(repo_root: Path | str) -> CLIAgentRegistry:
 
 
 __all__ = [
+    "CLI_AGENTS_REL_PATH",
     "CLIAgentProfile",
     "CLIAgentRegistry",
-    "CLI_AGENTS_REL_PATH",
-    "get_cli_agent_registry",
     "_validate_command_template",
+    "get_cli_agent_registry",
 ]

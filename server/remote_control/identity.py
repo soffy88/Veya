@@ -17,8 +17,9 @@ from __future__ import annotations
 import fnmatch
 import json
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any
 
 from server.remote_control import _ledger
 
@@ -85,9 +86,7 @@ class PeerIdentity:
             # policy matcher is written the same way. Compare both sides with
             # the prefix stripped so the two spellings agree.
             wanted = value.removeprefix("tag:")
-            return wanted in {
-                tag.lower().removeprefix("tag:") for tag in self.tags
-            }
+            return wanted in {tag.lower().removeprefix("tag:") for tag in self.tags}
         if kind == "user":
             return value in {self.user_login.lower(), self.user_login.lower().split("@")[0]}
         return False
@@ -107,7 +106,7 @@ class IdentityPolicy:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "IdentityPolicy":
+    def from_dict(cls, value: dict[str, Any]) -> IdentityPolicy:
         matchers = value.get("matchers")
         return cls(
             default=str(value.get("default") or "deny").lower(),

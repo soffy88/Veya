@@ -100,7 +100,9 @@ def test_feature1_flag_on_non_owner_sandbox_enforcement(monkeypatch, tmp_path):
         assert check_im_sandbox_tool("run_backtest_coprocessor", {}) is None
 
         # 3. Remote host run_in_sandbox is denied
-        assert check_im_sandbox_tool("run_in_sandbox", {"command": "ls", "host": "prod1"}) is not None
+        assert (
+            check_im_sandbox_tool("run_in_sandbox", {"command": "ls", "host": "prod1"}) is not None
+        )
 
         # 4. MCP host tools denied
         assert check_im_sandbox_tool("shell.exec", {"execution_target": "HOST"}) is not None
@@ -113,14 +115,24 @@ def test_feature1_flag_on_non_owner_sandbox_enforcement(monkeypatch, tmp_path):
         assert check_im_sandbox_tool("list_secrets", {}) is not None
 
         # 6. write_file to remote host or protected config denied
-        assert check_im_sandbox_tool("write_file", {"filepath": "test.txt", "host": "h1"}) is not None
-        assert check_im_sandbox_tool("write_file", {"filepath": str(Path.home() / ".veya" / "config.json")}) is not None
+        assert (
+            check_im_sandbox_tool("write_file", {"filepath": "test.txt", "host": "h1"}) is not None
+        )
+        assert (
+            check_im_sandbox_tool(
+                "write_file", {"filepath": str(Path.home() / ".veya" / "config.json")}
+            )
+            is not None
+        )
 
         # 7. write_file inside bound sandbox root is permitted
         from server.tool_registry import bind_write_root, reset_write_root
+
         sbox_tok = bind_write_root(tmp_path)
         try:
-            assert check_im_sandbox_tool("write_file", {"filepath": str(tmp_path / "out.txt")}) is None
+            assert (
+                check_im_sandbox_tool("write_file", {"filepath": str(tmp_path / "out.txt")}) is None
+            )
         finally:
             reset_write_root(sbox_tok)
     finally:
@@ -160,11 +172,16 @@ async def test_feature1_tool_guard_denial(monkeypatch):
         assert "unsandboxed" in str(exc_info.value)
 
         from server.tool_registry import MasterToolRegistry, ToolExecutionError
+
         reg = MasterToolRegistry()
         reg.register(
             "system_shell_exec",
             "exec command",
-            {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]},
+            {
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"],
+            },
             lambda command: f"ran {command}",
         )
         with pytest.raises(ToolExecutionError) as exc_info2:
@@ -312,7 +329,9 @@ def test_feature2_public_toggle_owner_only(test_app, monkeypatch):
     app, registry, set_user = test_app
     client = TestClient(app)
 
-    spec = BotSpec(bot_id="toggle_bot", owner_id="owner_alice", name="Toggle Bot", public_share=False)
+    spec = BotSpec(
+        bot_id="toggle_bot", owner_id="owner_alice", name="Toggle Bot", public_share=False
+    )
     registry.register(spec)
 
     # Bob tries to toggle -> 404
@@ -353,11 +372,14 @@ def test_feature2_public_chat_isolation_and_sandboxing(test_app, monkeypatch):
     captured_turns = []
 
     async def _mock_run_bot_turn(*, bot, text, user, conversations, **kwargs):
-        captured_turns.append({"bot": bot, "text": text, "user": user, "conversations": conversations})
+        captured_turns.append(
+            {"bot": bot, "text": text, "user": user, "conversations": conversations}
+        )
         # Record user & bot message in chatter's conversation
         conversations.append(bot.bot_id, role="user", text=text)
         conversations.append(bot.bot_id, role="bot", text=f"Echo: {text}")
         from server.bot_team.turns import BotTurnResult
+
         return BotTurnResult(
             bot_id=bot.bot_id,
             task_id="task_mock_1",
@@ -371,13 +393,17 @@ def test_feature2_public_chat_isolation_and_sandboxing(test_app, monkeypatch):
 
     # Bob chats with public bot
     set_user({"user_id": "chatter_bob", "username": "bob"})
-    resp_bob = client.post("/api/v1/bots/public_bot/public/messages", json={"text": "Hello from Bob"})
+    resp_bob = client.post(
+        "/api/v1/bots/public_bot/public/messages", json={"text": "Hello from Bob"}
+    )
     assert resp_bob.status_code == 200
     assert resp_bob.json()["reply"] == "Echo: Hello from Bob"
 
     # Charlie chats with public bot
     set_user({"user_id": "chatter_charlie", "username": "charlie"})
-    resp_charlie = client.post("/api/v1/bots/public_bot/public/messages", json={"text": "Hello from Charlie"})
+    resp_charlie = client.post(
+        "/api/v1/bots/public_bot/public/messages", json={"text": "Hello from Charlie"}
+    )
     assert resp_charlie.status_code == 200
     assert resp_charlie.json()["reply"] == "Echo: Hello from Charlie"
 

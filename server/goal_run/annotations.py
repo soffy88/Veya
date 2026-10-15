@@ -173,7 +173,11 @@ def batch_send(
             sender="review_annotations",
             recipient=recipient,
             delivery_mode=DeliveryMode.FOLLOW_UP,
-            payload={"text": payload_text, "goal_id": goal_id, "annotation_count": len(open_annotations)},
+            payload={
+                "text": payload_text,
+                "goal_id": goal_id,
+                "annotation_count": len(open_annotations),
+            },
             goal_id=goal_id,
         )
 

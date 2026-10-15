@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import base64
-import json
 import uuid
 from pathlib import Path
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,7 +22,7 @@ def client() -> TestClient:
 def auth_headers() -> dict[str, str]:
     # Create a test user and token
     from server.auth import create_user, issue_token
-    
+
     test_username = f"testuser_{uuid.uuid4().hex[:8]}"
     user = create_user(test_username, "testpassword123")
     token = issue_token(user["user_id"])
@@ -57,7 +55,9 @@ def test_design_capture_endpoint_requires_auth(client: TestClient) -> None:
     assert response.status_code == 401
 
 
-def test_design_capture_payload_normalization(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_design_capture_payload_normalization(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     """Test that outerHTML is trimmed to 8KB."""
     long_html = "<div>" + "x" * (MAX_OUTER_HTML + 1000) + "</div>"
     screenshot_b64 = base64.b64encode(b"fake").decode()
@@ -90,7 +90,9 @@ def test_design_capture_payload_normalization(client: TestClient, auth_headers: 
     # The capture should have been stored and message composed
 
 
-def test_design_capture_invalid_base64_rejected(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_design_capture_invalid_base64_rejected(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     """Test that invalid base64 screenshot is rejected."""
     response = client.post(
         "/api/v1/design/capture",
@@ -117,7 +119,9 @@ def test_design_capture_invalid_base64_rejected(client: TestClient, auth_headers
     assert response.status_code == 422
 
 
-def test_design_capture_source_location_veya_attr(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_design_capture_source_location_veya_attr(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     """Test source location resolution from data-veya-src attribute."""
     # This tests the client-side resolution logic indirectly via capture payload
     screenshot_b64 = base64.b64encode(b"fake").decode()
@@ -155,7 +159,9 @@ def test_design_capture_source_location_veya_attr(client: TestClient, auth_heade
     assert data["status"] == "sent"
 
 
-def test_design_capture_source_location_react_source(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_design_capture_source_location_react_source(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     """Test source location resolution from React __source."""
     screenshot_b64 = base64.b64encode(b"fake").decode()
 
@@ -189,7 +195,9 @@ def test_design_capture_source_location_react_source(client: TestClient, auth_he
     assert response.status_code == 200
 
 
-def test_design_capture_source_location_generic(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_design_capture_source_location_generic(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     """Test source location resolution from data-source attribute."""
     screenshot_b64 = base64.b64encode(b"fake").decode()
 
@@ -224,7 +232,9 @@ def test_design_capture_source_location_generic(client: TestClient, auth_headers
     assert response.status_code == 200
 
 
-def test_design_capture_source_location_unknown(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_design_capture_source_location_unknown(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     """Test source location falls back to unknown."""
     screenshot_b64 = base64.b64encode(b"fake").decode()
 
@@ -258,7 +268,9 @@ def test_design_capture_source_location_unknown(client: TestClient, auth_headers
     assert response.status_code == 200
 
 
-def test_design_capture_message_composition(client: TestClient, auth_headers: dict[str, str], tmp_path: Path) -> None:
+def test_design_capture_message_composition(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path
+) -> None:
     """Test that the composed message includes all capture fields."""
     screenshot_b64 = base64.b64encode(b"fake").decode()
 
@@ -300,7 +312,9 @@ def test_design_capture_message_composition(client: TestClient, auth_headers: di
     assert "message_id" in data
 
 
-def test_workbench_browser_action_design_capture(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_workbench_browser_action_design_capture(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     """Test the workbench browser action endpoint for design_capture."""
     # This would require a running browser session, so we just test the endpoint exists
     response = client.post(
@@ -316,7 +330,9 @@ def test_workbench_browser_action_design_capture(client: TestClient, auth_header
     assert response.status_code in (404, 409)
 
 
-def test_design_capture_trimmed_outer_html_in_artifact(client: TestClient, auth_headers: dict[str, str], tmp_path: Path) -> None:
+def test_design_capture_trimmed_outer_html_in_artifact(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path
+) -> None:
     """Test that the stored artifact contains trimmed outerHTML."""
     long_html = "<div>" + "x" * (MAX_OUTER_HTML + 500) + "</div>"
     screenshot_b64 = base64.b64encode(b"fake").decode()

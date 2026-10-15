@@ -126,7 +126,9 @@ def _call(fn: Callable[..., Any] | None, default: Any, *args: Any) -> Any:
         return default
 
 
-def _record(config: WakeRouterConfig, trail: list[dict[str, Any]], event: str, **fields: Any) -> None:
+def _record(
+    config: WakeRouterConfig, trail: list[dict[str, Any]], event: str, **fields: Any
+) -> None:
     entry = {"event": event, **fields}
     trail.append(entry)
     sink = config.trail_sink

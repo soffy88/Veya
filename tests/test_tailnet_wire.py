@@ -25,7 +25,9 @@ OWNER_WHOIS = {
 
 def test_docker_gateway_source_is_rejected_before_whois(tmp_path: Path) -> None:
     called: list[str] = []
-    service = TailnetService(home=tmp_path / "data", whois_fn=lambda ip: called.append(ip) or {"node": "peer.ts.net"})
+    service = TailnetService(
+        home=tmp_path / "data", whois_fn=lambda ip: called.append(ip) or {"node": "peer.ts.net"}
+    )
     assert service.identify("172.19.0.1") is None
     assert service.identify("172.17.0.1") is None
     assert called == []
@@ -41,7 +43,13 @@ def test_whois_failure_is_fail_closed(tmp_path: Path) -> None:
 
 def test_owner_allowlist_and_deny_precedence() -> None:
     policy = {"mode": "allowlist", "allow": ["user:soffy88@gmail.com"], "deny": ["owner-laptop"]}
-    ident = {"node": "owner-laptop.tailnet.ts.net", "hostname": "owner-laptop", "aliases": ["owner-laptop"], "tags": [], "user": "soffy88@gmail.com"}
+    ident = {
+        "node": "owner-laptop.tailnet.ts.net",
+        "hostname": "owner-laptop",
+        "aliases": ["owner-laptop"],
+        "tags": [],
+        "user": "soffy88@gmail.com",
+    }
     assert authorize_peer(ident, policy) == (False, "denied")
     policy["deny"] = []
     assert authorize_peer(ident, policy) == (True, "allowlist")
@@ -49,7 +57,9 @@ def test_owner_allowlist_and_deny_precedence() -> None:
     assert authorize_peer(ident, policy) == (False, "not_allowed")
 
 
-def test_whois_uses_configured_unix_socket_and_parses_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_whois_uses_configured_unix_socket_and_parses_login(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     socket_path = str(tmp_path / "whois.sock")
 
     class Handler(socketserver.StreamRequestHandler):
@@ -83,7 +93,9 @@ def test_whois_uses_configured_unix_socket_and_parses_login(tmp_path: Path, monk
         thread.join(timeout=2)
 
 
-def test_bind_all_interfaces_without_trust_switch_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bind_all_interfaces_without_trust_switch_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("VEYA_TAILNET_CHANNEL", "1")
     monkeypatch.setenv("VEYA_TAILNET_BIND", "0.0.0.0")
     monkeypatch.delenv("VEYA_TAILNET_TRUST_DOCKER_PUBLISH", raising=False)
@@ -102,8 +114,16 @@ def test_proxy_accepts_only_single_tailnet_whois_request() -> None:
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert module.parse_whois_target("GET", "/localapi/v0/whois?addr=100.64.0.2", "HTTP/1.1") == "/localapi/v0/whois?addr=100.64.0.2"
+    assert (
+        module.parse_whois_target("GET", "/localapi/v0/whois?addr=100.64.0.2", "HTTP/1.1")
+        == "/localapi/v0/whois?addr=100.64.0.2"
+    )
     assert module.parse_whois_target("GET", "/localapi/v0/status", "HTTP/1.1") is None
-    assert module.parse_whois_target("POST", "/localapi/v0/whois?addr=100.64.0.2", "HTTP/1.1") is None
+    assert (
+        module.parse_whois_target("POST", "/localapi/v0/whois?addr=100.64.0.2", "HTTP/1.1") is None
+    )
     assert module.parse_whois_target("GET", "/localapi/v0/whois?addr=127.0.0.1", "HTTP/1.1") is None
-    assert module.parse_whois_target("GET", "/localapi/v0/whois?addr=100.64.0.2&foo=bar", "HTTP/1.1") is None
+    assert (
+        module.parse_whois_target("GET", "/localapi/v0/whois?addr=100.64.0.2&foo=bar", "HTTP/1.1")
+        is None
+    )

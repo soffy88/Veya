@@ -317,7 +317,9 @@ def runner_self_update_restart(
         "success": returncode == 0,
         "command": cmd,
         "returncode": returncode,
-        "error": "" if returncode == 0 else str(getattr(completed, "stderr", "") or "restart failed"),
+        "error": ""
+        if returncode == 0
+        else str(getattr(completed, "stderr", "") or "restart failed"),
     }
 
 

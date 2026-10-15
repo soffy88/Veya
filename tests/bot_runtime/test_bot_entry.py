@@ -34,12 +34,16 @@ class TestBotEntry:
     @pytest.mark.asyncio
     async def test_bot_messages_endpoint_exists(self, client: AsyncClient):
         """POST /api/v1/bot-runtime/{bot_id}/messages should exist."""
-        response = await client.post("/api/v1/bot-runtime/test-bot/messages", json={"message": "test"})
+        response = await client.post(
+            "/api/v1/bot-runtime/test-bot/messages", json={"message": "test"}
+        )
         # 401 or 404 expected (auth or no bot)
         assert response.status_code in (200, 400, 401, 403, 404)
 
     @pytest.mark.asyncio
     async def test_bot_goals_endpoint_exists(self, client: AsyncClient):
         """POST /api/v1/bot-runtime/{bot_id}/goals should exist."""
-        response = await client.post("/api/v1/bot-runtime/test-bot/goals", json={"objective": "test"})
+        response = await client.post(
+            "/api/v1/bot-runtime/test-bot/goals", json={"objective": "test"}
+        )
         assert response.status_code in (200, 400, 401, 403, 404)

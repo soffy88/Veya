@@ -91,6 +91,7 @@ def tmp_sandbox_dir(tmp_path: Path) -> Path:
     sb.mkdir()
     return sb
 
+
 # funcfix 2026-10-14: supervise_task now dispatches the GoalRun it creates. Unit
 # tests exercise the bookkeeping only; a test that wants the real dispatch opts in.
 os.environ.setdefault("VEYA_SUPERVISOR_DISPATCH", "0")

@@ -7,6 +7,7 @@ import json
 import sys
 import time
 from pathlib import Path
+
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -906,9 +907,19 @@ def test_veya12_pool_appends_frognano_from_pi_models_json(monkeypatch, tmp_path)
     from veya.obase._llm_config import get_api_key
 
     cfg = tmp_path / "models.json"
-    cfg.write_text(json.dumps({"providers": {"frognano": {
-        "baseUrl": "http://100.64.0.9:18766/v1", "apiKey": "k-test",
-        "models": [{"id": "frognano-4b"}]}}}))
+    cfg.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "frognano": {
+                        "baseUrl": "http://100.64.0.9:18766/v1",
+                        "apiKey": "k-test",
+                        "models": [{"id": "frognano-4b"}],
+                    }
+                }
+            }
+        )
+    )
     monkeypatch.setenv("VEYA_PI_MODELS_JSON", str(cfg))
     monkeypatch.delenv("VEYA_FROGNANO_DISABLED", raising=False)
     monkeypatch.delenv("FROGNANO_API_KEY", raising=False)
@@ -927,9 +938,23 @@ def test_veya12_pool_puts_workbuddy_after_opencode_go(monkeypatch, tmp_path):
     from veya.obase._llm_config import get_api_key
 
     cfg = tmp_path / "models.json"
-    cfg.write_text(json.dumps({"providers": {"workbuddy": {
-        "baseUrl": "http://127.0.0.1:8788/v1", "apiKey": "wb-k",
-        "models": [{"id": "glm-5.3"}, {"id": "deepseek-v4.1-flash"}, {"id": "other"}]}}}))
+    cfg.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "workbuddy": {
+                        "baseUrl": "http://127.0.0.1:8788/v1",
+                        "apiKey": "wb-k",
+                        "models": [
+                            {"id": "glm-5.3"},
+                            {"id": "deepseek-v4.1-flash"},
+                            {"id": "other"},
+                        ],
+                    }
+                }
+            }
+        )
+    )
     monkeypatch.setenv("VEYA_PI_MODELS_JSON", str(cfg))
     monkeypatch.delenv("VEYA_WORKBUDDY_DISABLED", raising=False)
     monkeypatch.setattr(obase_llm, "_in_container", lambda: True)

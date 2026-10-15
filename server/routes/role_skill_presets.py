@@ -65,9 +65,7 @@ async def apply_presets(
     if spec is None or not owner or str(getattr(spec, "owner_id", "") or "") != owner:
         raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found")
     try:
-        updated, summary = presets.apply_to_spec(
-            spec, role_id=req.role_id, skill_ids=req.skill_ids
-        )
+        updated, summary = presets.apply_to_spec(spec, role_id=req.role_id, skill_ids=req.skill_ids)
     except presets.PresetError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:

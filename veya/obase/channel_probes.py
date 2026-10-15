@@ -84,7 +84,10 @@ def _probe_yt_dlp() -> tuple[str, str]:
     """Probe yt-dlp executable."""
     exe = shutil.which("yt-dlp")
     if not exe:
-        return "broken", "yt-dlp not installed. Fix: pip install yt-dlp or veya cli-hub install yt-dlp"
+        return (
+            "broken",
+            "yt-dlp not installed. Fix: pip install yt-dlp or veya cli-hub install yt-dlp",
+        )
     try:
         res = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=5)
         if res.returncode == 0:
@@ -98,15 +101,20 @@ def _probe_browser() -> tuple[str, str]:
     """Probe browser / Playwright installation."""
     try:
         import playwright  # noqa: F401
+
         return "ok", ""
     except ImportError:
-        return "broken", "Playwright not installed. Fix: pip install playwright && playwright install"
+        return (
+            "broken",
+            "Playwright not installed. Fix: pip install playwright && playwright install",
+        )
 
 
 def _probe_feedparser() -> tuple[str, str]:
     """Probe feedparser module."""
     try:
         import feedparser  # noqa: F401
+
         return "ok", ""
     except ImportError:
         return "broken", "feedparser not installed. Fix: pip install feedparser"
@@ -122,7 +130,9 @@ async def _probe_gh_cli() -> tuple[str, str]:
         if res.returncode != 0:
             return "broken", "gh CLI not functioning"
         # Check auth
-        auth_res = subprocess.run([exe, "auth", "status"], capture_output=True, text=True, timeout=5)
+        auth_res = subprocess.run(
+            [exe, "auth", "status"], capture_output=True, text=True, timeout=5
+        )
         if auth_res.returncode == 0:
             return "ok", ""
         return "needs-login", "gh CLI not logged in. Fix: gh auth login or set GITHUB_TOKEN"
@@ -134,7 +144,9 @@ async def _probe_github_api() -> tuple[str, str]:
     """Probe GitHub public API."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            res = await client.get("https://api.github.com/zen", headers={"User-Agent": "Veya-Probe/1.0"})
+            res = await client.get(
+                "https://api.github.com/zen", headers={"User-Agent": "Veya-Probe/1.0"}
+            )
             if res.status_code == 200:
                 return "ok", ""
             return "broken", f"GitHub API returned HTTP {res.status_code}"
@@ -270,4 +282,3 @@ async def fetch_github_readme(repo: str, timeout: float = 10.0) -> str:
         resp.raise_for_status()
         data = resp.json()
         return base64.b64decode(data.get("content", "")).decode("utf-8", "replace")
-

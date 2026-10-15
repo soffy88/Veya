@@ -107,7 +107,9 @@ def compute_fingerprint_for(config: Any, input_data: Any) -> str:
         return ""
     from veya.oprim.turn_envelope import envelope_fingerprint
 
-    return envelope_fingerprint({key: data.get(key) for key in sorted(fields)}, tuple(sorted(fields)))
+    return envelope_fingerprint(
+        {key: data.get(key) for key in sorted(fields)}, tuple(sorted(fields))
+    )
 
 
 def _call(fn: Callable[..., Any] | None, default: Any, *args: Any) -> Any:
@@ -120,7 +122,9 @@ def _call(fn: Callable[..., Any] | None, default: Any, *args: Any) -> Any:
         return default
 
 
-def _record(config: LiveTraceConfig, trail: list[dict[str, Any]], event: str, **fields: Any) -> None:
+def _record(
+    config: LiveTraceConfig, trail: list[dict[str, Any]], event: str, **fields: Any
+) -> None:
     entry = {"event": event, **fields}
     trail.append(entry)
     sink = config.trail_sink

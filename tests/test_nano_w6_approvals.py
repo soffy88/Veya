@@ -9,8 +9,6 @@ the push relay, and @runner mention routing.
 from __future__ import annotations
 
 import asyncio
-import os
-import time
 
 import pytest
 
@@ -45,7 +43,6 @@ def wired(approval_store, monkeypatch):
 @pytest.fixture()
 def user_ctx(monkeypatch):
     from server import auth as auth_mod
-    from server import approvals as approvals_mod
     from server import user_control as uc
 
     tok = auth_mod._user_ctx.set({"user_id": "user-1", "username": "user-1"})
@@ -121,7 +118,14 @@ def test_composite_decision_allow_ask_deny(approval_store):
 
 
 def test_oprim_approval_and_grant_atoms(approval_store):
-    from veya.oprim import approval_create, approval_resolve, grant_list, grant_lookup, grant_put, grant_revoke
+    from veya.oprim import (
+        approval_create,
+        approval_resolve,
+        grant_list,
+        grant_lookup,
+        grant_put,
+        grant_revoke,
+    )
 
     row = approval_create(
         {"request_id": "r1", "scope": "abc", "tool": "delete_file", "tool_args": {"path": "/x"}},
@@ -344,9 +348,7 @@ async def test_guard_l_agent_cannot_approve(approval_store):
     from server import approvals as approvals_mod
 
     service = approvals_mod.configure_service(store=approval_store)
-    requested = await service.request(
-        tool="delete_file", args={"path": "/x"}, user_id="user-1"
-    )
+    requested = await service.request(tool="delete_file", args={"path": "/x"}, user_id="user-1")
     with pytest.raises(HTTPException) as exc:
         await service.resolve(
             approval_id=requested["approval_id"], decision="once", principal="agent:chef"
@@ -401,9 +403,7 @@ async def test_guard_l_double_resolve_conflict(approval_store):
 
     service = approvals_mod.configure_service(store=approval_store)
     requested = await service.request(tool="delete_file", args={}, user_id="user-1")
-    await service.resolve(
-        approval_id=requested["approval_id"], decision="once", principal="human"
-    )
+    await service.resolve(approval_id=requested["approval_id"], decision="once", principal="human")
     with pytest.raises(HTTPException) as exc:
         await service.resolve(
             approval_id=requested["approval_id"], decision="deny", principal="human"
@@ -479,12 +479,24 @@ def test_route_text_to_runner_match_and_unknown(tmp_path):
     from server.bot_team.runners import RunnerRegistry
 
     registry = RunnerRegistry(storage_path=tmp_path / "runners.json")
-    registry.add(runner_id="home", name="Home Server", base_url="http://100.64.0.5:8765", token_ref="VEYA_T_HOME")
-    registry.add(runner_id="work", name="workstation", base_url="http://100.64.0.6:8765", token_ref="VEYA_T_WORK")
+    registry.add(
+        runner_id="home",
+        name="Home Server",
+        base_url="http://100.64.0.5:8765",
+        token_ref="VEYA_T_HOME",
+    )
+    registry.add(
+        runner_id="work",
+        name="workstation",
+        base_url="http://100.64.0.6:8765",
+        token_ref="VEYA_T_WORK",
+    )
 
     # case-insensitive, matches ids and display names
     assert route_text_to_runner("@home do something", registry=registry)["runner_id"] == "home"
-    assert route_text_to_runner("@HOME SERVER do something", registry=registry)["runner_id"] == "home"
+    assert (
+        route_text_to_runner("@HOME SERVER do something", registry=registry)["runner_id"] == "home"
+    )
     assert route_text_to_runner("@Work fix it", registry=registry)["runner_id"] == "work"
     # not a mention → None
     assert route_text_to_runner("hello", registry=registry) is None
@@ -538,7 +550,18 @@ async def test_run_bot_turn_mention_forwards_to_runner(tmp_path, monkeypatch):
 
     calls: list[tuple[str, str]] = []
 
-    async def _fake_forward(*, bot, text, user, context="", workspace_id=None, trace_id=None, conversations=None, client=None, registry=None):
+    async def _fake_forward(
+        *,
+        bot,
+        text,
+        user,
+        context="",
+        workspace_id=None,
+        trace_id=None,
+        conversations=None,
+        client=None,
+        registry=None,
+    ):
         calls.append((text, registry))
         from server.bot_team.runner_client import BotTurnResult
 

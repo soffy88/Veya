@@ -245,12 +245,6 @@ async def test_project_ask_builtin_records_without_touching_queue(tmp_path: Path
 # ── hicode 路径: 派工 + 状态映射 + 写回 ─────────────────────────────────
 
 
-
-
-
-
-
-
 # ── dsh 路径: 不可用 / verdict 解析 / 超时 / 无自动 fallback ────────────
 
 

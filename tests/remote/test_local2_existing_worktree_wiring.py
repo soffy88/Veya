@@ -86,14 +86,16 @@ def make_venv(project_root: Path, name: str = ".venv") -> Path:
     # where pytest is installed, so the venv must be fully self-contained.
     subprocess.run(
         [PY, "-m", "venv", str(venv)],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     venv_python = venv / "bin" / "python"
     # Install pytest into the venv's own site-packages so it works even when
     # PYTHONNOUSERSITE=1 is set in the execution environment.
     subprocess.run(
         [str(venv_python), "-m", "pip", "install", "-q", "--force-reinstall", "pytest"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     return venv
 
@@ -200,8 +202,7 @@ def test_resolver_marks_existing_worktree(linked_pair: tuple[Path, Path]) -> Non
     assert resolve_execution_target(str(main), str(wt / "sub"), "") == "EXISTING_WORKTREE"
     assert resolve_execution_target(str(main), None, "") == "CANONICAL_WORKTREE"
     assert (
-        resolve_execution_target(str(main), None, "", intent="mutation")
-        == "NEW_ISOLATED_WORKTREE"
+        resolve_execution_target(str(main), None, "", intent="mutation") == "NEW_ISOLATED_WORKTREE"
     )
     assert resolve_execution_target(str(main), None, "EXISTING_WORKTREE") == "EXISTING_WORKTREE"
     assert resolve_execution_target(str(main), None, "HOST") == "HOST"

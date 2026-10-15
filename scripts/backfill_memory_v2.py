@@ -83,7 +83,9 @@ def collect(ledger_owner: str) -> list[dict[str, Any]]:
                     }
                 )
     registry_path = _home() / "bot_registry.json"
-    registry = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.exists() else {}
+    registry = (
+        json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.exists() else {}
+    )
     for bot_id, spec in registry.items():
         if str(bot_id).startswith(HARNESS_PREFIXES):
             continue
@@ -181,7 +183,9 @@ async def apply(items: list[dict[str, Any]], state_path: Path) -> dict[str, int]
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ledger-owner", default="soffy", help="username owning global_memory.json")
+    parser.add_argument(
+        "--ledger-owner", default="soffy", help="username owning global_memory.json"
+    )
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     owner = _user_id(args.ledger_owner)

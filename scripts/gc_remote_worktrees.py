@@ -17,6 +17,7 @@ Removal is ``git worktree remove`` + ``git branch -D`` of its own branch.
 Default is a dry run; pass ``--apply`` to delete.  Anything kept is reported
 with the reason so a human can decide.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,7 +33,11 @@ PREFIXES = ("task-remote-", "task-execution-")
 
 def git(repo: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=timeout, check=False
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
     )
 
 
@@ -89,12 +94,17 @@ def backup(repo: Path, wt: Path, branch: str | None, dest_root: Path) -> str:
     dest.mkdir(parents=True, exist_ok=True)
     head = git(wt, "rev-parse", "HEAD").stdout.strip()
     diff = subprocess.run(
-        ["git", "-C", str(wt), "diff", "HEAD", "--binary"], capture_output=True, timeout=300, check=True
+        ["git", "-C", str(wt), "diff", "HEAD", "--binary"],
+        capture_output=True,
+        timeout=300,
+        check=True,
     )
     (dest / "tracked.patch").write_bytes(diff.stdout)
     others = subprocess.run(
         ["git", "-C", str(wt), "ls-files", "--others", "--exclude-standard", "-z"],
-        capture_output=True, timeout=300, check=True,
+        capture_output=True,
+        timeout=300,
+        check=True,
     ).stdout.split(b"\0")
     files = [f.decode() for f in others if f and f.decode().rstrip("/") not in (".venv", "venv")]
     tar_path = dest / "untracked.tar.gz"
@@ -108,16 +118,31 @@ def backup(repo: Path, wt: Path, branch: str | None, dest_root: Path) -> str:
     expected = sum(1 for rel in files if (wt / rel).is_symlink() or (wt / rel).is_file())
     if stored != expected:
         raise RuntimeError(f"tar holds {stored} of {expected} files")
-    (dest / "meta.json").write_text(json.dumps(
-        {"repo": str(repo), "worktree": str(wt), "branch": branch, "head": head,
-         "untracked_files": stored, "patch_bytes": len(diff.stdout),
-         "restore": "git worktree add <dir> <head> && git -C <dir> apply --binary tracked.patch && tar xzf untracked.tar.gz -C <dir>"},
-        indent=1))
+    (dest / "meta.json").write_text(
+        json.dumps(
+            {
+                "repo": str(repo),
+                "worktree": str(wt),
+                "branch": branch,
+                "head": head,
+                "untracked_files": stored,
+                "patch_bytes": len(diff.stdout),
+                "restore": "git worktree add <dir> <head> && git -C <dir> apply --binary tracked.patch && tar xzf untracked.tar.gz -C <dir>",
+            },
+            indent=1,
+        )
+    )
     return str(dest)
 
 
-def examine(repo: Path, wt: Path, branch: str | None, min_age: float, busy: list[str],
-            ignore_dirty: bool = False) -> str | None:
+def examine(
+    repo: Path,
+    wt: Path,
+    branch: str | None,
+    min_age: float,
+    busy: list[str],
+    ignore_dirty: bool = False,
+) -> str | None:
     """Return a keep-reason, or None when the worktree is safe to remove."""
     age_days = (time.time() - last_touch(wt)) / 86400
     if age_days < min_age:
@@ -128,15 +153,24 @@ def examine(repo: Path, wt: Path, branch: str | None, min_age: float, busy: list
     st = git(wt, "status", "--porcelain", "--untracked-files=normal")
     if st.returncode != 0:
         return "git status failed: " + st.stderr.strip()[:80]
-    dirty = [l for l in st.stdout.splitlines() if l.strip() and l[3:].strip().rstrip("/") not in (".venv", "venv")]
+    dirty = [
+        l
+        for l in st.stdout.splitlines()
+        if l.strip() and l[3:].strip().rstrip("/") not in (".venv", "venv")
+    ]
     if dirty and not ignore_dirty:
         return f"uncommitted changes ({len(dirty)})"
     if branch:
         others = [
-            r for r in git(repo, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes").stdout.split()
+            r
+            for r in git(
+                repo, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"
+            ).stdout.split()
             if r != f"refs/heads/{branch}"
         ]
-        uniq = git(repo, "rev-list", "--count", f"refs/heads/{branch}", "--not", *others, timeout=120)
+        uniq = git(
+            repo, "rev-list", "--count", f"refs/heads/{branch}", "--not", *others, timeout=120
+        )
         if uniq.returncode != 0:
             return "rev-list failed"
         if uniq.stdout.strip() != "0":
@@ -182,7 +216,9 @@ def main() -> int:
                         try:
                             backed_up = backup(repo, wt, branch, Path(a.backup_dirty))
                         except Exception as exc:
-                            report["errors"].append({"path": str(wt), "error": f"backup failed: {exc}"})
+                            report["errors"].append(
+                                {"path": str(wt), "error": f"backup failed: {exc}"}
+                            )
                             continue
                     reason = None
             if reason:
@@ -209,7 +245,9 @@ def main() -> int:
         print(json.dumps(report, indent=1))
     else:
         verb = "removed" if a.apply else "would remove"
-        print(f"{verb}: {len(report['removed'])}  kept: {len(report['kept'])}  errors: {len(report['errors'])}")
+        print(
+            f"{verb}: {len(report['removed'])}  kept: {len(report['kept'])}  errors: {len(report['errors'])}"
+        )
         reasons: dict[str, int] = {}
         for k in report["kept"]:
             key = k["reason"].split(" (")[0]

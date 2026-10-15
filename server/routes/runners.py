@@ -300,7 +300,12 @@ def _check_hands_capability() -> dict[str, Any]:
     that machine reports, never what this server happens to have installed.
     """
     if not flag_enabled("VEYA_HANDS"):
-        return {"capable": False, "known": True, "tools": [], "reason": "VEYA_HANDS flag not enabled"}
+        return {
+            "capable": False,
+            "known": True,
+            "tools": [],
+            "reason": "VEYA_HANDS flag not enabled",
+        }
 
     try:
         from veya.oprim.hands import hands_capabilities
@@ -313,7 +318,12 @@ def _check_hands_capability() -> dict[str, Any]:
             "details": caps,
         }
     except Exception as exc:
-        return {"capable": False, "known": False, "tools": [], "reason": f"hands check failed: {exc}"}
+        return {
+            "capable": False,
+            "known": False,
+            "tools": [],
+            "reason": f"hands check failed: {exc}",
+        }
 
 
 def _hands_for(view: dict[str, Any], probe: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -46,12 +46,15 @@ def _get_session_messages(session_id: str, user: dict[str, Any]) -> list[dict[st
         return s["messages"]
     # Fall back to durable store
     from veya.history_store import default_history_store
+
     store = default_history_store()
     import asyncio
+
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 future = pool.submit(asyncio.run, store.load(session_id, user_id=user["user_id"]))
                 return future.result()
@@ -102,14 +105,17 @@ def generate_brief(
 
     if mode == "full":
         # Full transcript
-        lines = ["# Session Handoff — Full Transcript", f"Session: {session_id}", f"Generated: {now}", ""]
+        lines = [
+            "# Session Handoff — Full Transcript",
+            f"Session: {session_id}",
+            f"Generated: {now}",
+            "",
+        ]
         for msg in messages:
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
             if isinstance(content, list):
-                content = "\n".join(
-                    b.get("text", str(b)) for b in content if isinstance(b, dict)
-                )
+                content = "\n".join(b.get("text", str(b)) for b in content if isinstance(b, dict))
             lines.append(f"## {role.upper()}")
             lines.append(str(content))
             lines.append("")
@@ -160,7 +166,9 @@ async def handoff_preview(
         "session_id": session_id,
         "mode": mode,
         "brief": brief,
-        "warning": "Full mode includes entire transcript (slower, costs context)." if mode == "full" else None,
+        "warning": "Full mode includes entire transcript (slower, costs context)."
+        if mode == "full"
+        else None,
     }
 
 
@@ -217,6 +225,7 @@ async def handoff_session(
 
     # Persist to history store with metadata
     from veya.history_store import default_history_store
+
     store = default_history_store()
     await store.save(
         new_id,
@@ -232,18 +241,20 @@ async def handoff_session(
         handoff_copyable_prompt=copyable_prompt,
     )
 
-    event_store.append({
-        "topic": "session.handoff",
-        "session_id": new_id,
-        "trace_id": new_id,
-        "actor": user["user_id"],
-        "payload": {
-            "source_session": session_id,
-            "target_backend": req.target_backend,
-            "target_model": req.target_model,
-            "mode": req.mode,
-        },
-    })
+    event_store.append(
+        {
+            "topic": "session.handoff",
+            "session_id": new_id,
+            "trace_id": new_id,
+            "actor": user["user_id"],
+            "payload": {
+                "source_session": session_id,
+                "target_backend": req.target_backend,
+                "target_model": req.target_model,
+                "mode": req.mode,
+            },
+        }
+    )
 
     return {
         "session_id": new_id,
@@ -307,6 +318,7 @@ async def fork_session_polished(
 
     # Persist to history store
     from veya.history_store import default_history_store
+
     store = default_history_store()
     await store.save(
         new_id,
@@ -317,17 +329,19 @@ async def fork_session_polished(
         worktree_path=s.get("cwd"),
     )
 
-    event_store.append({
-        "topic": "session.fork",
-        "session_id": new_id,
-        "trace_id": new_id,
-        "actor": user["user_id"],
-        "payload": {
-            "source_session": session_id,
-            "label": req.label,
-            "polished": req.polish,
-        },
-    })
+    event_store.append(
+        {
+            "topic": "session.fork",
+            "session_id": new_id,
+            "trace_id": new_id,
+            "actor": user["user_id"],
+            "payload": {
+                "source_session": session_id,
+                "label": req.label,
+                "polished": req.polish,
+            },
+        }
+    )
 
     return {
         "session_id": new_id,

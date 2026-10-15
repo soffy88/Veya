@@ -36,7 +36,6 @@ from veya.remote.permission_engine import (
     OperationContext,
     PermissionEngine,
     ReasonCode,
-    parse_command_context,
 )
 from veya.remote.tool_adapter import RemoteToolAdapter, canonical_tool_name
 

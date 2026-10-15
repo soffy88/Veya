@@ -68,11 +68,13 @@ WEB_READING_CHANNELS: dict[str, tuple[str, ...]] = {
 }
 
 # Backends that require credentials/cookies (disabled by default until approved)
-LOGIN_REQUIRED_BACKENDS: frozenset[str] = frozenset({
-    "cli_xiaohongshu",
-    "cli_linkedin",
-    "cli_twitter",
-})
+LOGIN_REQUIRED_BACKENDS: frozenset[str] = frozenset(
+    {
+        "cli_xiaohongshu",
+        "cli_linkedin",
+        "cli_twitter",
+    }
+)
 
 # Delivery preference for chat channels (matches obase PLATFORMS spelling).
 CHANNEL_LADDER: tuple[str, ...] = (
@@ -206,7 +208,9 @@ def reorder_channel_backends(
     for item in new_order:
         if item not in current:
             raise ChannelLadderError(f"backend '{item}' is not valid for channel '{channel}'")
-    ordered = tuple(new_order) + tuple(b for b in WEB_READING_CHANNELS[channel] if b not in new_order)
+    ordered = tuple(new_order) + tuple(
+        b for b in WEB_READING_CHANNELS[channel] if b not in new_order
+    )
     return ordered
 
 
@@ -248,9 +252,7 @@ def plan_channel_delivery(
         live = set(live_channels)
     chosen = next((p for p in preference if p in live), None)
     if chosen is None:
-        raise ChannelLadderError(
-            "no live channel among " + ", ".join(preference)
-        )
+        raise ChannelLadderError("no live channel among " + ", ".join(preference))
     limit = CHANNEL_MESSAGE_LIMIT.get(chosen, 4096)
     chunks = plan_chunks(text, limit)
     return ChannelPlan(

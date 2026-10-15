@@ -15,9 +15,9 @@ Ops (``input_data["op"]``):
 
 from __future__ import annotations
 
-import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from veya.oprim.pairing import pairing_code_consume, pairing_code_create
 
@@ -124,9 +124,7 @@ def _op_confirm(config: PairingFlowConfig, data: dict[str, Any]) -> dict[str, An
     registration: dict[str, Any] = {}
     if config.register_device is not None:
         try:
-            registration = dict(
-                config.register_device(device_kind, device_label, credential)
-            )
+            registration = dict(config.register_device(device_kind, device_label, credential))
         except Exception:
             registration = {}
     _trail(
@@ -148,4 +146,4 @@ def _op_confirm(config: PairingFlowConfig, data: dict[str, Any]) -> dict[str, An
     }
 
 
-__all__ = ["PairingFlowConfig", "run_pairing_flow", "STATUS_COMPLETED", "STATUS_ERROR"]
+__all__ = ["STATUS_COMPLETED", "STATUS_ERROR", "PairingFlowConfig", "run_pairing_flow"]

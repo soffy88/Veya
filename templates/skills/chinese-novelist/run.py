@@ -46,7 +46,11 @@ def main(
     if action == "reference":
         relative = REFERENCE_FILES.get(reference)
         if relative is None:
-            return {"ok": False, "error": "unknown reference", "references": sorted(REFERENCE_FILES)}
+            return {
+                "ok": False,
+                "error": "unknown reference",
+                "references": sorted(REFERENCE_FILES),
+            }
         return {
             "ok": True,
             "action": action,

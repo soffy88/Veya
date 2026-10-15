@@ -38,15 +38,13 @@ _WRITE_SCRIPT = (
     'if [ "$ow" != 1 ] && [ -e "$p" ]; then echo "file exists" >&2; exit 17; fi; '
     't="$p.veya-tmp.$$"; cat > "$t"; mv -f -- "$t" "$p"; wc -c < "$p"'
 )
-_LIST_SCRIPT = (
-    'cd -- "$1" && find . -mindepth 1 -maxdepth 1 -printf "%y\\t%s\\t%f\\n" | sort -k3 | head -n "$2"'
-)
+_LIST_SCRIPT = 'cd -- "$1" && find . -mindepth 1 -maxdepth 1 -printf "%y\\t%s\\t%f\\n" | sort -k3 | head -n "$2"'
 _GREP_SCRIPT = (
     'pat="$1"; root="$2"; n="$3"; g="$4"; '
-    'if command -v rg >/dev/null 2>&1; then '
+    "if command -v rg >/dev/null 2>&1; then "
     '  if [ -n "$g" ]; then rg --no-heading -n -m "$n" -g "$g" -e "$pat" -- "$root"; '
     '  else rg --no-heading -n -m "$n" -e "$pat" -- "$root"; fi; '
-    'else '
+    "else "
     '  if [ -n "$g" ]; then grep -rnE --include="$g" -m "$n" -e "$pat" -- "$root"; '
     '  else grep -rnE -m "$n" -e "$pat" -- "$root"; fi; '
     'fi | head -n "$n"'
@@ -58,7 +56,7 @@ _BG_START_SCRIPT = (
     'then echo "run already active" >&2; exit 16; fi; '
     'rm -f -- "$d/$n.exit" "$d/$n.log"; cd -- "$cwd" || exit 97; '
     'inner=\'"$@" > "$0.log" 2>&1; echo $? > "$0.exit"\'; '
-    'if command -v setsid >/dev/null 2>&1; then '
+    "if command -v setsid >/dev/null 2>&1; then "
     '  setsid nohup bash -c "$inner" "$d/$n" "$@" < /dev/null > /dev/null 2>&1 & '
     'else nohup bash -c "$inner" "$d/$n" "$@" < /dev/null > /dev/null 2>&1 & fi; '
     'echo $! > "$d/$n.pid"; echo $!'
@@ -185,12 +183,23 @@ class SshBackend:
         self._key_lookup = key_lookup
 
     # ── plumbing ──
-    def _remote(self, argv: list[str], *, timeout_s: float | None = None, input_bytes: bytes | None = None,
-                output_limit: int | None = None) -> ssh_mod.RemoteResult:
+    def _remote(
+        self,
+        argv: list[str],
+        *,
+        timeout_s: float | None = None,
+        input_bytes: bytes | None = None,
+        output_limit: int | None = None,
+    ) -> ssh_mod.RemoteResult:
         try:
             return ssh_mod.run_remote(
-                self.host, argv, timeout_s=timeout_s, input_bytes=input_bytes,
-                runner=self._runner, key_lookup=self._key_lookup, output_limit=output_limit,
+                self.host,
+                argv,
+                timeout_s=timeout_s,
+                input_bytes=input_bytes,
+                runner=self._runner,
+                key_lookup=self._key_lookup,
+                output_limit=output_limit,
             )
         except ssh_mod.SshError as exc:
             raise BackendError(str(exc)) from exc
@@ -214,7 +223,9 @@ class SshBackend:
         return str(self.host.default_cwd or self.host.write_root or self.host.workspace_path or "")
 
     def read_roots(self) -> list[str]:
-        return [r for r in (self.host.write_root, self.host.default_cwd, self.host.workspace_path) if r]
+        return [
+            r for r in (self.host.write_root, self.host.default_cwd, self.host.workspace_path) if r
+        ]
 
     def _absolute(self, path: str) -> str:
         raw = _clean_path(path)
@@ -262,7 +273,9 @@ class SshBackend:
     # ── file actions ──
     def read_text(self, path: str, *, max_bytes: int = 200_000) -> str:
         target = self.check_read_path(path)
-        result = self._remote(["head", "-c", str(int(max_bytes)), "--", target], output_limit=max_bytes)
+        result = self._remote(
+            ["head", "-c", str(int(max_bytes)), "--", target], output_limit=max_bytes
+        )
         if not result.ok:
             raise self._fail(result, "read")
         return result.stdout
@@ -311,7 +324,9 @@ class SshBackend:
 
     # ── commands ──
     def run(self, command: str, *, cwd: str = "", timeout_s: float | None = None) -> ExecResult:
-        argv = classify_or_refuse(command, workspace_root=self.write_root or self.default_cwd() or "/")
+        argv = classify_or_refuse(
+            command, workspace_root=self.write_root or self.default_cwd() or "/"
+        )
         where = self.check_read_path(cwd) if cwd else self.default_cwd()
         if not where:
             raise BackendError("command needs a cwd, a host default_cwd or a write_root")
@@ -348,7 +363,9 @@ class SshBackend:
 
     def bg_status(self, name: str, *, tail_bytes: int = 8000) -> dict[str, Any]:
         self._check_name(name)
-        result = self._script(_BG_STATUS_SCRIPT, self._run_dir(), name, str(int(tail_bytes)), timeout_s=15.0)
+        result = self._script(
+            _BG_STATUS_SCRIPT, self._run_dir(), name, str(int(tail_bytes)), timeout_s=15.0
+        )
         if not result.ok:
             raise self._fail(result, "background status")
         lines = result.stdout.splitlines()
@@ -388,7 +405,9 @@ class SshBackend:
         for line in result.stdout.splitlines():
             name, _, code = line.partition("\t")
             if name:
-                rows.append({"name": name, "exit_code": int(code) if code.lstrip("-").isdigit() else None})
+                rows.append(
+                    {"name": name, "exit_code": int(code) if code.lstrip("-").isdigit() else None}
+                )
         return rows
 
     # ── transfer ──
@@ -439,7 +458,9 @@ def classify_or_refuse(command: str, *, workspace_root: str) -> list[str]:
     except CommandPolicyError as exc:
         raise BackendError(str(exc)) from exc
     root = Path(workspace_root or "/")
-    decision = PermissionEngine().evaluate(parse_command_context(tuple(argv), cwd=root, workspace_root=root))
+    decision = PermissionEngine().evaluate(
+        parse_command_context(tuple(argv), cwd=root, workspace_root=root)
+    )
     if decision.decision == Decision.DENY:
         raise BackendError(f"command refused by policy: {decision.reason}")
     return argv

@@ -95,9 +95,7 @@ def main(
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Write the draft to a temp file: keeps argv small and avoids quoting issues.
-    with tempfile.NamedTemporaryFile(
-        "w", suffix=".md", delete=False, encoding="utf-8"
-    ) as tmp:
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as tmp:
         tmp.write(draft)
         draft_file = tmp.name
 

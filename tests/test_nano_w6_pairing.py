@@ -106,9 +106,7 @@ def test_credential_issue_and_verify(pairing_store):
 
 
 def test_credential_expiry(pairing_store):
-    issued = pairing_store.issue_credential(
-        device_kind="browser", device_label="b5", ttl_s=10.0
-    )
+    issued = pairing_store.issue_credential(device_kind="browser", device_label="b5", ttl_s=10.0)
     assert pairing_store.verify_credential(issued["token"], now=time.time() + 11.0) is None
 
 
@@ -153,9 +151,7 @@ async def test_omodul_pairing_flow_request_and_confirm(pairing_store):
     assert confirmed["credential"]["token"]
     assert registered["ref"].startswith("VEYA_DEVICE_TOKEN_")
     # the code is spent: confirming again fails
-    again = await run_pairing_flow(
-        config2, {"op": "confirm", "code": requested["code"]}, "/tmp"
-    )
+    again = await run_pairing_flow(config2, {"op": "confirm", "code": requested["code"]}, "/tmp")
     assert again["status"] == "error"
     assert "pairing.requested" in trails and "pairing.confirmed" in trails
 
@@ -166,9 +162,7 @@ async def test_omodul_pairing_flow_never_raises(pairing_store):
     config = PairingFlowConfig(store=pairing_store)
     result = await run_pairing_flow(config, {"op": "bogus"}, "/tmp")
     assert result["status"] == "error"
-    result = await run_pairing_flow(
-        config, {"op": "confirm", "code": "ZZZZZZZZ"}, "/tmp"
-    )
+    result = await run_pairing_flow(config, {"op": "confirm", "code": "ZZZZZZZZ"}, "/tmp")
     assert result["status"] == "error"
 
 
@@ -192,7 +186,9 @@ def test_pairing_rest_disabled_by_default(monkeypatch):
     monkeypatch.delenv("VEYA_DEVICE_PAIRING", raising=False)
     assert pairing_mod.device_pairing_enabled() is False
     client = _rest_client()
-    assert client.post("/api/v1/pairing/request", json={"device_kind": "browser"}).status_code == 404
+    assert (
+        client.post("/api/v1/pairing/request", json={"device_kind": "browser"}).status_code == 404
+    )
     assert client.post("/api/v1/pairing/confirm", json={"code": "ABC"}).status_code == 404
 
 

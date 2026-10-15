@@ -17,9 +17,10 @@ import json
 from typing import Any
 
 from server.remote_control import approval as approval_mod
-from server.remote_control import flags, hosts as hosts_mod, sessions as sessions_mod
+from server.remote_control import flags
+from server.remote_control import hosts as hosts_mod
 from server.remote_control import service as service_mod
-from server.remote_control.sessions import VerifierEvidence
+from server.remote_control import sessions as sessions_mod
 
 
 def _caller_owner_id() -> str:

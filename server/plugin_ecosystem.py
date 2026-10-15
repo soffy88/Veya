@@ -121,7 +121,6 @@ def verify_no_undeclared_capabilities(
 ) -> tuple[bool, list[str]]:
     """Verify that installed package has no undeclared capabilities."""
     undeclared = [
-        cap for cap in actual_capabilities
-        if cap not in pkg.manifest.declared_capabilities
+        cap for cap in actual_capabilities if cap not in pkg.manifest.declared_capabilities
     ]
     return len(undeclared) == 0, undeclared

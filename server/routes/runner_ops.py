@@ -116,8 +116,7 @@ async def check_runner_update(
             "latest_version": "",
             "configured": False,
             "reason": (
-                f"no release manifest is configured for this deployment "
-                f"(set {MANIFEST_URL_ENV})"
+                f"no release manifest is configured for this deployment (set {MANIFEST_URL_ENV})"
             ),
         }
     try:

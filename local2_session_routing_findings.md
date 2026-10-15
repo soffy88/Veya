@@ -45,7 +45,7 @@ workspace:
 ```python
 if Path(mapped).exists():
     return mapped
-session.worktrees.pop(str(repo), None)   # then falls through to workspace
+session.worktrees.pop(str(repo), None)  # then falls through to workspace
 ```
 
 A read against a deleted worktree returned **canonical content**, `ok=True`.

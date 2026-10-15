@@ -155,7 +155,9 @@ def revoke_token(name_or_hash: str, tokens_file: Path | None = None) -> bool:
     tokens = load_tokens(tokens_file)
     modified = False
     for record in tokens:
-        if record.get("name") == name_or_hash or record.get("token_hash", "").startswith(name_or_hash):
+        if record.get("name") == name_or_hash or record.get("token_hash", "").startswith(
+            name_or_hash
+        ):
             if not record.get("revoked", False):
                 record["revoked"] = True
                 record["revoked_at"] = time.time()
@@ -167,17 +169,23 @@ def revoke_token(name_or_hash: str, tokens_file: Path | None = None) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Veya LLM Gateway Token Management CLI")
-    parser.add_argument("--file", help="指定 token 存储文件路径（默认 ~/.veya/gateway_tokens.json）")
+    parser.add_argument(
+        "--file", help="指定 token 存储文件路径（默认 ~/.veya/gateway_tokens.json）"
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="子命令")
 
     issue_parser = subparsers.add_parser("issue", help="签发新 token")
     issue_parser.add_argument("--name", required=True, help="Token 标识名称（如 mobile-minis）")
-    issue_parser.add_argument("--ttl-days", type=float, default=None, help="有效期（天数，默认不过期）")
+    issue_parser.add_argument(
+        "--ttl-days", type=float, default=None, help="有效期（天数，默认不过期）"
+    )
     issue_parser.add_argument("--scope", default="gateway", help="权限范围（默认 gateway）")
 
     list_parser = subparsers.add_parser("list", help="列出已签发的 token")
-    list_parser.add_argument("--all", action="store_true", help="显示所有 token（包括过期与已吊销）")
+    list_parser.add_argument(
+        "--all", action="store_true", help="显示所有 token（包括过期与已吊销）"
+    )
 
     revoke_parser = subparsers.add_parser("revoke", help="吊销指定 token")
     revoke_parser.add_argument("--name", required=True, help="Token 名称或哈希前缀")
@@ -200,7 +208,9 @@ def main() -> int:
         print(f"Name:       {record['name']}")
         print(f"Scope:      {record['scope']}")
         if record["expires_at"]:
-            exp_str = datetime.datetime.fromtimestamp(record["expires_at"], datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            exp_str = datetime.datetime.fromtimestamp(record["expires_at"], datetime.UTC).strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
             print(f"Expires:    {exp_str} ({args.ttl_days} days)")
         else:
             print("Expires:    Never")
@@ -220,7 +230,9 @@ def main() -> int:
             print(f"No tokens found in {get_tokens_file(tokens_file)}")
             return 0
         now = time.time()
-        print(f"{'NAME':<20} {'SCOPE':<12} {'STATUS':<10} {'EXPIRES AT (UTC)':<22} {'HASH (PREFIX)':<18}")
+        print(
+            f"{'NAME':<20} {'SCOPE':<12} {'STATUS':<10} {'EXPIRES AT (UTC)':<22} {'HASH (PREFIX)':<18}"
+        )
         print("-" * 84)
         for t in tokens:
             name = t.get("name", "unnamed")
@@ -236,7 +248,9 @@ def main() -> int:
             if not args.all and status != "ACTIVE":
                 continue
             exp_str = (
-                datetime.datetime.fromtimestamp(float(exp), datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                datetime.datetime.fromtimestamp(float(exp), datetime.UTC).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
                 if exp is not None
                 else "NEVER"
             )

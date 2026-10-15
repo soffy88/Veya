@@ -66,7 +66,7 @@ class FileHandoff:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "FileHandoff":
+    def from_dict(cls, value: dict[str, Any]) -> FileHandoff:
         return cls(
             token=str(value.get("token") or ""),
             session_id=str(value.get("session_id") or ""),
@@ -121,7 +121,7 @@ def compute_token(*, session_id: str, file_sha256: str, recipient_id: str) -> st
     different token.
     """
 
-    material = f"{session_id}|{file_sha256}|{recipient_id}".encode("utf-8")
+    material = f"{session_id}|{file_sha256}|{recipient_id}".encode()
     return hashlib.sha256(material).hexdigest()[:32]
 
 

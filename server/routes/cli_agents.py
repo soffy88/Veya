@@ -9,9 +9,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from runtime.coding.cli_agents import (
-    CLIAgentRegistry,
-    get_cli_agent_registry,
     _validate_command_template,
+    get_cli_agent_registry,
 )
 
 router = APIRouter(tags=["cli-agents"])

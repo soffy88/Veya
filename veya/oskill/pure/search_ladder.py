@@ -40,9 +40,7 @@ DEFAULT_SEARCH_BACKENDS: tuple[str, ...] = (
     "bing",
 )
 
-SEARCH_FAILURE_NOTICE: str = (
-    "Search failed across all backends. Do not guess or fabricate URLs."
-)
+SEARCH_FAILURE_NOTICE: str = "Search failed across all backends. Do not guess or fabricate URLs."
 
 
 class SearchLadderError(ValueError):

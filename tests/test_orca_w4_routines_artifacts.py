@@ -1,13 +1,10 @@
 """ORCA-W4 tests: routines probe + per-routine model + workspace binding; public artifact links."""
 
-import json
 import os
-import secrets
-import tempfile
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -15,15 +12,12 @@ from httpx import ASGITransport, AsyncClient
 
 from server.bot_team.routine_clock import RoutineClock
 from server.goal_run.models import RoutineSpec
+from server.goal_run.routine_dispatch import run_probe
 from server.goal_run.routine_registry import RoutineRegistry
-from server.goal_run.routine_dispatch import run_probe, dispatch_trigger
-from server.goal_run.models import GoalRunState, RoutineState
-from server.routes.routines import router as routines_router
-from server.routes.artifacts import router as artifacts_router
 from server.routes.artifacts import public_router as public_artifacts_router
+from server.routes.artifacts import router as artifacts_router
+from server.routes.routines import router as routines_router
 from server.routes.settings import router as settings_router
-from server.artifact_model import Artifact
-from server.project_store import ProjectStore
 
 
 @pytest.fixture
@@ -36,6 +30,7 @@ def test_app(tmp_path, monkeypatch):
     app = FastAPI()
     # W11 D2: routine routes check bot ownership; these tests cover routine logic.
     from server.routes import routines as _routines_mod
+
     app.dependency_overrides[_routines_mod._require_owned_bot] = lambda: None
     app.include_router(routines_router)
     app.include_router(artifacts_router)
@@ -50,7 +45,9 @@ def git_repo(tmp_path):
     repo_path = tmp_path / "test_repo"
     repo_path.mkdir()
     subprocess.run(["git", "init"], cwd=repo_path, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_path, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"], cwd=repo_path, capture_output=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_path, capture_output=True)
     (repo_path / "file.txt").write_text("initial")
     subprocess.run(["git", "add", "."], cwd=repo_path, capture_output=True)
@@ -113,8 +110,7 @@ class TestProbeFunction:
         script.write_text("#!/bin/bash\necho 'test' > output.txt")
         script.chmod(0o755)
         result = run_probe(
-            {"kind": "command", "command": str(script)},
-            workspace_path=str(tmp_path)
+            {"kind": "command", "command": str(script)}, workspace_path=str(tmp_path)
         )
         assert result["success"] is True
         assert (tmp_path / "output.txt").exists()
@@ -145,7 +141,9 @@ class TestRoutineClockProbe:
         )
         registry.register(spec)
 
-        clock = RoutineClock(registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock())
+        clock = RoutineClock(
+            registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock()
+        )
         # Set last fired so it actually ticks
         clock.last_fired["r1"] = datetime(2026, 1, 1, 9, 0, tzinfo=UTC).isoformat()
 
@@ -176,7 +174,9 @@ class TestRoutineClockProbe:
         # Add changes to repo
         (git_repo / "new_file.txt").write_text("new content")
 
-        clock = RoutineClock(registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock())
+        clock = RoutineClock(
+            registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock()
+        )
         clock.last_fired["r1"] = datetime(2026, 1, 1, 9, 0, tzinfo=UTC).isoformat()
 
         with patch("server.bot_team.routine_clock.datetime") as mock_dt:
@@ -204,7 +204,9 @@ class TestRoutineClockProbe:
         )
         registry.register(spec)
 
-        clock = RoutineClock(registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock())
+        clock = RoutineClock(
+            registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock()
+        )
         clock.last_fired["r1"] = datetime(2026, 1, 1, 9, 0, tzinfo=UTC).isoformat()
 
         with patch("server.bot_team.routine_clock.datetime") as mock_dt:
@@ -534,8 +536,7 @@ class TestProbeWorkspacePassthrough:
         script.chmod(0o755)
 
         result = run_probe(
-            {"kind": "command", "command": str(script)},
-            workspace_path=str(tmp_path)
+            {"kind": "command", "command": str(script)}, workspace_path=str(tmp_path)
         )
         assert result["success"] is True
         assert (tmp_path / "output.txt").exists()
