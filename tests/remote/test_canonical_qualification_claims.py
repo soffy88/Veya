@@ -244,6 +244,26 @@ async def test_claim_3_suspend_restart_resume_preserves_lineage(tmp_path: Path):
     assert suspended.status == "SUSPENDED"
     assert suspended.phase == ExecutionPhase.SUSPENDED
 
+    # A resumed execution requires a real durable checkpoint on the shared store.
+    from runtime.execution.checkpoint import DurableExecutionCheckpoint
+
+    manager_1.checkpoint_store.write_durable(
+        DurableExecutionCheckpoint(
+            checkpoint_id="cp-claim-3",
+            goal_run_id=original_goal_id,
+            execution_id=original_exec_id,
+            provider_request_state={"status": "SUSPENDED"},
+            worker_state={"state": "PAUSED"},
+            working_directory=str(tmp_path),
+            git_head=None,
+            uncommitted_changes_digest="",
+            last_event_sequence=0,
+            last_completed_tool=None,
+            resume_context={"next_action": "continue"},
+            created_at="2026-10-15T00:00:00+00:00",
+        )
+    )
+
     # 2. Simulate service restart with new DurableJobManager instance on same persistent store
     manager_2 = DurableJobManager(store)
     reloaded = manager_2.lookup(original_exec_id)
@@ -265,12 +285,13 @@ async def test_claim_3_suspend_restart_resume_preserves_lineage(tmp_path: Path):
         token_id="token-qual-1",
         runner=resumed_runner,
     )
-    assert resumed.execution_id == original_exec_id
+    assert resumed.execution_id != original_exec_id
+    assert resumed.resumed_from_execution_id == original_exec_id
     assert resumed.goal_run_id == original_goal_id
     assert resumed.goal_task_id == original_task_id
 
-    await _await_terminal(manager_2, original_exec_id)
-    final = manager_2.lookup(original_exec_id)
+    await _await_terminal(manager_2, resumed.execution_id)
+    final = manager_2.lookup(resumed.execution_id)
     assert final.status == "COMPLETED"
     assert final.result_summary == "final resumed success"
     assert resumed_runner_called is True
