@@ -23,3 +23,44 @@ def test_egress_receipts_chain_and_verify(tmp_path):
     
     ver_tampered = ledger.verify()
     assert ver_tampered["valid"] is False
+
+
+
+def test_channel_delivery_records_metadata_only_when_enabled(monkeypatch, tmp_path):
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from server.channels import clients, dispatch
+
+    async def fake_client_for(_platform):
+        return object()
+
+    class FakeAdapter:
+        platform = "testchat"
+
+        def __init__(self):
+            self.delivered = []
+
+        async def send_reply(self, client, *, external_chat_id, text):
+            self.delivered.append((external_chat_id, text))
+
+    adapter = FakeAdapter()
+    monkeypatch.setattr(clients, "client_for", fake_client_for)
+    path = tmp_path / "receipts.jsonl"
+    monkeypatch.setenv("VEYA_GSK_EGRESS_RECEIPTS_PATH", str(path))
+    monkeypatch.delenv("VEYA_GSK_EGRESS_RECEIPTS", raising=False)
+
+    asyncio.run(dispatch._deliver(adapter, "private-recipient", "confidential reply body"))
+    assert adapter.delivered == [("private-recipient", "confidential reply body")]
+    assert not path.exists()
+
+    monkeypatch.setenv("VEYA_GSK_EGRESS_RECEIPTS", "1")
+    asyncio.run(dispatch._deliver(adapter, "private-recipient", "confidential reply body"))
+    assert path.exists()
+    raw = path.read_text(encoding="utf-8")
+    assert "confidential reply body" not in raw
+    assert "private-recipient" not in raw
+    item = json.loads(raw.splitlines()[0])
+    assert item["destination"] == "channel:testchat"
+    assert item["payload_size"] == len("confidential reply body".encode("utf-8"))
+    assert EgressReceiptLedger(path=path).verify()["valid"] is True

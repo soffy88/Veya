@@ -214,6 +214,22 @@ async def _deliver(adapter: ChannelAdapter, external_chat_id: str, reply: str) -
         await adapter.send_reply(client, external_chat_id=external_chat_id, text=reply)
     except Exception:
         _log.warning("Failed to post reply to %s", adapter.platform, exc_info=True)
+        return
+
+    # Keep outbound evidence metadata-only and opt-in; never persist the reply body.
+    from veya.gsk import is_enabled
+
+    if is_enabled("VEYA_GSK_EGRESS_RECEIPTS"):
+        try:
+            from veya.gsk.receipts import EgressReceiptLedger
+
+            EgressReceiptLedger().log_egress(
+                destination=f"channel:{adapter.platform}",
+                payload_type="channel_reply",
+                payload_size=len(reply.encode("utf-8")),
+            )
+        except Exception:
+            _log.warning("Unable to record outbound GSK receipt", exc_info=True)
 
 
 __all__ = ["DispatchOutcome", "anonymous_ref", "dispatch_inbound"]

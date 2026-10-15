@@ -1,6 +1,7 @@
 from pathlib import Path
 import hashlib
 import json
+import os
 import time
 from typing import Dict, Any, List, Optional
 from veya.gsk import get_repo_root, is_enabled
@@ -8,7 +9,12 @@ from veya.gsk import get_repo_root, is_enabled
 class EgressReceiptLedger:
     def __init__(self, path: Optional[Path] = None):
         self.root = get_repo_root()
-        self.path = path or (self.root / ".gsk-tmp" / "egress_receipts.jsonl")
+        configured_path = os.getenv("VEYA_GSK_EGRESS_RECEIPTS_PATH", "").strip()
+        self.path = path or (
+            Path(configured_path).expanduser()
+            if configured_path
+            else Path.home() / ".veya" / "gsk" / "egress_receipts.jsonl"
+        )
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def log_egress(self, destination: str, payload_type: str, payload_size: int, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
