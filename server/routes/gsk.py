@@ -1,36 +1,53 @@
-from fastapi import APIRouter, Request, HTTPException, Depends
-from typing import Any, Dict
+"""GSK evidence and egress receipt endpoints; gated by existing auth and flags."""
+
+from __future__ import annotations
+
 import os
-from veya.gsk.receipts import EgressReceiptLedger
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+
+from server import auth as auth_mod
+from veya.gsk import is_enabled
 from veya.gsk.evidence import EvidenceLedger
+from veya.gsk.receipts import EgressReceiptLedger
 
 router = APIRouter(prefix="/api/v1/gsk", tags=["gsk"])
 
-def require_owner(request: Request):
-    owner_id = os.getenv("VEYA_OWNER_USER_ID", "owner_admin")
-    user_id = request.headers.get("x-user-id", request.headers.get("X-User-ID", ""))
-    is_admin = request.headers.get("x-is-admin", "").lower() in ("1", "true", "yes")
-    if user_id and user_id != owner_id and not is_admin:
+
+def _require_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    """Resolve the bearer token through Veya's existing session authority."""
+    return auth_mod.require_user(authorization)
+
+
+def require_owner(user: dict[str, Any] = Depends(_require_user)) -> dict[str, Any]:
+    """Require an authenticated user whose ID is configured as the owner."""
+    owner_id = os.getenv("VEYA_OWNER_USER_ID", "").strip()
+    if not owner_id or str(user.get("user_id", "")) != owner_id:
         raise HTTPException(status_code=403, detail="Forbidden: owner-only route")
-    return True
+    return user
 
-@router.get("/receipts", dependencies=[Depends(require_owner)])
-async def list_receipts() -> Dict[str, Any]:
+
+def _require_receipts_enabled() -> None:
+    if not is_enabled("VEYA_GSK_EGRESS_RECEIPTS"):
+        raise HTTPException(status_code=404, detail="GSK egress receipts are disabled")
+
+
+def _require_evidence_enabled() -> None:
+    if not is_enabled("VEYA_GSK_EVIDENCE"):
+        raise HTTPException(status_code=404, detail="GSK evidence ledger is disabled")
+
+
+@router.get("/receipts", dependencies=[Depends(_require_receipts_enabled), Depends(require_owner)])
+async def list_receipts() -> dict[str, Any]:
     ledger = EgressReceiptLedger()
-    receipts = ledger.list_receipts()
-    verification = ledger.verify()
-    return {
-        "receipts": receipts,
-        "verification": verification
-    }
+    return {"receipts": ledger.list_receipts(), "verification": ledger.verify()}
 
-@router.get("/evidence", dependencies=[Depends(require_owner)])
-async def get_evidence(label: str) -> Dict[str, Any]:
+
+@router.get("/evidence", dependencies=[Depends(_require_evidence_enabled), Depends(require_owner)])
+async def get_evidence(label: str) -> dict[str, Any]:
     ledger = EvidenceLedger()
-    status = ledger.check(label)
-    record = ledger.get_record(label)
-    return {
-        "label": label,
-        "status": status,
-        "record": record
-    }
+    return {"label": label, "status": ledger.check(label), "record": ledger.get_record(label)}
+
+
+__all__ = ["router", "require_owner"]
