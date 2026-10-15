@@ -251,8 +251,7 @@ async def probe_channel(channel: str) -> dict[str, Any]:
 
 async def probe_all_channels() -> dict[str, dict[str, Any]]:
     """Probe all registered web-reading channels."""
-    tasks = [probe_channel(ch) for ch in WEB_CHANNEL_LADDERS]
-    results = await asyncio.gather(*tasks)
+    results = await asyncio.gather(*(probe_channel(ch) for ch in WEB_CHANNEL_LADDERS))
     return {r["channel"]: r for r in results}
 
 

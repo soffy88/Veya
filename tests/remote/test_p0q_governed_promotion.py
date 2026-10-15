@@ -312,11 +312,13 @@ async def test_canonical_working_tree_is_untouched_until_promotion(repo: Path) -
 def test_qn1_no_verification_is_refused(repo: Path) -> None:
     """Q-N1: a commit with no verification cannot be promoted."""
     made = candidate(repo)
+    canonical_head = git(repo, "rev-parse", "HEAD")
     with pytest.raises(WorktreeError, match="requires verification evidence"):
         made["manager"].promote(made["worktree"], made["sha"], None)
     with pytest.raises(WorktreeError, match="requires verification evidence"):
         made["manager"].promote(made["worktree"], made["sha"], "verified")
-    assert git(repo, "rev-parse", "HEAD") == "" or True
+    # Neither refusal promoted anything: canonical HEAD and content are untouched.
+    assert git(repo, "rev-parse", "HEAD") == canonical_head
     assert (repo / "calc.py").read_text(encoding="utf-8") == "def add(a, b):\n    return a - b\n"
 
 
