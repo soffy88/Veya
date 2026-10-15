@@ -80,30 +80,18 @@ class DiscordGateway:
         self._reply_fn = reply_fn
 
     async def verify_signature(self, body: bytes, signature: str, timestamp: str) -> bool:
-        """Verify Discord Ed25519 interaction signature.
-
-        https://discord.com/developers/docs/interactions/receiving-and-responding#security-and-authorization
-        """
-        if not self.public_key:
-            # Verification disabled — accept all (development mode)
-            return True
-
+        """Verify Discord Ed25519 signatures; never fall back to an unrelated MAC."""
+        if not self.public_key or not signature or not timestamp:
+            return False
         try:
             from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
             key_bytes = bytes.fromhex(self.public_key)
-            public_key_obj = Ed25519PublicKey.from_public_bytes(key_bytes)
-            message = timestamp.encode() + body
-
             sig_bytes = bytes.fromhex(signature)
-            public_key_obj.verify(sig_bytes, message)
+            Ed25519PublicKey.from_public_bytes(key_bytes).verify(
+                sig_bytes, timestamp.encode("utf-8") + body
+            )
             return True
-        except ImportError:
-            # Fallback: naive HMAC check (less secure, requires shared secret)
-            expected = hmac.new(
-                self.public_key.encode(), body + timestamp.encode(), hashlib.sha256
-            ).hexdigest()
-            return hmac.compare_digest(expected, signature)
         except Exception:
             return False
 
@@ -265,30 +253,24 @@ def make_discord_router(
 
     @router.post("/webhook")
     async def discord_webhook(request: Request):
-        """Discord Interactions Endpoint webhook handler."""
+        """Accept an interaction only after mandatory Ed25519 verification."""
         body = await request.body()
-
-        # Verify signature
         signature = request.headers.get("X-Signature-Ed25519", "")
         timestamp = request.headers.get("X-Signature-Timestamp", "")
-        if (
-            signature
-            and timestamp
-            and gateway.public_key
-            and not await gateway.verify_signature(body, signature, timestamp)
-        ):
-            raise HTTPException(status_code=401, detail="Invalid signature")
-
+        if not gateway.public_key:
+            raise HTTPException(status_code=503, detail="Discord public key is not configured")
+        if not signature or not timestamp:
+            raise HTTPException(status_code=401, detail="Missing Discord signature headers")
+        if not await gateway.verify_signature(body, signature, timestamp):
+            raise HTTPException(status_code=401, detail="Invalid Discord signature")
         try:
             payload = json.loads(body)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             raise HTTPException(status_code=400, detail="Invalid JSON")
-
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Invalid JSON object")
         response = await gateway.handle_interaction(payload)
-        return Response(
-            content=json.dumps(response),
-            media_type="application/json",
-        )
+        return Response(content=json.dumps(response), media_type="application/json")
 
     # Bot status endpoint
     @router.get("/status")

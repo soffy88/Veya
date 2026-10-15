@@ -514,7 +514,8 @@ def create_app() -> FastAPI:
     try:
         from veya.im.discord import make_discord_router
 
-        app.include_router(make_discord_router(), prefix="/im/discord", tags=["IM"])
+        if os.environ.get("DISCORD_PUBLIC_KEY", "").strip():
+            app.include_router(make_discord_router(), prefix="/im/discord", tags=["IM"])
     except Exception:
         pass
     try:
@@ -526,7 +527,8 @@ def create_app() -> FastAPI:
     try:
         from veya.im.wechat import make_wechat_router
 
-        app.include_router(make_wechat_router(), prefix="/im/wechat", tags=["IM"])
+        if os.environ.get("WECHAT_TOKEN", "").strip():
+            app.include_router(make_wechat_router(), prefix="/im/wechat", tags=["IM"])
     except Exception:
         pass
     try:
