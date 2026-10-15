@@ -243,14 +243,6 @@ class OrchestratorRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
-class WorkflowRunRequest(BaseModel):
-    """Event workflow execution request."""
-
-    system_input: dict[str, Any] = Field(default_factory=dict)
-    events: list[dict[str, Any]] | None = None
-    config: dict[str, Any] = Field(default_factory=dict)
-
-
 class MemoryRequest(BaseModel):
     """Vector memory query/add request."""
 
@@ -936,44 +928,6 @@ def create_app() -> FastAPI:
             },
             Path.home() / ".veya" / "runs",
         )
-        result["session_id"] = new_session_id()
-        return result
-
-    # ------------------------------------------------------------------
-    # POST /api/v1/agent/workflow/run  (event workflow drive)
-    # ------------------------------------------------------------------
-    @api.post("/api/v1/agent/workflow/run")
-    async def agent_workflow_run(req: WorkflowRunRequest) -> dict[str, Any]:
-
-        from oservi.event_workflow_engine import EventWorkflowEngine
-
-        eng = EventWorkflowEngine(name="api")
-        events = req.events or [
-            {"name": "start", "body": "return {'result': str(system_input)}"},
-            {"name": "finish", "body": "return {'final': True}"},
-        ]
-        for ev in events:
-            eng.make_event(name=ev.get("name"), func=None)
-
-            # register the body as async function
-            @eng.make_event(name=ev.get("name"))
-            async def _fn(event_input, global_ctx, body=ev.get("body", "pass")):
-                locs = {}
-                exec(
-                    f"async def _inner(event_input, global_ctx):\n    {body.replace(chr(10), chr(10) + '    ')}",
-                    globals(),
-                    locs,
-                )
-                return await locs["_inner"](event_input, global_ctx)
-
-        eng.listen_start(events[0]["name"])
-        for i in range(len(events) - 1):
-            sid = eng.get_event(events[i]["name"])
-            fid = eng.get_event(events[i + 1]["name"])
-            eng._listeners.setdefault(sid, []).append(f"grp_{i}")
-            eng._groups[f"grp_{i}"] = [fid]
-            eng._retrigger[f"grp_{i}"] = "all"
-        result = await eng.drive(req.system_input)
         result["session_id"] = new_session_id()
         return result
 
