@@ -1,0 +1,21 @@
+# Additive override for W20 Tailnet receiver; never publish on 0.0.0.0.
+services:
+  backend:
+    ports:
+      - "100.86.95.70:7767:7767"
+    volumes:
+      - type: bind
+        source: /run/veya/tailnet-whois.sock
+        target: /run/veya/tailnet-whois.sock
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      - VEYA_TAILNET_CHANNEL=1
+      - VEYA_TAILNET_BIND=0.0.0.0
+      - VEYA_TAILNET_TRUST_DOCKER_PUBLISH=1
+      - VEYA_TAILNET_PUBLISH_HOST=100.86.95.70
+      - VEYA_TAILNET_WHOIS_SOCKET=/run/veya/tailnet-whois.sock
+      - VEYA_TAILNET_NODE=${VEYA_TAILNET_NODE:?Set VEYA_TAILNET_NODE to this host's Tailscale DNS name}
+      - VEYA_TAILNET_OWNER_USER_ID=${VEYA_TAILNET_OWNER_USER_ID:?Set VEYA_TAILNET_OWNER_USER_ID from the existing auth owner record}
+      - VEYA_TAILNET_PORT=7767
