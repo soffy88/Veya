@@ -145,14 +145,24 @@ async def fs_tree(path: str = "", depth: int = _MAX_DEPTH) -> dict:
     return {"root": resp_root, "entries": _walk(root, depth - 1)}
 
 
+def _uploads_root() -> Path:
+    """上传根目录 (SEC H2): ``~/.veya/uploads`` —— 绝不是 ``~/.veya``。
+
+    旧实现把根设为 ``~/.veya``, 于是 ``uploads/../auth.db`` 合法 → 读取
+    ``~/.veya/auth.db`` (明文 token) → 接管任意账号 (审计 H2)。
+    """
+    return (Path.home() / ".veya" / "uploads").resolve()
+
+
 @router.get("/api/v1/fs/read")
 async def fs_read(path: str, max_chars: int = 12000) -> dict:
     """读工作区内文件内容 (UTF-8, 截断防爆)。uploads/ 前缀 → ~/.veya/uploads (上传目录)。"""
     if str(path).startswith("uploads/"):
-        # 上传目录在 ~/.veya/uploads (veya-data rw), 非工作区根
-        root = Path.home() / ".veya"
-        rp = (root / path).resolve()
-        if root not in rp.parents and rp != root:
+        # SEC H2: 根 = ~/.veya/uploads 本身, 用 resolve()+is_relative_to 防穿越;
+        # ``uploads/../auth.db`` 现在落在根外 → 403。
+        root = _uploads_root()
+        rp = (root / str(path)[len("uploads/") :]).resolve()
+        if rp != root and not rp.is_relative_to(root):
             raise HTTPException(status_code=403, detail=f"路径在工作区外: {path}")
     else:
         rp = _resolve(path)
