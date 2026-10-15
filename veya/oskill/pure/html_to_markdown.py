@@ -619,8 +619,12 @@ def read_html(html: str, *, url: str = "") -> MarkdownDocument:
     """Convert HTML with ADDENDUM R firewall provenance header and optional URL."""
     doc = html_to_markdown(html)
     header = PROVENANCE_HEADER
+    if doc.title:
+        header += f"Title: {doc.title}\n"
     if url:
-        header += f"Source URL: {url}\n\n"
+        header += f"Source URL: {url}\n"
+    if doc.title or url:
+        header += "\n"
     annotated = header + doc.markdown
     return MarkdownDocument(
         markdown=annotated,

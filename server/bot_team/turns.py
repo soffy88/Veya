@@ -144,6 +144,7 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
     if context.strip():
         parts.append(context.strip())
     parts.append(str(text or "").strip())
+    parts.append("请使用中文（与用户消息或回忆的语言保持一致）简洁、准确地回答用户。")
     return "\n\n".join(part for part in parts if part)
 
 
@@ -264,20 +265,33 @@ def extract_reply(response: Any, *, bot: BotSpec) -> str:
     direct = (
         response.get("reply") if isinstance(response, dict) else getattr(response, "reply", None)
     )
+    dstr = str(direct or "").strip()
+    # Check if direct response is a raw tool output / tool receipt / memory update receipt
+    is_raw_tool_output = (
+        dstr.startswith("[Channel:")
+        or "EXTERNAL DATA:" in dstr
+        or "✅ 永久记忆已更新" in dstr
+        or "Source URL:" in dstr
+    )
     if (
-        str(direct or "").strip()
+        dstr
+        and not is_raw_tool_output
         and _status_of(response) in ("completed", "partial_completed")
-        and not any(marker in str(direct) for marker in _RAW_MARKERS)
+        and not any(marker in dstr for marker in _RAW_MARKERS)
     ):
-        return str(direct).strip()
-    if any(marker in str(direct or "") for marker in ("this is a shim response", "兜底失败")):
+        return dstr
+    if is_raw_tool_output:
+        return "这一步操作已完成（工具已返回结果或更新了记忆），但模型未能生成总结回复。请继续您的提问或指令。"
+    if any(marker in dstr for marker in ("this is a shim response", "兜底失败")):
         # No model answered (every provider failed or none is configured): say
         # so plainly instead of showing the router's placeholder text.
         return _MODEL_UNAVAILABLE_REPLY
     text = _sanitised_summary(response)
-    if text:
+    if text and not (
+        text.startswith("[Channel:") or "EXTERNAL DATA:" in text or "✅ 永久记忆已更新" in text
+    ):
         return text
-    return _NO_REPLY.format(bot=bot.name or bot.bot_id, status=_status_of(response))
+    return _MODEL_UNAVAILABLE_REPLY
 
 
 async def begin_bot_turn(

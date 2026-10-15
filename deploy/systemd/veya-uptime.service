@@ -1,0 +1,14 @@
+[Unit]
+Description=Veya uptime and available-memory check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=VEYA_UPTIME_STATE=%h/.local/state/veya-uptime.json
+ExecStart=/bin/bash /data/soffy/projects/veya-ops/scripts/ops/veya_uptime_check.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state
