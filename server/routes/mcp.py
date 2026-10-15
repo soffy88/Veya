@@ -21,7 +21,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from server import auth as auth_mod
 from pydantic import BaseModel, Field
 
 from server.tool_governance_adapter import default_veya_output_root
@@ -308,14 +310,20 @@ async def _connect(req: MCPConnectRequest) -> _MCPRegistration:
 
 
 @router.post("/connect")
-async def mcp_connect_route(req: MCPConnectRequest) -> dict[str, Any]:
+async def mcp_connect_route(
+    req: MCPConnectRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_owner),
+) -> dict[str, Any]:
     registration = await _connect(req)
     _registered[req.name] = registration
     return {"status": "connected", "name": req.name}
 
 
 @router.post("/call")
-async def mcp_call_route(req: MCPCallRequest) -> dict[str, Any]:
+async def mcp_call_route(
+    req: MCPCallRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_owner),
+) -> dict[str, Any]:
     entry = _registered.get(req.server)
     if entry is None:
         # The route map is a live-handle cache, not the registration truth:
@@ -359,7 +367,7 @@ async def mcp_call_route(req: MCPCallRequest) -> dict[str, Any]:
 
 
 @router.get("")
-async def list_mcp_servers() -> dict[str, Any]:
+async def list_mcp_servers(user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, Any]:
     return {
         "servers": list(_registered.keys()),
         "note": "Use POST /mcp/connect to add a governed MCP server.",
