@@ -17,5 +17,5 @@ services:
       - VEYA_TAILNET_PUBLISH_HOST=100.86.95.70
       - VEYA_TAILNET_WHOIS_SOCKET=/run/veya/tailnet-whois.sock
       - VEYA_TAILNET_NODE=${VEYA_TAILNET_NODE:?Set VEYA_TAILNET_NODE to this host's Tailscale DNS name}
-      - VEYA_TAILNET_OWNER_USER_ID=${VEYA_TAILNET_OWNER_USER_ID:?Set VEYA_TAILNET_OWNER_USER_ID from the existing auth owner record}
+      - VEYA_TAILNET_OWNER_USER_ID=${VEYA_TAILNET_OWNER_USER_ID:-}
       - VEYA_TAILNET_PORT=7767
