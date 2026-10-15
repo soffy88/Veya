@@ -73,17 +73,18 @@ def test_tool_guard_blocks_physical_git_push_and_writes_denial_event(monkeypatch
     registry.register(
         "git_push",
         "Push a branch to a remote.",
-        {"type": "object", "properties": {"agent_id": {"type": "string"}}, "required": ["agent_id"]},
+        {"type": "object", "properties": {"agent_id": {"type": "string"}, "remote": {"type": "string"}}, "required": ["agent_id"]},
         physical_push,
     )
     with pytest.raises(ToolExecutionError, match="TDX publication policy blocked"):
-        asyncio.run(registry.execute("git_push", {"agent_id": "agent-ungranted"}))
+        asyncio.run(registry.execute("git_push", {"agent_id": "agent-ungranted", "remote": "origin/main"}))
 
     assert called == []
     denied = events_mod.event_store.read_all(topic_prefixes=("tdx.publish_denied",))
     assert any(
         e.get("payload", {}).get("agent_id") == "agent-ungranted"
         and e.get("payload", {}).get("action") == "push"
+        and e.get("payload", {}).get("target") == "origin/main"
         for e in denied
     )
 

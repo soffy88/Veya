@@ -90,7 +90,7 @@ def _audit(topic: str, payload: dict[str, Any], *, actor: str) -> None:
         raise
 
 
-def check_publish_permission(agent_id: str, action: str) -> None:
+def check_publish_permission(agent_id: str, action: str, *, target: str | None = None) -> None:
     """Check an agent's publication action and persist allow/deny evidence."""
     if not flag_enabled("VEYA_TDX_AGENT_PUBLISH_PERMS"):
         return
@@ -103,7 +103,7 @@ def check_publish_permission(agent_id: str, action: str) -> None:
         try:
             _audit(
                 "tdx.publish_denied",
-                {"agent_id": agent_id, "action": action, "reason": "permission_store_unavailable"},
+                {"agent_id": agent_id, "action": action, "target": target, "reason": "permission_store_unavailable"},
                 actor=agent_id or "tdx-policy",
             )
         except Exception:
@@ -112,7 +112,7 @@ def check_publish_permission(agent_id: str, action: str) -> None:
 
     allowed = bool((permissions.get(agent_id) or permissions["default"]).get(action, False))
     topic = "tdx.publish_allowed" if allowed else "tdx.publish_denied"
-    _audit(topic, {"agent_id": agent_id, "action": action}, actor=agent_id or "tdx-policy")
+    _audit(topic, {"agent_id": agent_id, "action": action, "target": target}, actor=agent_id or "tdx-policy")
     if not allowed:
         raise PermissionError(
             f"Agent {agent_id!r} is not authorized by TDX publish permissions to perform {action!r}."
@@ -156,6 +156,18 @@ def classify_publish_action(tool_name: str, kwargs: dict[str, Any]) -> str | Non
     return None
 
 
+def _publish_target(kwargs: dict[str, Any]) -> str | None:
+    """Choose a compact destination identifier for the audit envelope."""
+    for key in ("target", "remote", "branch", "tag", "service", "unit", "environment", "repository", "repo"):
+        value = kwargs.get(key)
+        if isinstance(value, (str, int)) and str(value).strip():
+            return str(value)[:512]
+    command = kwargs.get("command")
+    if isinstance(command, str) and command.strip():
+        return command.strip()[:512]
+    return None
+
+
 def _current_request_is_owner() -> bool:
     """Trust only the repository auth context's explicit owner decision."""
     try:
@@ -181,7 +193,7 @@ def tool_guard_policy(tool_name: str, kwargs: dict[str, Any], source: str) -> st
         try:
             _audit(
                 "tdx.publish_owner_bypass",
-                {"tool_name": tool_name, "action": action, "source": source},
+                {"tool_name": tool_name, "action": action, "source": source, "target": _publish_target(kwargs)},
                 actor="owner",
             )
         except Exception:
@@ -197,7 +209,7 @@ def tool_guard_policy(tool_name: str, kwargs: dict[str, Any], source: str) -> st
     if not agent_id:
         agent_id = "default"
     try:
-        check_publish_permission(agent_id, action)
+        check_publish_permission(agent_id, action, target=_publish_target(kwargs))
     except Exception as exc:
         log.warning("TDX ToolGuard blocked %s for %s: %s", tool_name, agent_id, exc)
         return f"TDX publication policy blocked {tool_name}: {exc}"
