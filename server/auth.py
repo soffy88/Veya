@@ -30,7 +30,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import Header
+from fastapi import Header, Request
 
 _DB_PATH = Path(os.environ.get("VEYA_AUTH_DB", str(Path.home() / ".veya" / "auth.db")))
 _TOKEN_TTL = 30 * 24 * 3600  # 30 天
@@ -122,18 +122,20 @@ def hash_token(token: str) -> str:
 
 
 def _looks_hashed(value: str) -> bool:
-    """区分"已迁移的 sha256 摘要"与"遗留明文 token"。
+    """判断输入是否"看起来像已存储的 sha256 摘要"而非可调用的明文 token。
 
     ``secrets.token_hex(24)`` 是 48 个 hex 字符; sha256 摘要 64 个 hex。长度
-    不同即可判定, 无需猜内容。
+    不同即可判定, 无需猜内容。返回值只用于: ``resolve_token`` 拒绝"看起来像
+    摘要"的输入 (摘要本身不是凭据, H2/L1, fail-closed), 让调用方持有的明文
+    token 走正常校验/迁移路径。
     """
     if len(value) != 64:
-        return True  # 非 64 位一律按"已存摘要"处理 (未知格式 -> 拒绝, fail-closed)
+        return False  # 非 64 位 hex 一律按"可调用的明文 token"处理
     try:
         int(value, 16)
     except ValueError:
-        return True
-    return False
+        return False
+    return True
 
 
 def _migrate_plaintext_token(conn: sqlite3.Connection, plaintext: str, user_id: str) -> None:
@@ -323,7 +325,7 @@ def _bearer_token(authorization: str | None) -> str:
 
 def _resolve_request_user(
     authorization: str | None,
-    request: Any = None,
+    request: Request = None,
 ) -> dict[str, Any] | None:
     """共用鉴权基元: 解析 bearer token, 或 (仅本地单用户模式) 放行 loopback。
 
@@ -346,7 +348,7 @@ def _resolve_request_user(
 
 def get_current_user(
     authorization: str | None = Header(None),
-    request: Any = None,
+    request: Request = None,
 ) -> dict[str, Any] | None:
     """FastAPI 依赖: 解析 ``Authorization: Bearer <token>`` → 当前用户。
 
@@ -362,7 +364,7 @@ def get_current_user(
 
 def require_user(
     authorization: str | None = Header(None),
-    request: Any = None,
+    request: Request = None,
 ) -> dict[str, Any]:
     """FastAPI 依赖: 强制认证。未认证抛 401 (SEC H1 默认拒绝)。"""
     user = get_current_user(authorization, request)
@@ -403,7 +405,7 @@ def is_owner(user: dict[str, Any] | None) -> bool:
 
 def require_owner(
     authorization: str | None = Header(None),
-    request: Any = None,
+    request: Request = None,
 ) -> dict[str, Any]:
     """FastAPI 依赖: 强制 owner/admin。未认证 401, 非 owner 403 (SEC H1)。"""
     user = get_current_user(authorization, request)

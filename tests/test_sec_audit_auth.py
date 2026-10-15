@@ -78,6 +78,10 @@ def app() -> FastAPI:
     async def owner_only(user: dict = Depends(auth_mod.require_owner)) -> dict:
         return {"user_id": user["user_id"]}
 
+    @app.get("/whoami")
+    async def whoami(user: dict | None = Depends(auth_mod.get_current_user)) -> dict:
+        return {"user": user}
+
     return app
 
 
@@ -140,11 +144,6 @@ def test_local_single_user_allows_genuine_loopback(
 ) -> None:
     """A request whose socket peer really is loopback is admitted."""
     monkeypatch.setenv("VEYA_LOCAL_SINGLE_USER", "1")
-
-    @app.get("/whoami")
-    async def whoami(user: dict | None = Depends(auth_mod.get_current_user)) -> dict:
-        return {"user": user}
-
     client = TestClient(app, client=("127.0.0.1", 50000))
     resp = client.get("/whoami")
     assert resp.status_code == 200
