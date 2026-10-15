@@ -429,7 +429,7 @@ class Sandbox(ABC):
             return []
         # --bind / / keeps the filesystem view identical (write semantics
         # unchanged); the isolation this adds is the network namespace.
-        return ["bwrap", "--unshare-net", "--bind", "/", "/", "--"]
+        return ["bwrap", "--die-with-parent", "--unshare-net", "--bind", "/", "/", "--"]
 
     def _restore_resource_limits(self) -> None:
         """No-op: host rlimits are never lowered (see _apply_resource_limits)."""
