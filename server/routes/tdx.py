@@ -100,10 +100,15 @@ def get_needs_you(user: dict[str, Any] = Depends(require_owner)):
     return {"enabled": True, "count": len(items), "items": items}
 
 
-# Feature 2: Publish Perms storage & enforcement
-_PUBLISH_PERMS_STORE: dict[str, dict[str, bool]] = {
-    "default": {"push": False, "merge": False, "tag": False, "deploy": False}
-}
+# Feature 2: Publication permissions are persisted and enforced by the existing ToolGuard.
+from veya.tdx.publish_permissions import (
+    check_publish_permission,
+    load_permissions,
+    save_permissions,
+    tool_guard_policy,
+)
+from server.tool_guard import global_tool_guard
+
 
 class PublishPermUpdate(BaseModel):
     push: bool = False
@@ -116,49 +121,35 @@ class PublishPermUpdate(BaseModel):
 def get_publish_perms(user: dict[str, Any] = Depends(require_owner)):
     if not flag_enabled("VEYA_TDX_AGENT_PUBLISH_PERMS"):
         raise HTTPException(status_code=404, detail="VEYA_TDX_AGENT_PUBLISH_PERMS disabled")
-    return {"enabled": True, "permissions": _PUBLISH_PERMS_STORE}
+    try:
+        permissions = load_permissions()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Publish permission store unavailable") from exc
+    return {"enabled": True, "permissions": permissions}
 
 
 @router.put("/publish-perms/{agent_id}")
 def update_publish_perms(agent_id: str, body: PublishPermUpdate, user: dict[str, Any] = Depends(require_owner)):
     if not flag_enabled("VEYA_TDX_AGENT_PUBLISH_PERMS"):
         raise HTTPException(status_code=404, detail="VEYA_TDX_AGENT_PUBLISH_PERMS disabled")
-    
-    perms = body.dict()
-    _PUBLISH_PERMS_STORE[agent_id] = perms
-
     try:
-        from veya.remote.events import emit_event
-        emit_event("tdx.publish_perms_updated", {
-            "agent_id": agent_id,
-            "permissions": perms,
-            "owner": user.get("user_id")
-        })
-    except Exception:
-        pass
+        permissions = save_permissions(agent_id, body.model_dump())
+        from server.events import append_canonical_event
 
-    return {"status": "ok", "agent_id": agent_id, "permissions": perms}
+        append_canonical_event(
+            "tdx.publish_perms_updated",
+            {"agent_id": agent_id, "permissions": permissions},
+            actor=str(user.get("user_id") or "owner"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Could not persist publish permission update and audit") from exc
+    return {"status": "ok", "agent_id": agent_id, "permissions": permissions}
 
 
-def check_publish_permission(agent_id: str, action: str) -> None:
-    """Check publish permission if flag is ON. Action in {push, merge, tag, deploy}."""
-    if not flag_enabled("VEYA_TDX_AGENT_PUBLISH_PERMS"):
-        return
-    
-    agent_perms = _PUBLISH_PERMS_STORE.get(agent_id) or _PUBLISH_PERMS_STORE.get("default", {"push": False, "merge": False, "tag": False, "deploy": False})
-    allowed = bool(agent_perms.get(action, False))
-
-    try:
-        from veya.remote.events import emit_event
-        if allowed:
-            emit_event("tdx.publish_allowed", {"agent_id": agent_id, "action": action})
-        else:
-            emit_event("tdx.publish_denied", {"agent_id": agent_id, "action": action})
-    except Exception:
-        pass
-
-    if not allowed:
-        raise PermissionError(f"Agent '{agent_id}' is not authorized by TDX publish perms to perform '{action}'.")
+if not global_tool_guard.has_policy("tdx_publish_permission"):
+    global_tool_guard.register_policy("tdx_publish_permission", tool_guard_policy, enforce=True)
 
 
 # Feature 3: Run History
