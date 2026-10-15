@@ -1,0 +1,12 @@
+# Additive Docker Compose resource guard for the Veya backend.
+# Read-only observation on 2026-10-15: docker stats showed ~23.89 MiB used
+# out of 30.42 GiB while idle. This is an idle snapshot, not a peak-load
+# measurement; 6 GiB leaves headroom on the shared 30 GiB host while bounding
+# a runaway backend. Re-check peak usage before rollout.
+services:
+  backend:
+    mem_limit: 6g
+    # Equal to mem_limit: don't let this service consume an extra 6 GiB of swap.
+    memswap_limit: 6g
+    cpus: 4.0
+    pids_limit: 1024
