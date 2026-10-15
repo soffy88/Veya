@@ -2,6 +2,7 @@ from pathlib import Path
 import subprocess
 import hashlib
 import json
+import os
 import time
 from typing import Dict, Any, Optional
 from veya.gsk import get_repo_root, is_enabled
@@ -38,7 +39,12 @@ def compute_workspace_fingerprint() -> Dict[str, Any]:
 class EvidenceLedger:
     def __init__(self, ledger_path: Optional[Path] = None):
         self.root = get_repo_root()
-        self.ledger_path = ledger_path or (self.root / ".gsk-tmp" / "evidence_ledger.jsonl")
+        configured_path = os.getenv("VEYA_GSK_EVIDENCE_PATH", "").strip()
+        self.ledger_path = ledger_path or (
+            Path(configured_path).expanduser()
+            if configured_path
+            else Path.home() / ".veya" / "gsk" / "evidence_ledger.jsonl"
+        )
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
 
     def record_run(self, label: str, command: str, exit_code: int, stdout_summary: str) -> Dict[str, Any]:

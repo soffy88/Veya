@@ -14,3 +14,41 @@ def test_evidence_ledger_lifecycle(tmp_path):
     assert status == "FRESH"
     
     assert ledger.check("non_existent") == "MISSING"
+
+
+
+def test_direct_execution_records_evidence_only_when_enabled(monkeypatch, tmp_path):
+    import asyncio
+    import hashlib
+    import json
+    from veya.remote.direct_exec import run_direct_command
+
+    ledger_path = tmp_path / "evidence.jsonl"
+    monkeypatch.setenv("VEYA_GSK_EVIDENCE_PATH", str(ledger_path))
+    monkeypatch.delenv("VEYA_GSK_EVIDENCE", raising=False)
+    command = ["python", "-c", "print(6 * 7)"]
+
+    raw = asyncio.run(
+        run_direct_command(
+            tmp_path, command, cwd=tmp_path, profile="l0_workspace_full", timeout_s=10
+        )
+    )
+    assert raw.status == "passed"
+    assert raw.stdout_tail.strip() == "42"
+    assert not ledger_path.exists()
+
+    monkeypatch.setenv("VEYA_GSK_EVIDENCE", "1")
+    recorded = asyncio.run(
+        run_direct_command(
+            tmp_path, command, cwd=tmp_path, profile="l0_workspace_full", timeout_s=10
+        )
+    )
+    assert recorded.status == "passed"
+    rows = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["exit_code"] == 0
+    assert "42\n" not in json.dumps(rows[0])
+    assert rows[0]["stdout_summary"] == hashlib.sha256(b"42\n").hexdigest()
+    assert rows[0]["command"].startswith(f"cwd={tmp_path} command=")
+    ledger = EvidenceLedger(ledger_path=ledger_path)
+    assert ledger.check(rows[0]["label"]) == "FRESH"

@@ -49,10 +49,9 @@ def test_direct_exec_guard_wiring_is_opt_in(monkeypatch, tmp_path):
     assert planned[-1] == "echo safe"
 
     monkeypatch.setenv("VEYA_GSK_CAREFUL", "1")
-    dangerous_command = "r" + "m -rf /"
     with pytest.raises(direct_exec.DirectDenied):
         direct_exec._plan_execution(
-            tmp_path, dangerous_command, cwd=tmp_path, profile="default",
+            tmp_path, "r" + "m -rf /", cwd=tmp_path, profile="default",
             approved=False, network=None,
         )
     with pytest.raises(direct_exec.DirectDenied):
@@ -61,6 +60,7 @@ def test_direct_exec_guard_wiring_is_opt_in(monkeypatch, tmp_path):
             profile="default", approved=False, network=None,
         )
 
+    monkeypatch.delenv("VEYA_GSK_CAREFUL", raising=False)
     monkeypatch.setenv("VEYA_GSK_FREEZE_DIR", "veya/gsk")
     with pytest.raises(direct_exec.DirectDenied):
         direct_exec._plan_execution(

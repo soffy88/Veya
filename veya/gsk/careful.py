@@ -36,10 +36,8 @@ def check_careful(command: str) -> Tuple[bool, str]:
     return True, ""
 
 def check_freeze(path_str: str) -> Tuple[bool, str]:
-    if not is_enabled("VEYA_GSK_CAREFUL"):
-        return True, ""
-    
-    freeze_dir_env = os.getenv("VEYA_GSK_FREEZE_DIR")
+    # Freeze is independently opt-in through VEYA_GSK_FREEZE_DIR.
+    freeze_dir_env = os.getenv("VEYA_GSK_FREEZE_DIR", "").strip()
     if not freeze_dir_env:
         return True, ""
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import os
 import signal
 import time
@@ -209,13 +210,19 @@ def _plan_execution(
     """
 
     # GSK is opt-in: when disabled this path stays identical to canonical main.
-    if os.getenv("VEYA_GSK_CAREFUL", "0").lower() in ("1", "true", "yes", "on"):
+    careful_enabled = os.getenv("VEYA_GSK_CAREFUL", "0").lower() in (
+        "1", "true", "yes", "on"
+    )
+    freeze_enabled = bool(os.getenv("VEYA_GSK_FREEZE_DIR", "").strip())
+    if careful_enabled or freeze_enabled:
         from veya.gsk.careful import check_careful, check_freeze
+
         cmd_str = command if isinstance(command, str) else " ".join(command)
-        ok_careful, err_careful = check_careful(cmd_str)
-        if not ok_careful:
-            raise DirectDenied(f"GSK Careful guard blocked command: {err_careful}")
-        if cwd:
+        if careful_enabled:
+            ok_careful, err_careful = check_careful(cmd_str)
+            if not ok_careful:
+                raise DirectDenied(f"GSK Careful guard blocked command: {err_careful}")
+        if freeze_enabled and cwd:
             ok_freeze, err_freeze = check_freeze(str(cwd))
             if not ok_freeze:
                 raise DirectDenied(f"GSK Freeze guard blocked path: {err_freeze}")
@@ -274,6 +281,28 @@ class DirectApprovalRequired(Exception):
 class DirectOutcome:
     denied = "denied"
     approval_required = "approval_required"
+
+
+def _record_gsk_execution_evidence(
+    *, command: str, cwd: Path, exit_code: int, stdout_summary: str
+) -> None:
+    """Write opt-in, redacted evidence for an actual shell/test/build execution."""
+    if os.getenv("VEYA_GSK_EVIDENCE", "0").lower() not in ("1", "true", "yes", "on"):
+        return
+    try:
+        from veya.gsk.evidence import EvidenceLedger
+
+        safe_command = redact_text(command, secret_values=_secret_values())
+        identity = hashlib.sha256(f"{cwd}\0{safe_command}".encode("utf-8")).hexdigest()[:20]
+        EvidenceLedger().record_run(
+            label=f"direct_exec:{identity}",
+            command=f"cwd={cwd} command={safe_command}",
+            exit_code=exit_code,
+            stdout_summary=redact_text(stdout_summary, secret_values=_secret_values()),
+        )
+    except Exception:
+        # Evidence must not change command outcomes when its optional store is unavailable.
+        return
 
 
 async def run_direct_command(
@@ -335,6 +364,9 @@ async def run_direct_command(
             start_new_session=True,
         )
     except OSError as exc:
+        _record_gsk_execution_evidence(
+            command=command_text, cwd=target, exit_code=127, stdout_summary=""
+        )
         return DirectCommandResult(
             command=command_text,
             argv=argv,
@@ -377,6 +409,13 @@ async def run_direct_command(
             await _terminate_group(proc)
 
     secrets = _secret_values()
+    safe_stdout = redact_text(stdout_tail.tail_text(), secret_values=secrets)
+    _record_gsk_execution_evidence(
+        command=command_text,
+        cwd=target,
+        exit_code=(proc.returncode if proc.returncode is not None else (124 if timed_out else 1)),
+        stdout_summary=safe_stdout,
+    )
     return DirectCommandResult(
         command=redact_text(command_text, secret_values=secrets),
         argv=[redact_text(item, secret_values=secrets) for item in argv],
@@ -384,7 +423,7 @@ async def run_direct_command(
         profile=runner.profile.id,
         status=status,
         exit_code=proc.returncode,
-        stdout_tail=redact_text(stdout_tail.tail_text(), secret_values=secrets),
+        stdout_tail=safe_stdout,
         stderr_tail=redact_text(stderr_tail.tail_text(), secret_values=secrets),
         bytes_stdout=stdout_tail.bytes_total,
         bytes_stderr=stderr_tail.bytes_total,
