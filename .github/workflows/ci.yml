@@ -51,11 +51,16 @@ jobs:
       - name: Ruff lint (core packages)
         run: .venv/bin/ruff check veya/ server/ cli/ commands/ tools/ session/ streaming/ hooks/ config/ agents/ registries/ --no-cache
 
+      # 2026-10-15 (CI_FIX3): these scripts import the project source tree
+      # (check_manifest.py -> veva.obase -> httpx), so they must run against the
+      # venv that bootstrap_qualification.sh populated with locked deps, not the
+      # bare setup-python interpreter (which lacks httpx). This matches the
+      # ruff/mypy steps above, which already use .venv/bin/*.
       - name: 3O paradigm checks (附录 B)
         run: |
-          python scripts/check_obase_no_reverse_dep.py
-          python scripts/check_manifest.py
-          python scripts/check_async_contract.py
+          .venv/bin/python scripts/check_obase_no_reverse_dep.py
+          .venv/bin/python scripts/check_manifest.py
+          .venv/bin/python scripts/check_async_contract.py
 
       # 2026-10-15: the gate itself is unfixable right now — the baseline
       # (scripts/baseline_direct_io.txt) has 416 entries but the tree carries
