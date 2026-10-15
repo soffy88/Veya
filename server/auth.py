@@ -418,3 +418,164 @@ def require_owner(
 
         raise HTTPException(status_code=403, detail="仅限 owner")
     return user
+
+
+# ── 全局默认拒绝 (SEC H1) ──────────────────────────────────────────────
+
+
+def public_signup_enabled() -> bool:
+    """``/api/v1/auth/register`` 是否对公网开放 (默认 OFF, SEC 注册项)。
+
+    单人部署无需公开注册: owner 账号由 ``veya auth adduser`` / 邀请码创建。
+    只有显式 ``VEYA_PUBLIC_SIGNUP=1`` 才允许匿名注册。
+    """
+    return str(os.environ.get("VEYA_PUBLIC_SIGNUP", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+# 明确公开 (匿名可访问) 的路径。默认拒绝, 此表是唯一的例外来源 (SEC H1)。
+# 前缀匹配 (path == entry 或以 entry + "/" 开头)。顺序无关。
+_PUBLIC_PREFIXES: tuple[str, ...] = (
+    # 健康检查 / OpenAPI 文档
+    "/health",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/favicon.ico",
+    # 认证入口 (register 另有 signup 开关)
+    "/api/v1/auth/login",
+    "/api/v1/auth/register",
+    "/api/v1/auth/logout",
+    "/auth/providers",  # 只返回"是否已配置", 不含值
+    # OAuth 2.0 (远程 MCP 授权, 客户端需要匿名可达)
+    "/.well-known",
+    "/register",
+    "/authorize",
+    "/token",
+    "/revoke",
+    # 已验签的 webhook / IM 入口 (签名校验在各自 handler 内, fail-closed)
+    "/im/",
+    "/api/v1/channels/dingtalk/webhook",
+    "/api/v1/channels/feishu/webhook",
+    "/api/v1/channels/telegram/webhook",
+    "/api/v1/channels/wecom/webhook",
+    "/api/v1/channels/wecom/verify",
+    "/api/v1/webhooks",
+    "/automata/webhooks",
+    "/api/v1/automata/webhooks",
+    "/omni/webhook",
+    # 公开分享 (token 即凭据)
+    "/api/v1/a/",  # 公开 artifact 分享
+    "/api/v1/h/",  # 公开渲染 HTML 页面
+    "/api/v1/html/",
+    "/api/v1/push/public_key",
+    # 设备配对: 未登录的新设备申请配对码 (confirm 仍要求登录)
+    "/api/v1/pairing/request",
+    # 前端静态资源 / SPA 根
+    "/static",
+    "/assets",
+)
+
+# 公开分享的 bot 页面 (GET /api/v1/bots/{id}/public 与其消息) —— 带 token 才可见,
+# 用后缀匹配而非前缀 (路径中间有 bot_id)。
+_PUBLIC_SUFFIXES: tuple[str, ...] = ("/public", "/public/messages")
+
+
+def is_public_path(path: str) -> bool:
+    """路径是否在显式公开白名单内 (SEC H1 默认拒绝的唯一豁免来源)。"""
+    if path == "/" or path == "":
+        return True
+    if path in _PUBLIC_PREFIXES:
+        return True
+    for prefix in _PUBLIC_PREFIXES:
+        if path.startswith(prefix.rstrip("/") + "/"):
+            return True
+    for suffix in _PUBLIC_SUFFIXES:
+        if path.endswith(suffix):
+            return True
+    return False
+
+
+def _request_token(scope: dict[str, Any]) -> str:
+    """从 ASGI scope 取凭据: Authorization 头, 其次 ``token`` 查询参数, 再次 cookie。
+
+    SSE 端点 (EventSource) 无法自定义 Authorization 头, 前端改带 ``?token=``;
+    cookie 供同源浏览器流使用。三者都只是"承载方式", 校验仍走 :func:`resolve_token`。
+    """
+    headers = scope.get("headers") or []
+    hmap: dict[bytes, bytes] = {}
+    for k, v in headers:
+        hmap.setdefault(k.lower(), v)
+    authz = hmap.get(b"authorization", b"").decode("latin-1")
+    token = _bearer_token(authz)
+    if token:
+        return token
+    qs = scope.get("query_string", b"").decode("latin-1")
+    if qs:
+        from urllib.parse import parse_qs
+
+        params = parse_qs(qs)
+        if params.get("token"):
+            return params["token"][0]
+    cookie = hmap.get(b"cookie", b"").decode("latin-1")
+    if cookie:
+        for part in cookie.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name in {"veya_token", "veya.auth.token"} and value:
+                return value
+    return ""
+
+
+class AuthGateMiddleware:
+    """纯 ASGI 中间件: 全局默认拒绝 (SEC H1)。
+
+    - 公开白名单 (:func:`is_public_path`) 直接放行。
+    - 其余路径必须有有效 token, 否则 401 JSON。
+    - 本地单用户模式 (``VEYA_LOCAL_SINGLE_USER=1`` + loopback) 放行, 供 ``veya start``。
+    用纯 ASGI 实现而非 BaseHTTPMiddleware, 以免缓冲/破坏 SSE 流式响应。
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path", "")
+        if is_public_path(path):
+            await self.app(scope, receive, send)
+            return
+
+        token = _request_token(scope)
+        user = resolve_token(token) if token else None
+        if user is None:
+            client = scope.get("client") or ("", 0)
+            if _local_single_user_enabled() and _is_loopback(client[0]):
+                user = {"user_id": "local", "username": "local", "is_owner": True}
+        if user is None:
+            await _send_401(send)
+            return
+        _user_ctx.set(user)
+        await self.app(scope, receive, send)
+
+
+async def _send_401(send: Any) -> None:
+    import json as _json
+
+    body = _json.dumps({"detail": "请先登录"}, ensure_ascii=False).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 401,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})

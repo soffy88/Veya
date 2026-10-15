@@ -28,6 +28,7 @@ from server.routes.bot_memory import router as bot_memory_router
 from server.routes.bot_runtime import router as bot_runtime_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
+
 # W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
 from server.routes.mcp_presets import router as mcp_presets_router
 from server.routes.role_skill_presets import router as role_skill_presets_router
@@ -477,6 +478,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="veya", version="0.6.0", lifespan=lifespan)
+
+# SEC H1: 全局默认拒绝。任何不在显式公开白名单内的路由都要求有效 token,
+# 否则 401 —— 不再依赖各路由自己记得加 require_user。用纯 ASGI 中间件以
+# 避免缓冲 SSE。VEYA_LOCAL_SINGLE_USER=1 + loopback 时放行 (veya start)。
+from server.auth import AuthGateMiddleware as _AuthGateMiddleware  # noqa: E402
+
+app.add_middleware(_AuthGateMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

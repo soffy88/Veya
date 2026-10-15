@@ -297,8 +297,12 @@ async def test_full_loop_llm_creates_automation(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_automata_routes_reachable():
-    """/automata/jobs 与 /api/v1/webhooks/{source} 已挂载。"""
+def test_automata_routes_reachable(owner_headers):
+    """/automata/jobs 与 /api/v1/webhooks/{source} 已挂载。
+
+    SEC H1: /automata/jobs 现在受全局默认拒绝保护, 带测试 owner token 访问;
+    /api/v1/webhooks/{source} 是已验签的公开入口, 匿名仍可达。
+    """
     from fastapi.testclient import TestClient
 
     from server.app import app
@@ -306,7 +310,7 @@ def test_automata_routes_reachable():
 
     try:
         with TestClient(app) as client:  # with 触发 lifespan(守护进程正常启停)
-            resp = client.get("/automata/jobs")
+            resp = client.get("/automata/jobs", headers=owner_headers)
             assert resp.status_code == 200
             assert "jobs" in resp.json()
 
