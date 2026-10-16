@@ -124,28 +124,32 @@ def enable_profile(profile_id: str, request: Request):
     return {"ok": True, "profile": vars(p)}
 
 
-@router.post("/profiles/{profile_id}/ws-ticket", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
-def create_ws_ticket(profile_id: str, request: Request, user: dict[str, Any] = Depends(require_owner)):
+@router.websocket("/profiles/{profile_id}/stream")
+async def profile_stream_websocket(websocket: WebSocket, profile_id: str):
+    if not is_mab_enabled():
+        await websocket.close(code=4404, reason="MAB browser is disabled")
+        return
+    user_id, err_code = _take_ws_ticket(websocket, profile_id)
+    if err_code != 0:
+        await websocket.close(code=err_code, reason="Unauthorized or Forbidden")
+        return
     profile = mab_manager.get_profile(profile_id)
-    if profile is None:
-        raise HTTPException(status_code=404, detail="Profile not found")
-    if profile.status != "active":
-        raise HTTPException(status_code=403, detail="Profile is disabled/revoked")
-    ticket = secrets.token_urlsafe(32)
-    with _WS_TICKETS_LOCK:
-        now = time.monotonic()
-        for old in [key for key, item in _WS_TICKETS.items() if item["expires"] <= now]:
-            _WS_TICKETS.pop(old, None)
-        _WS_TICKETS[ticket] = {
-            "user_id": str(user.get("user_id") or ""),
-            "profile_id": profile.id,
-            "expires": now + _WS_TICKET_TTL,
-        }
-    append_canonical_event(
-        topic="mab_ws_ticket",
-        payload={"profile_id": profile.id, "action": "issue", "timestamp": time.time()}
-    )
-    return {"ok": True, "ticket": ticket, "expires_in": _WS_TICKET_TTL}
+    if not profile or profile.status != "active":
+        await websocket.close(code=4403, reason="Profile not active")
+        return
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+            except Exception:
+                continue
+            if msg.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+
 
 
 def _take_ws_ticket(websocket: WebSocket, profile_id: str) -> tuple[str | None, int]:

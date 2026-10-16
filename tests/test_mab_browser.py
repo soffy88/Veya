@@ -179,3 +179,26 @@ def test_4_security_no_credentials_in_audit(monkeypatch, tmp_path):
         assert "cookie" not in str(r).lower()
         assert "password" not in str(r).lower()
         assert "session" not in str(r).lower()
+
+def test_5_ws_ticket_auth_and_flag(monkeypatch, tmp_path, owner_headers, nonowner_headers):
+    monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
+    monkeypatch.setattr(mab_manager, "base_dir", tmp_path / "mab")
+    monkeypatch.setattr(mab_manager, "profiles_dir", tmp_path / "mab" / "profiles")
+    mab_manager._ensure_storage()
+
+    p = mab_manager.create_profile("WS Test", "https://example.com", "ws_user")
+
+    # 1. Unauthenticated ws-ticket request -> 401
+    res_401 = client.post(f"/api/v1/mab/profiles/{p.id}/ws-ticket")
+    assert res_401.status_code == 401
+
+    # 2. Owner ws-ticket request when flag is OFF -> 404
+    monkeypatch.setenv("VEYA_MAB_BROWSER", "OFF")
+    res_404 = client.post(f"/api/v1/mab/profiles/{p.id}/ws-ticket", headers=owner_headers)
+    assert res_404.status_code == 404
+
+
+
+
+
+
