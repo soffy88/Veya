@@ -87,6 +87,10 @@ def _load_presets(path: Path | None = None) -> list[dict[str, Any]]:
         if item["side_effect"] != "external_read":
             raise ValueError(f"mcp preset {item['name']!r}: only external_read is declared")
         presets.append(item)
+    if path is None and _flag_enabled("VEYA_EVO_ONTOLOGY"):
+        from server.evo_ontology import get_evo_ontology_preset
+
+        presets.append(get_evo_ontology_preset())
     return presets
 
 
@@ -97,9 +101,14 @@ def _missing_env(preset: dict[str, Any]) -> list[str]:
 def _resolve_command(preset: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for token in preset.get("command") or []:
-        out.append(
+        token_str = (
             str(token).replace("{venv_python}", _python()).replace("{venv_bin}", _venv_bin())
         )
+        if "{evo_ontology_workspace}" in token_str:
+            from server.evo_ontology import get_default_workspace
+
+            token_str = token_str.replace("{evo_ontology_workspace}", get_default_workspace())
+        out.append(token_str)
     return out
 
 
@@ -165,8 +174,10 @@ async def attach_preset(
     obase = load("obase")
     factory = client_factory
     if factory is None:
-        factory = obase.StdioMcpClient
-    client = factory(_resolve_command(preset))
+        line_delimited = bool(preset.get("line_delimited") or preset.get("name") == "evoontology")
+        client = obase.StdioMcpClient(_resolve_command(preset), line_delimited=line_delimited)
+    else:
+        client = factory(_resolve_command(preset))
     await client.start()
     obase.McpClientRegistry.register(preset["name"], client)
     if discovery is None:
@@ -299,7 +310,8 @@ def obase_mcp_client() -> Any:
 def _build_client(preset: dict[str, Any]) -> Any:
     from veya.platform import load
 
-    return load("obase").StdioMcpClient(_resolve_command(preset))
+    line_delimited = bool(preset.get("line_delimited") or preset.get("name") == "evoontology")
+    return load("obase").StdioMcpClient(_resolve_command(preset), line_delimited=line_delimited)
 
 
 async def _collect_adapters(preset: dict[str, Any], client: Any) -> list[dict[str, Any]]:
