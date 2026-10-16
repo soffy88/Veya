@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from runtime.personal import PersonalRuntimeError, get_personal_runtime
 from server import auth as auth_mod
 from server.approvals import get_approval_service
 from server.feature_flags import enabled as flag_enabled
-from runtime.personal import get_personal_runtime, PersonalRuntimeError
 
 router = APIRouter(prefix="/api/v1/skills/teach", tags=["skill-teach"])
 
@@ -65,7 +66,12 @@ async def create_skill_draft_from_trajectory(
         from server.skill_eval_gate import evaluate_skill_candidate
 
         eval_result = await evaluate_skill_candidate(
-            candidate={"name": req.name, "description": full_description, "skill_id": skill_id, "version_id": version_id},
+            candidate={
+                "name": req.name,
+                "description": full_description,
+                "skill_id": skill_id,
+                "version_id": version_id,
+            },
             trajectory=req.trajectory,
             user_id=user_id,
             scope_type=req.scope_type,
@@ -100,7 +106,9 @@ async def create_skill_draft_from_trajectory(
             user_id=user_id,
             reason=f"Approve skill draft '{req.name}' from trajectory",
         )
-        approval_id = approval_res.get("approval_id") or approval_res.get("approval", {}).get("request_id")
+        approval_id = approval_res.get("approval_id") or approval_res.get("approval", {}).get(
+            "request_id"
+        )
     except Exception:
         pass
 
@@ -124,9 +132,8 @@ async def list_skill_drafts(
     _check_flag()
     user_id = str(user.get("user_id") or "user-1")
     runtime = get_personal_runtime()
-    skills = await runtime.search_skills("", scope_type="user", scope_id=user_id, include_candidates=True, limit=100)
-    drafts = [
-        s for s in skills
-        if s.get("status") in {"candidate", "draft"}
-    ]
+    skills = await runtime.search_skills(
+        "", scope_type="user", scope_id=user_id, include_candidates=True, limit=100
+    )
+    drafts = [s for s in skills if s.get("status") in {"candidate", "draft"}]
     return {"drafts": drafts, "count": len(drafts)}

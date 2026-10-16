@@ -8,6 +8,7 @@ Provides:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -73,10 +74,8 @@ async def get_evo_mcp_client(workspace: str | Path | None = None) -> Any:
         return _client
 
     if _client is not None:
-        try:
+        with contextlib.suppress(Exception):
             await _client.close()
-        except Exception:
-            pass
         _client = None
 
     preset = get_evo_ontology_preset(ws)
@@ -99,10 +98,8 @@ async def close_evo_mcp_client() -> None:
     """Close the active EvoOntology MCP client process."""
     global _client, _client_ws
     if _client is not None:
-        try:
+        with contextlib.suppress(Exception):
             await _client.close()
-        except Exception:
-            pass
         _client = None
         _client_ws = None
 
@@ -182,9 +179,18 @@ async def wire_evo_ontology_tools(workspace: str | Path | None = None) -> int:
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Search query for concepts/terms"},
-                    "workspace": {"type": "string", "description": "Optional ontology workspace directory"},
-                    "version": {"type": "string", "description": "Optional semantic version; omit for active"},
-                    "kind": {"type": "string", "enum": ["term", "mapping", "relation", "constraint", "all"]},
+                    "workspace": {
+                        "type": "string",
+                        "description": "Optional ontology workspace directory",
+                    },
+                    "version": {
+                        "type": "string",
+                        "description": "Optional semantic version; omit for active",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["term", "mapping", "relation", "constraint", "all"],
+                    },
                     "limit": {"type": "integer", "minimum": 1, "maximum": 6},
                 },
                 "required": ["query"],
@@ -201,10 +207,23 @@ async def wire_evo_ontology_tools(workspace: str | Path | None = None) -> int:
             parameters={
                 "type": "object",
                 "properties": {
-                    "mentions": {"type": "array", "items": {"type": "string"}, "description": "Concept names or term IDs to resolve"},
-                    "workspace": {"type": "string", "description": "Optional ontology workspace directory"},
-                    "version": {"type": "string", "description": "Optional semantic version; omit for active"},
-                    "context": {"type": "string", "description": "Optional query context to disambiguate"},
+                    "mentions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Concept names or term IDs to resolve",
+                    },
+                    "workspace": {
+                        "type": "string",
+                        "description": "Optional ontology workspace directory",
+                    },
+                    "version": {
+                        "type": "string",
+                        "description": "Optional semantic version; omit for active",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Optional query context to disambiguate",
+                    },
                 },
                 "required": ["mentions"],
             },

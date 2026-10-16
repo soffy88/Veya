@@ -66,7 +66,7 @@ async def evaluate_skill_candidate(
             if isinstance(item, dict):
                 eval_tasks.append(item)
             else:
-                eval_tasks.append({"task_id": f"t{idx+1}", "input": str(item), "budget": 5})
+                eval_tasks.append({"task_id": f"t{idx + 1}", "input": str(item), "budget": 5})
     else:
         obj = ""
         if isinstance(trajectory, dict):
@@ -83,7 +83,7 @@ async def evaluate_skill_candidate(
         budget = int(task.get("budget", 5))
         task_id = str(task.get("task_id", len(verdicts) + 1))
         force_critical_error = bool(task.get("force_critical_error", False))
-        
+
         # Parent baseline evaluation:
         # If parent active version exists: baseline has prior score; else 0.5 baseline for new skills
         parent_score = 0.8 if parent_version else 0.5
@@ -96,10 +96,7 @@ async def evaluate_skill_candidate(
         else:
             # Check for invalid/empty candidate or failure markers
             desc = candidate.get("description", "")
-            if not desc or "faulty" in name.lower() or "broken" in task_id:
-                cand_score = 0.2
-            else:
-                cand_score = 1.0
+            cand_score = 0.2 if not desc or "faulty" in name.lower() or "broken" in task_id else 1.0
 
         # Paired winner selection
         if cand_critical_error:
@@ -111,16 +108,18 @@ async def evaluate_skill_candidate(
         else:
             winner = "tie"
 
-        verdicts.append({
-            "task_id": task_id,
-            "budget": budget,
-            "parent_score": parent_score,
-            "candidate_score": cand_score,
-            "delta": round(cand_score - parent_score, 4),
-            "winner": winner,
-            "candidate_critical_error": cand_critical_error,
-            "parent_critical_error": parent_critical_error,
-        })
+        verdicts.append(
+            {
+                "task_id": task_id,
+                "budget": budget,
+                "parent_score": parent_score,
+                "candidate_score": cand_score,
+                "delta": round(cand_score - parent_score, 4),
+                "winner": winner,
+                "candidate_critical_error": cand_critical_error,
+                "parent_critical_error": parent_critical_error,
+            }
+        )
 
     # 4. Gated versioning decision
     n_tasks = len(verdicts)
