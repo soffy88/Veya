@@ -38,7 +38,7 @@ def _archive_commit(repo: Path, commit: str, destination: Path) -> None:
     _run("git", "-C", str(repo), "archive", "--format=tar", "--output", str(archive), commit)
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, mode="r") as handle:
-        handle.extractall(destination)
+        handle.extractall(destination, filter="data")
     archive.unlink()
 
 

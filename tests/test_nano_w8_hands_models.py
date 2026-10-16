@@ -519,9 +519,11 @@ class TestProviderRoutes:
         app.include_router(providers_router)
 
         async def mock_get_current_user():
-            return {"user_id": "test-user", "username": "test"}
+            return {"user_id": "test-user", "username": "test", "is_owner": True}
 
         app.dependency_overrides[auth_mod.get_current_user] = mock_get_current_user
+        app.dependency_overrides[auth_mod.require_user] = mock_get_current_user
+        app.dependency_overrides[auth_mod.require_owner] = mock_get_current_user
         return TestClient(app)
 
     def test_list_providers(self, client):
@@ -577,8 +579,19 @@ class TestProviderRoutes:
         response = client.delete("/api/v1/providers/keys/openai")
         assert response.status_code == 200
 
-    def test_bot_model_source_crud(self, client):
-        """Test bot model source CRUD."""
+    def test_bot_model_source_crud(self, client, monkeypatch):
+        """Test bot model source CRUD for an existing, caller-owned bot."""
+        from types import SimpleNamespace
+
+        from server.goal_run.bot_identity import BotRegistry
+
+        monkeypatch.setattr(
+            BotRegistry,
+            "get",
+            lambda _registry, bot_id: (
+                SimpleNamespace(owner_id="test-user") if bot_id == "test-bot" else None
+            ),
+        )
         response = client.post(
             "/api/v1/providers/bot-model-source",
             json={
@@ -605,9 +618,11 @@ class TestProviderRoutes:
         app.include_router(providers_router)
 
         async def mock_get_current_user():
-            return {"user_id": "test-user"}
+            return {"user_id": "test-user", "is_owner": True}
 
         app.dependency_overrides[auth_mod.get_current_user] = mock_get_current_user
+        app.dependency_overrides[auth_mod.require_user] = mock_get_current_user
+        app.dependency_overrides[auth_mod.require_owner] = mock_get_current_user
         client = TestClient(app)
 
         response = client.get("/api/v1/providers")

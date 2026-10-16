@@ -137,8 +137,25 @@ class TestCLIAgentRegistry:
     """Tests for CLI agent registry and detection."""
 
     def test_validate_command_template_valid(self):
-        assert _validate_command_template("{prompt} --cwd {cwd}") == "{prompt} --cwd {cwd}"
-        assert _validate_command_template("cmd {prompt} {cwd}") == "cmd {prompt} {cwd}"
+        template = "codex {prompt} --cwd {cwd}"
+        assert _validate_command_template(template) == template
+        with pytest.raises(ValueError, match="allowlisted"):
+            _validate_command_template("cmd {prompt} {cwd}")
+
+    def test_unsafe_persisted_profile_is_ignored(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("VEYA_CLI_EXECUTABLE_ALLOWLIST", "safe-cli")
+        config = tmp_path / ".veya" / "cli_agents.json"
+        config.parent.mkdir(parents=True)
+        config.write_text(
+            '{"profiles": ['
+            '{"name": "codex", "command_template": "safe-cli {prompt} {cwd}"},'
+            '{"name": "unsafe", "command_template": "other-cli {prompt} {cwd}"}'
+            "]}",
+            encoding="utf-8",
+        )
+        registry = get_cli_agent_registry(tmp_path)
+        assert registry.get("codex").is_custom is False
+        assert registry.get("unsafe") is None
 
     def test_validate_command_template_invalid(self):
         with pytest.raises(ValueError, match="prompt"):
@@ -161,7 +178,8 @@ class TestCLIAgentRegistry:
         assert "gemini" in names
         assert "qwen" in names
 
-    def test_custom_profile_registration(self, tmp_path: Path):
+    def test_custom_profile_registration(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("VEYA_CLI_EXECUTABLE_ALLOWLIST", "my-agent")
         registry = get_cli_agent_registry(tmp_path)
 
         profile = registry.register_custom("my-agent", "my-agent {prompt} --dir {cwd}")
@@ -177,9 +195,10 @@ class TestCLIAgentRegistry:
     def test_custom_profile_override_builtin_fails(self, tmp_path: Path):
         registry = get_cli_agent_registry(tmp_path)
         with pytest.raises(ValueError, match="override built-in"):
-            registry.register_custom("claude-code", "custom {prompt} {cwd}")
+            registry.register_custom("claude-code", "codex {prompt} {cwd}")
 
-    def test_render_command(self, tmp_path: Path):
+    def test_render_command(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("VEYA_CLI_EXECUTABLE_ALLOWLIST", "my-cmd")
         registry = get_cli_agent_registry(tmp_path)
         profile = registry.register_custom("test-agent", "my-cmd '{prompt}' --cwd {cwd}")
 
@@ -188,7 +207,17 @@ class TestCLIAgentRegistry:
         assert "/tmp/work" in argv
         assert argv[0] == "my-cmd"
 
-    def test_persist_custom_profiles(self, tmp_path: Path):
+    def test_render_command_keeps_prompt_and_cwd_as_single_arguments(
+        self, tmp_path: Path, monkeypatch
+    ):
+        monkeypatch.setenv("VEYA_CLI_EXECUTABLE_ALLOWLIST", "my-cmd")
+        registry = get_cli_agent_registry(tmp_path)
+        profile = registry.register_custom("safe", "my-cmd '{prompt}' --cwd '{cwd}'")
+        argv = registry.render_command(profile, "repair'; touch /tmp/NOPE; #", "/tmp/a path")
+        assert argv == ["my-cmd", "repair'; touch /tmp/NOPE; #", "--cwd", "/tmp/a path"]
+
+    def test_persist_custom_profiles(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("VEYA_CLI_EXECUTABLE_ALLOWLIST", "cmd1,cmd2")
         registry = get_cli_agent_registry(tmp_path)
         registry.register_custom("agent1", "cmd1 {prompt} {cwd}")
         registry.register_custom("agent2", "cmd2 {prompt} {cwd}")

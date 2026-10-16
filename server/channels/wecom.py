@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from typing import Any
 
@@ -13,6 +12,7 @@ from veya.obase.channels import (
     verify_wecom_signature,
     verify_wecom_url_signature,
 )
+from veya.obase.channels.safe_xml import ET
 
 from .base import ChannelAdapter
 

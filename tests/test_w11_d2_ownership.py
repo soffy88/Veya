@@ -21,5 +21,5 @@ def test_other_user_gets_none(tmp_path):
     assert bot_team._resolve_bot(_registry(tmp_path), "alice_bot", owner_id="bob") is None
 
 
-def test_shared_bot_visible(tmp_path):
-    assert bot_team._resolve_bot(_registry(tmp_path), "shared_bot", owner_id="bob") is not None
+def test_legacy_system_owner_marker_is_not_shared(tmp_path):
+    assert bot_team._resolve_bot(_registry(tmp_path), "shared_bot", owner_id="bob") is None

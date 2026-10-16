@@ -87,12 +87,15 @@ def _default_bot_spec(owner_id: str) -> BotSpec:
 def _resolve_bot(registry: BotRegistry, bot_id: str, *, owner_id: str = "") -> BotSpec | None:
     spec = registry.get(bot_id)
     if spec is not None:
-        # W11 D2: a named bot is visible only to its owner. Shared system bots
-        # (Chef, the default bot, or bots registered without an owner) stay
-        # reachable by every signed-in user. A foreign bot answers 404, never 403,
-        # so its existence does not leak.
-        shared = spec.bot_id in (DEFAULT_BOT_ID, CHEF_BOT_ID) or spec.owner_id in ("", "system")
-        if owner_id and not shared and spec.owner_id != owner_id:
+        # Only the explicit built-in identifiers are globally shared. Empty,
+        # anonymous, system, and default owner markers are legacy data, not grants.
+        shared = spec.bot_id in (DEFAULT_BOT_ID, CHEF_BOT_ID)
+        if not shared and (
+            not owner_id
+            or not spec.owner_id
+            or spec.owner_id in {"anonymous", "system", "default"}
+            or spec.owner_id != owner_id
+        ):
             return None
         return spec
     if bot_id == DEFAULT_BOT_ID:
@@ -378,8 +381,8 @@ async def list_bots(
         "bots": [
             _bot_view(spec)
             for spec in registry.list()
-            if spec.owner_id in (user["user_id"], "", "system", "default")
-            or spec.bot_id in (DEFAULT_BOT_ID, CHEF_BOT_ID)
+            if spec.bot_id in (DEFAULT_BOT_ID, CHEF_BOT_ID)
+            or (spec.owner_id and spec.owner_id == user["user_id"])
         ],
         "default_bot_id": DEFAULT_BOT_ID,
         "chef_bot_id": CHEF_BOT_ID,

@@ -11,7 +11,11 @@ Orchestrates the full verification flow:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import os
+import signal
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +42,17 @@ from runtime.verification.models import (
     VerificationVerdict,
     get_current_head_sha,
 )
+
+
+def _kill_process_group(proc: Any) -> None:
+    """Best-effort SIGKILL of a spawned verification command and its group."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        with contextlib.suppress(ProcessLookupError, OSError):
+            proc.kill()
 
 
 class VerificationEngine:
@@ -387,24 +402,55 @@ class VerificationEngine:
         # Direct execution fallback
         return await self._run_command(cmd)
 
-    async def _run_command(self, cmd: str) -> dict[str, Any]:
-        """Run a shell command and return structured result."""
+    async def _run_command(self, cmd: str, timeout_s: float = 1800.0) -> dict[str, Any]:
+        """Run a shell command and return structured result.
+
+        Cancellation-safe by construction (F10): asyncio's subprocess
+        transport hangs forever in ``transport._wait()`` when a cancel lands
+        while it is still connecting the child's pipes (CPython 3.12
+        ``_make_subprocess_transport`` cleanup; ``_try_finish`` never fires
+        because a pipe protocol is still ``None``), which pinned cancelled
+        GoalRun tasks during shutdown.  The child is therefore started with a
+        plain ``Popen`` in its own process group and drained in a worker
+        thread; on cancellation the group is SIGKILLed so the thread returns
+        promptly, and the run is bounded by ``timeout_s``.
+        """
         try:
-            proc = await asyncio.create_subprocess_shell(
+            proc = subprocess.Popen(  # harness command, allowlisted upstream
                 cmd,
+                shell=True,
                 cwd=self.project_root,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
             )
-            stdout, stderr = await proc.communicate()
+        except Exception as e:
+            return {"exit_code": -1, "stdout": "", "stderr": str(e), "command": cmd}
+        try:
+            stdout, stderr = await asyncio.to_thread(proc.communicate, timeout=timeout_s)
+        except asyncio.CancelledError:
+            _kill_process_group(proc)
+            raise
+        except subprocess.TimeoutExpired:
+            _kill_process_group(proc)
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(proc.communicate, timeout=5)
             return {
-                "exit_code": proc.returncode,
-                "stdout": stdout.decode() if stdout else "",
-                "stderr": stderr.decode() if stderr else "",
+                "exit_code": 124,
+                "stdout": "",
+                "stderr": f"verification command timed out after {timeout_s:.0f}s",
                 "command": cmd,
             }
         except Exception as e:
+            _kill_process_group(proc)
             return {"exit_code": -1, "stdout": "", "stderr": str(e), "command": cmd}
+        return {
+            "exit_code": proc.returncode,
+            "stdout": stdout.decode(errors="replace") if stdout else "",
+            "stderr": stderr.decode(errors="replace") if stderr else "",
+            "command": cmd,
+        }
 
     async def collect_evidence_bundle(
         self,

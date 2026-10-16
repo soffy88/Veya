@@ -1075,6 +1075,121 @@ async def _proxy_url() -> str | None:
     return None
 
 
+def _resolve_public_fetch_target(url: str) -> tuple[str, str, str]:
+    """Return (normalized host, public pinned IP, URL) from one validation lookup."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlsplit
+
+    try:
+        parsed = urlsplit(url)
+        scheme = parsed.scheme.lower()
+        host = (parsed.hostname or "").rstrip(".").lower()
+        port = parsed.port or (443 if scheme == "https" else 80)
+    except ValueError as exc:
+        raise ValueError("invalid URL") from exc
+    if scheme not in {"http", "https"} or not host:
+        raise ValueError("only absolute HTTP(S) URLs are allowed")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URL user-info is not allowed")
+    if host in {"localhost", "metadata.google.internal", "metadata.google"} or host.endswith(
+        (".localhost", ".local", ".internal", ".test")
+    ):
+        raise ValueError("non-public hostname is not allowed")
+
+    try:
+        literal = ipaddress.ip_address(host.split("%", 1)[0])
+        addresses = [literal]
+    except ValueError:
+        try:
+            answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except OSError as exc:
+            raise ValueError("hostname could not be resolved safely") from exc
+        addresses = []
+        for answer in answers:
+            try:
+                addresses.append(ipaddress.ip_address(answer[4][0].split("%", 1)[0]))
+            except (ValueError, IndexError, TypeError) as exc:
+                raise ValueError("hostname returned an invalid address") from exc
+    if not addresses or any(not address.is_global for address in addresses):
+        raise ValueError("non-public IP address is not allowed")
+    try:
+        normalized_host = host.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise ValueError("invalid hostname") from exc
+    return normalized_host, addresses[0].compressed, url
+
+
+def _assert_public_fetch_url(url: str) -> str:
+    """Validate the URL and all DNS answers (also rejects mixed public/private DNS)."""
+    _resolve_public_fetch_target(url)
+    return url
+
+
+class _PinnedAsyncNetworkBackend:
+    """httpcore backend that dials the validated IP without changing URL TLS identity."""
+
+    def __init__(self, pins: dict[str, str]) -> None:
+        from httpcore._backends.auto import AutoBackend
+
+        self._delegate = AutoBackend()
+        self._pins = {key.lower().rstrip("."): value for key, value in pins.items()}
+
+    async def connect_tcp(
+        self, host: str, port: int, timeout=None, local_address=None, socket_options=None
+    ):
+        pinned = self._pins.get(str(host).lower().rstrip("."), host)
+        return await self._delegate.connect_tcp(
+            pinned,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+    async def connect_unix_socket(self, path: str, timeout=None, socket_options=None):
+        return await self._delegate.connect_unix_socket(
+            path, timeout=timeout, socket_options=socket_options
+        )
+
+    async def sleep(self, seconds: float) -> None:
+        await self._delegate.sleep(seconds)
+
+
+async def _get_public_fetch_response(url: str, headers: dict[str, str], proxy: str | None = None):
+    """Fetch with DNS pinned per request; redirects are re-resolved and pinned independently.
+
+    Explicit/system proxies are intentionally not used: a proxy can resolve the
+    original hostname independently and reintroduce DNS rebinding/SSRF risk.
+    """
+    from urllib.parse import urljoin
+
+    import httpx
+
+    if proxy:
+        raise ValueError("proxy fetch is disabled for DNS-pinned public URL requests")
+    current = url
+    for _ in range(6):
+        host, pinned_ip, _ = _resolve_public_fetch_target(current)
+        transport = httpx.AsyncHTTPTransport(retries=0)
+        pool = getattr(transport, "_pool", None)
+        if pool is None or not hasattr(pool, "_network_backend"):
+            await transport.aclose()
+            raise ValueError("HTTP transport does not support required DNS pinning")
+        pool._network_backend = _PinnedAsyncNetworkBackend({host: pinned_ip})
+        async with httpx.AsyncClient(
+            transport=transport, timeout=20.0, follow_redirects=False, trust_env=False
+        ) as client:
+            response = await client.get(current, headers=headers)
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            return response
+        location = response.headers.get("location")
+        if not location:
+            raise ValueError("redirect has no Location header")
+        current = urljoin(current, location)
+    raise ValueError("too many redirects")
+
+
 async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
     """原生 URL 阅读工具 (httpx, 免 playwright): 抓任意网页/文档为纯文本。
 
@@ -1084,11 +1199,11 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
     """
     import re
 
-    import httpx
-
     url = url.strip()
-    if not url.lower().startswith(("http://", "https://")):
-        return f"错误: 无效 URL {url!r} (需要 http/https 开头)。"
+    try:
+        _assert_public_fetch_url(url)
+    except ValueError as exc:
+        return f"错误: URL 被安全策略拒绝 ({exc})。"
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -1096,10 +1211,11 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
         ),
         "Accept": "text/html,application/xhtml+xml,text/markdown,text/plain,*/*;q=0.8",
     }
-    proxy = await _proxy_url()
 
-    def _client() -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=20.0, follow_redirects=True, proxy=proxy)
+    # Public fetches must connect to the validated/pinned DNS answer directly.
+    # Proxy-side DNS resolution cannot be proven safe, so this path does not proxy.
+    async def _get(url_to_fetch: str):
+        return await _get_public_fetch_response(url_to_fetch, headers)
 
     # GitHub 仓库/子路径 → raw README 快速通道 (无 JS, 最可靠)
     m = re.match(r"https?://github\.com/([^/]+)/([^/?#]+)", url)
@@ -1109,8 +1225,7 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
             for readme in ("README.md", "Readme.md", "readme.md"):
                 raw = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{readme}"
                 try:
-                    async with _client() as client:
-                        r = await client.get(raw, headers=headers)
+                    r = await _get(raw)
                     if r.status_code == 200:
                         return (
                             f"[GitHub {owner}/{repo} README (branch={branch})]\n"
@@ -1123,8 +1238,7 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
             "可尝试 browser_run 交互抓取, 或访问仓库页面链接。"
         )
     try:
-        async with _client() as client:
-            r = await client.get(url, headers=headers)
+        r = await _get(url)
     except Exception as exc:
         return f"抓取失败: {type(exc).__name__}: {exc}"
     if r.status_code >= 400:

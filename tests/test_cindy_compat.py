@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "platform" / "3O" / "oskill"))
@@ -18,6 +19,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "platform" / "3O
 from server.app import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _auth_as_owner(owner_headers: dict[str, str]) -> None:
+    """SEC H1: 根 app 现在全局默认拒绝 —— 这些门禁测试带测试 owner token 打真实 app,
+    而不是放宽生产鉴权 (conftest.owner_headers 用独立临时 auth.db)。"""
+    client.headers.update(owner_headers)
 
 
 def test_root_app_scheduler_list():
