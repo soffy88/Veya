@@ -57,6 +57,24 @@ from veya.remote.qualification_faults import checkpoint as qualification_checkpo
 _logger = logging.getLogger(__name__)
 
 
+async def _await_cancelled_task(task: asyncio.Future[Any]) -> None:
+    """Await a child task we just cancelled without swallowing *our own* cancellation.
+
+    ``contextlib.suppress(asyncio.CancelledError)`` around ``await task`` also
+    eats a cancel aimed at the caller, so the caller keeps running and teardown
+    (``asyncio.runners._cancel_all_tasks``) waits forever.  Only the child's
+    CancelledError is absorbed; a pending cancel on the current task re-raises.
+    """
+    try:
+        await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if current is not None and current.cancelling():
+            raise
+    except Exception:  # child failure is not the caller's failure here
+        _logger.debug("cancelled child task ended with error", exc_info=True)
+
+
 def _normalize_execution_cap(value: Any) -> int | None:
     """Positive hard cap, or ``None`` for unlimited execution admission."""
     if value is None:
@@ -1747,8 +1765,7 @@ class DurableJobManager:
             task = self._tasks.get(execution_id)
         if task is not None and not task.done():
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
+            await _await_cancelled_task(task)
 
         record.phase = ExecutionPhase.SUSPENDED
         record.status = "SUSPENDED"
@@ -4070,8 +4087,7 @@ class DurableJobManager:
                 task = self._tasks.get(execution_id)
             if task is not None and not task.done():
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
+                await _await_cancelled_task(task)
             if not record.is_terminal:
                 self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
             return record
@@ -4085,8 +4101,14 @@ class DurableJobManager:
             with self._lock:
                 goal_task = self._tasks.get(execution_id)
             if goal_task is not None and not goal_task.done():
-                with contextlib.suppress(asyncio.CancelledError, Exception):
+                try:
                     await asyncio.wait_for(asyncio.shield(goal_task), timeout=5.0)
+                except asyncio.CancelledError:
+                    current = asyncio.current_task()
+                    if current is not None and current.cancelling():
+                        raise
+                except Exception:
+                    _logger.debug("goal task did not settle after cancel", exc_info=True)
             record = self._lookup(execution_id) or record
             if not record.is_terminal:
                 self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
@@ -4095,8 +4117,7 @@ class DurableJobManager:
             task = self._tasks.get(execution_id)
         if task is not None and not task.done():
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
+            await _await_cancelled_task(task)
         # Explicit cancellation must always converge the remote projection.
         # If a canonical GoalRun exists it owns the business transition and is
         # commanded above; otherwise there is no business authority left to

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import logging
 from typing import Any
 
@@ -184,7 +185,11 @@ class ApprovalService:
         """None when ``principal`` may resolve; otherwise the refusal reason."""
 
         tool = str(approval.get("tool") or "").lower()
-        if principal == "human":
+        approval_scope = str(approval.get("scope") or "")
+        scoped_human = False
+        if principal.startswith("human:") and approval_scope:
+            scoped_human = hmac.compare_digest(principal.partition(":")[2], approval_scope)
+        if principal == "human" or scoped_human:
             return None
         if any(marker in tool for marker in HUMAN_ONLY_MARKERS_TUPLE):
             return "high-risk approvals are human-only"
@@ -352,8 +357,8 @@ def configure_service(*, store: ApprovalStore | None = None) -> ApprovalService:
 class ApprovalResolveRequest(BaseModel):
     decision: str = Field(pattern="^(once|session|always|deny)$")
     reason: str = ""
-    #: "human" (default) or "agent:<id>" — agent resolvers need delegation.
-    principal: str = "human"
+    # Resolver identity is deliberately not a request field. The endpoint
+    # derives a pseudonymous human principal from the authenticated user.
 
 
 class HandoffCreateRequest(BaseModel):
@@ -364,17 +369,10 @@ def _scope_of(user: dict[str, Any]) -> str:
     return get_approval_service().scope_for(str(user.get("user_id") or "anonymous"))
 
 
-def _principal_of(request: Any, body: ApprovalResolveRequest | None) -> str:
-    header = request.headers.get("x-veya-principal")
-    if header:
-        return header.strip()
-    return (body.principal if body else "") or "human"
-
-
 @router.get("/approvals")
 async def list_approvals(
     status: str = "pending",
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Pending approvals for the signed-in user (pseudonymized scope)."""
 
@@ -387,7 +385,7 @@ async def list_approvals(
 async def resolve_approval_endpoint(
     approval_id: str,
     body: ApprovalResolveRequest,
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Resolve a pending approval (guard L: human unless delegated)."""
 
@@ -396,7 +394,9 @@ async def resolve_approval_endpoint(
     current = service.get(approval_id)
     if not current or str(current.get("scope") or "") != _scope_of(user):
         raise HTTPException(status_code=404, detail="approval not found")
-    principal = _principal_of_request(body)
+    # The human resolver is derived from the authenticated account's existing
+    # approval scope. Body fields and X-Veya-Principal headers are never trusted.
+    principal = f"human:{_scope_of(user)}"
     result = await service.resolve(
         approval_id=approval_id,
         decision=body.decision,
@@ -406,13 +406,9 @@ async def resolve_approval_endpoint(
     return result
 
 
-def _principal_of_request(body: ApprovalResolveRequest) -> str:
-    return body.principal or "human"
-
-
 @router.get("/grants")
 async def list_grants(
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """The signed-in user's 'always allow' grants."""
 
@@ -423,7 +419,7 @@ async def list_grants(
 @router.delete("/grants/{grant_id}")
 async def revoke_grant_endpoint(
     grant_id: int,
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Revoke one 'always allow' grant."""
 
@@ -435,7 +431,7 @@ async def revoke_grant_endpoint(
 @router.post("/handoff")
 async def create_handoff(
     body: HandoffCreateRequest,
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Open a human-handoff request (agent side: 'user must do this step')."""
 
@@ -457,7 +453,7 @@ def _own_handoff_or_404(handoff_id: str, user: dict[str, Any]) -> None:
 @router.post("/handoff/{handoff_id}/done")
 async def handoff_done(
     handoff_id: str,
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     _own_handoff_or_404(handoff_id, user)
     return await get_approval_service().resume_handoff(handoff_id=handoff_id, done=True)
@@ -466,7 +462,7 @@ async def handoff_done(
 @router.post("/handoff/{handoff_id}/cancel")
 async def handoff_cancel(
     handoff_id: str,
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     _own_handoff_or_404(handoff_id, user)
     return await get_approval_service().resume_handoff(handoff_id=handoff_id, done=False)

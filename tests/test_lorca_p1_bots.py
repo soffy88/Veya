@@ -68,11 +68,17 @@ def fake_master(monkeypatch):
     async def fake_execute(request: Any) -> GoalRunResponse:
         captured.append(request)
         objective = str(getattr(request, "objective", "") or "")
+        lines = [line.strip() for line in objective.splitlines() if line.strip()]
+        # The canonical request appends a fixed response-style instruction;
+        # keep this fake's summary tied to the preceding user objective.
+        if lines and lines[-1].startswith("请使用中文"):
+            lines.pop()
+        summary_source = lines[-1] if lines else ""
         return GoalRunResponse(
             goal_id="goal-lorca-1",
             status=GoalStatus.completed,
             phase="finalized",
-            summary=f"done:{objective.splitlines()[-1][:24]}",
+            summary=f"done:{summary_source[:24]}",
         )
 
     from server.coordinator_master import master_coordinator
@@ -82,17 +88,17 @@ def fake_master(monkeypatch):
 
 
 @pytest.fixture
-def client():
+def client(owner_headers):
     app = FastAPI()
     # W11-AUTH: bot routes now require a signed-in user (D2).
     from server import auth as _w11_auth
+    from server.auth import AuthGateMiddleware
 
-    app.dependency_overrides[_w11_auth.require_user] = lambda: {
-        "user_id": "anonymous",
-        "username": "anonymous",
-    }
+    app.add_middleware(AuthGateMiddleware)
     app.include_router(bots_router)
-    return TestClient(app)
+    client = TestClient(app)
+    client.headers.update(owner_headers)
+    return client
 
 
 # ── P1.1 BotSpec backward compatibility ─────────────────────────────────

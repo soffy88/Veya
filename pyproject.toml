@@ -186,6 +186,7 @@ markers = [
     "optional_dependency: requires an optional package or local installation",
     "quant: requires the quantitative/market-data dependency stack",
     "docker_required: requires a running Docker service",
+    "asyncio: mark test as asyncio",
 ]
 
 # ---------------------------------------------------------------------------

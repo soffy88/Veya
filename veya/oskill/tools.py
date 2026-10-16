@@ -14,6 +14,7 @@ import shlex
 import time
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
+from pathlib import Path
 from typing import Any
 
 # 旧版消息格式兼容（_legacy_validation_message 使用）
@@ -608,12 +609,32 @@ class FileSystemTool(SmartTool):
             )
 
     def _is_safe_path(self, path: str) -> bool:
-        """检查路径是否安全"""
-        # 禁止绝对路径，除非在允许的目录内
-        safe_dirs = [os.getcwd(), os.path.expanduser("~")]
+        """路径必须落在工作区内, 且不在敏感目录 (SEC C2/H5)。
 
-        abs_path = os.path.abspath(path)
-        return any(abs_path.startswith(safe_dir) for safe_dir in safe_dirs)
+        旧实现 ``abspath(path).startswith(cwd or ~)`` 允许写 ``$HOME`` 下任意文件
+        —— 包括 ``~/.ssh/authorized_keys`` (持久化后门)、``~/.veya`` (token)、
+        以及 ``/tmp/ws`` 命中 ``/tmp/ws-evil`` 的前缀误判。改为 resolve() +
+        ``is_relative_to(工作区)``, 并显式排除敏感目录/文件。
+        """
+        root = Path(os.environ.get("VEYA_WORKSPACE") or os.getcwd()).resolve()
+        try:
+            rp = Path(path).expanduser()
+            if not rp.is_absolute():
+                rp = root / rp
+            rp = rp.resolve()
+        except (OSError, RuntimeError):
+            return False
+        if rp != root and not rp.is_relative_to(root):
+            return False
+        # 敏感路径即使落在工作区内也拒绝 (~ 软链进工作区的情况)。
+        denied_roots = [Path.home() / ".ssh", Path.home() / ".veya", Path.home() / ".config"]
+        for denied in denied_roots:
+            try:
+                if rp == denied or rp.is_relative_to(denied):
+                    return False
+            except (OSError, RuntimeError):
+                continue
+        return rp.name not in {".bashrc", ".bash_profile", ".profile", ".zshrc", ".netrc"}
 
     def _read_file(self, path: str) -> dict[str, str]:
         """读取文件"""

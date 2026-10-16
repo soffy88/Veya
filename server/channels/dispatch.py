@@ -75,21 +75,16 @@ async def dispatch_inbound(
     target_id = str(binding.get("target_id") or "")
     bound_ext_user = binding.get("external_user_id")
 
-    # FastClaw borrow: distinguish owner vs non-owner IM chatter
+    # Ownership must be anchored to the platform user captured during the
+    # explicit binding handshake. Legacy rows without that identity are not
+    # owner grants, even when they contain an account owner_ref.
     is_owner = False
-    if message.platform != "tailnet":
-        if bound_ext_user is not None and str(bound_ext_user).strip():
-            if str(message.external_user_id) == str(bound_ext_user) or (
-                owner_ref
-                and (
-                    str(message.external_user_id) == owner_ref
-                    or anonymous_ref(message.platform, message.external_user_id) == owner_ref
-                )
-            ):
-                is_owner = True
-        elif owner_ref:
-            # Legacy/mock binding without explicit external_user_id: treat as owner
-            is_owner = True
+    if message.platform != "tailnet" and bound_ext_user is not None:
+        bound_identity = str(bound_ext_user).strip()
+        incoming_identity = str(message.external_user_id or "").strip()
+        is_owner = bool(
+            bound_identity and incoming_identity and incoming_identity == bound_identity
+        )
 
     if is_owner:
         user_ref = owner_ref or anonymous_ref(message.platform, message.external_user_id)

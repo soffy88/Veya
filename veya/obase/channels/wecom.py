@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-import xml.etree.ElementTree as ET
 from typing import Any
 
 import httpx
@@ -19,6 +18,7 @@ from veya.obase.channels import (
     chunk_text,
     verify_wecom_signature,
 )
+from veya.obase.channels.safe_xml import ET
 
 _log = logging.getLogger("veya.obase.channels.wecom")
 

@@ -42,6 +42,7 @@ from runtime.coding.command_runner import (
     redact_text,
     resolve_interpreter_argv,
 )
+from veya.remote._proc import spawn_process
 
 TAIL_LINES = 200
 TAIL_BYTES = 32_000
@@ -314,12 +315,12 @@ async def run_direct_command(
                 break
 
     try:
-        proc = await asyncio.create_subprocess_exec(
+        # Cancel-safe spawn (F10): never park a cancelled task in CPython's
+        # create_subprocess_exec cleanup (transport._wait) during shutdown.
+        proc = await spawn_process(
             *execution_argv,
             cwd=execution_cwd,
             env=environment,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
         )
     except OSError as exc:

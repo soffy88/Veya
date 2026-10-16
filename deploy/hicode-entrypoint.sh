@@ -2,7 +2,7 @@
 # veya-backend 容器入口: 拉起 Veya-managed Reasonix serve 独立 oservi + 前台跑主服务。
 # - config/state 由 HicodeExecutorAdapter 写入 Veya runtime data root
 # - credentials remain in the inherited environment and are never written to config
-# - hicode serve 监听 0.0.0.0:8768, 模型 opencode-go (云端, 独立于 veya 网关)
+# - hicode serve 仅监听 loopback 并启用 token 认证 (模型 opencode-go)
 # - 主服务 uvicorn 前台 (容器主进程, 依赖其退出/重启语义)
 set -e
 
@@ -35,7 +35,7 @@ export HICODE_REASONIX_HOME
   unset PYTHONPATH PYTHONHOME PYTHONUSERBASE PYTHONSTARTUP
   cd /home/soffy/.veya/hicode-workspace
   while true; do
-    "$HICODE_MANAGED_BIN" serve --addr 0.0.0.0:8768 --auth none --model opencode-go \
+    "$HICODE_MANAGED_BIN" serve --addr 127.0.0.1:8768 --auth token --model opencode-go \
       >> /tmp/hicode-serve.log 2>&1
     echo "[entrypoint] hicode serve 退出 (rc=$?), 1s 后重启" >> /tmp/hicode-serve.log
     sleep 1

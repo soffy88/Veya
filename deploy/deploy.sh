@@ -49,7 +49,7 @@ VEYA_LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 DASHSCOPE_API_KEY=
-VEYA_PSEUDO_SECRET=\$(openssl rand -hex 32)
+VEYA_PSEUDO_SECRET=$(openssl rand -hex 32)
 VEYA_DOMAIN=$DOMAIN
 EOF
         warn "Please edit .env and set your API keys!"

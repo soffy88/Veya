@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import logging
 import os
 import time
@@ -110,19 +111,17 @@ class WeChatGateway:
             logger.error(f"WeChat token error: {e}")
             raise
 
+    def verify_signature(self, signature: str, timestamp: str, nonce: str) -> bool:
+        """Validate the WeChat signature with a constant-time comparison."""
+        if not self.token or not signature or not timestamp or not nonce:
+            return False
+        message = "".join(sorted([self.token, timestamp, nonce]))
+        expected = hashlib.sha1(message.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(expected, signature)
+
     def verify_url(self, signature: str, timestamp: str, nonce: str, echostr: str) -> str | None:
         """Verify WeChat server URL configuration (GET request)."""
-        if not self.token:
-            return None
-
-        # Sort and SHA1
-        tmp_list = sorted([self.token, timestamp, nonce])
-        tmp_str = "".join(tmp_list)
-        expected = hashlib.sha1(tmp_str.encode()).hexdigest()
-
-        if signature == expected:
-            return echostr
-        return None
+        return echostr if self.verify_signature(signature, timestamp, nonce) else None
 
     async def handle_message(self, body: bytes) -> str:
         """Handle an incoming WeChat XML message.
@@ -254,15 +253,28 @@ def make_wechat_router(
         nonce: str = "",
         echostr: str = "",
     ):
-        """WeChat server URL verification (GET)."""
+        """WeChat URL verification; reject when no key or signature is supplied."""
+        if not gateway.token:
+            raise HTTPException(status_code=503, detail="WeChat signature key is not configured")
+        if not signature or not timestamp or not nonce:
+            raise HTTPException(status_code=401, detail="Missing WeChat signature fields")
         result = gateway.verify_url(signature, timestamp, nonce, echostr)
-        if result:
+        if result is not None:
             return Response(content=result, media_type="text/plain")
-        raise HTTPException(status_code=403, detail="Signature verification failed")
+        raise HTTPException(status_code=401, detail="Invalid WeChat signature")
 
     @router.post("/webhook")
     async def wechat_message(request: Request):
-        """WeChat message handler (POST XML)."""
+        """Verify the query signature before handling inbound XML."""
+        if not gateway.token:
+            raise HTTPException(status_code=503, detail="WeChat signature key is not configured")
+        signature = request.query_params.get("signature", "")
+        timestamp = request.query_params.get("timestamp", "")
+        nonce = request.query_params.get("nonce", "")
+        if not signature or not timestamp or not nonce:
+            raise HTTPException(status_code=401, detail="Missing WeChat signature fields")
+        if not gateway.verify_signature(signature, timestamp, nonce):
+            raise HTTPException(status_code=401, detail="Invalid WeChat signature")
         body = await request.body()
         xml_response = await gateway.handle_message(body)
         return Response(content=xml_response, media_type="application/xml")
