@@ -110,3 +110,45 @@ def test_evidence_report_flag_on_behavior_and_structure(monkeypatch, tmp_path: P
     assert "【跳过】" in body
     assert "https://api.veya.ai/v1/health" in body
     assert "server/supervisor/reporting.py" in body
+
+
+def test_evidence_report_skipped_and_guesses(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("VEYA_EVIDENCE_REPORT", "1")
+    state = GoalRunState(goal_id="g3", goal_text="partial run", status=GoalStatus.running)
+    state.tasks["t1"] = TaskNode(
+        id="t1",
+        title="done task",
+        instruction="do",
+        acceptance=["ok"],
+        depends_on=[],
+        assignee="worker",
+        status=TaskStatus.completed,
+        execute_result="We assume metric is 100 based on file config/settings.yaml"
+    )
+    state.tasks["t2"] = TaskNode(
+        id="t2",
+        title="pending task",
+        instruction="do",
+        acceptance=["ok"],
+        depends_on=[],
+        assignee="worker",
+        status=TaskStatus.pending,
+    )
+    from server.goal_run.store import save_goal_run
+    save_goal_run(state, str(tmp_path))
+
+    binding = SupervisorBinding(
+        binding_id="b3",
+        routine_id="r3",
+        goal_run_id="g3",
+        owner_id="alice",
+        bot_id="veya-default",
+        project_root=str(tmp_path),
+        objective="partial run",
+        report_seq=1,
+    )
+    report = build_progress_report(goal_run_id="g3", project_root=str(tmp_path), binding=binding)
+    body = report["body"]
+    assert "config/settings.yaml" in body
+    assert "pending task" in body
+
