@@ -98,6 +98,10 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_TEACH_SKILL", False, "learning", "2027-01-01"),
     FeatureFlag("VEYA_EVENT_TRIGGERS", False, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_EVIDENCE_REPORT", False, "safety", "2027-01-01"),
+    # GBP6: EvoOntology MCP runtime preset (default OFF)
+    FeatureFlag("VEYA_EVO_ONTOLOGY", False, "runtime", "2027-01-01"),
+    # GBP6: Skill paired evaluation gate (default OFF)
+    FeatureFlag("VEYA_SKILL_EVAL_GATE", False, "learning", "2027-01-01"),
 )
 
 

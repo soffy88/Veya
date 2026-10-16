@@ -1,0 +1,1 @@
+{"schema_version": 1, "mode": "rolling_trajectory", "data_source": "/data/soffy/projects/veya-gbp6/tests/fixtures/evo_test_workspace/sales.db", "workload_source": "sales_analytics", "evaluation": {"protocol": "ground_truth"}, "boundary": {"max_tables": 10}}
