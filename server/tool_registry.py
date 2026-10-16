@@ -4989,18 +4989,6 @@ if os.environ.get("VEYA_MAB_BROWSER", "OFF").strip().upper() in {"1", "TRUE", "O
             func=_mab_tool["handler"],
         )
 
-# MAB is strictly opt-in; keep the canonical GitHub tool registration intact.
-if os.environ.get("VEYA_MAB_BROWSER", "OFF").strip().upper() in {"1", "TRUE", "ON", "YES"}:
-    from server.mab_router import register_mab_tools as _register_mab_tools
-
-    for _mab_tool in _register_mab_tools():
-        master_tools.register(
-            _mab_tool["name"],
-            _mab_tool["description"],
-            _mab_tool["parameters"],
-            _mab_tool["handler"],
-        )
-
 # PR-09 GitHub Issue workflow.  This remains on the single MasterAgent path;
 # remote branch and Draft PR creation are explicit-approval capabilities.
 from server.github_issue_tools import register_tools as _register_github_issue_tools  # noqa: E402
