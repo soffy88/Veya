@@ -33,6 +33,7 @@ from server.routes.bot_team import router as bots_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
 from server.routes.cli_agents import router as cli_agents_router
+from server.routes.xrt import router as xrt_router
 from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
@@ -610,6 +611,7 @@ app.include_router(tasks_router)
 app.include_router(workbench_router)
 app.include_router(workspace_router)
 app.include_router(cli_agents_router)
+app.include_router(xrt_router)
 app.include_router(providers_router)
 app.include_router(bot_models_router)
 app.include_router(usage_router)
