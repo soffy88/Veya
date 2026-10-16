@@ -4,44 +4,31 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from server import auth as auth_mod
 from server import events as events_mod
 from server.app import app
 from server.events import EventStore
 
-_ORIGINAL_REQUIRE_USER = auth_mod.require_user
 client = TestClient(app)
 
 
-def _owner(monkeypatch):
-    monkeypatch.setitem(
-        app.dependency_overrides,
-        _ORIGINAL_REQUIRE_USER,
-        lambda: {"user_id": "owner-tdx", "is_owner": True},
-    )
-
-
-def test_run_history_flag_off(monkeypatch):
+def test_run_history_flag_off(monkeypatch, owner_headers):
     monkeypatch.delenv("VEYA_TDX_RUN_HISTORY", raising=False)
-    _owner(monkeypatch)
-    assert client.get("/api/v1/tdx/runs").status_code == 404
+    assert client.get("/api/v1/tdx/runs", headers=owner_headers).status_code == 404
 
 
-def test_run_history_empty_store_returns_no_samples(monkeypatch, tmp_path):
+def test_run_history_empty_store_returns_no_samples(monkeypatch, tmp_path, owner_headers):
     monkeypatch.setenv("VEYA_TDX_RUN_HISTORY", "true")
-    _owner(monkeypatch)
     monkeypatch.setattr(events_mod, "event_store", EventStore(tmp_path / "events.jsonl"))
 
-    response = client.get("/api/v1/tdx/runs")
+    response = client.get("/api/v1/tdx/runs", headers=owner_headers)
     assert response.status_code == 200
     assert response.json() == {"enabled": True, "runs": [], "count": 0}
-    assert client.get("/api/v1/tdx/runs/nonexistent/rounds").status_code == 404
-    assert client.get("/api/v1/tdx/runs/nonexistent/compare?a=1&b=2").status_code == 404
+    assert client.get("/api/v1/tdx/runs/nonexistent/rounds", headers=owner_headers).status_code == 404
+    assert client.get("/api/v1/tdx/runs/nonexistent/compare?a=1&b=2", headers=owner_headers).status_code == 404
 
 
-def test_run_history_and_round_comparison_come_from_canonical_events(monkeypatch, tmp_path):
+def test_run_history_and_round_comparison_come_from_canonical_events(monkeypatch, tmp_path, owner_headers):
     monkeypatch.setenv("VEYA_TDX_RUN_HISTORY", "true")
-    _owner(monkeypatch)
     store = EventStore(tmp_path / "events.jsonl")
     monkeypatch.setattr(events_mod, "event_store", store)
 
@@ -73,7 +60,7 @@ def test_run_history_and_round_comparison_come_from_canonical_events(monkeypatch
     # Events without a durable task/run ID are deliberately not assigned a fake ID.
     store.append({"topic": "task.completed", "session_id": "only-session", "actor": "test", "ts": 130.0, "payload": {"status": "completed"}})
 
-    response = client.get("/api/v1/tdx/runs")
+    response = client.get("/api/v1/tdx/runs", headers=owner_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["count"] == 1
@@ -85,7 +72,7 @@ def test_run_history_and_round_comparison_come_from_canonical_events(monkeypatch
     assert run["rounds"][0]["commit_sha"] == "sha-round-1"
     assert run["rounds"][1]["commit_sha"] == "sha-round-2"
 
-    rounds_response = client.get("/api/v1/tdx/runs/real-run-42/rounds")
+    rounds_response = client.get("/api/v1/tdx/runs/real-run-42/rounds", headers=owner_headers)
     assert rounds_response.status_code == 200
     rounds = rounds_response.json()["rounds"]
     assert [row["round"] for row in rounds] == [1, 2]
@@ -95,7 +82,7 @@ def test_run_history_and_round_comparison_come_from_canonical_events(monkeypatch
     assert rounds[0]["evidence_tags"] == ["tdx-ci"]
     assert rounds[1]["commit_sha"] == "sha-round-2"
 
-    comparison = client.get("/api/v1/tdx/runs/real-run-42/compare?a=1&b=2")
+    comparison = client.get("/api/v1/tdx/runs/real-run-42/compare?a=1&b=2", headers=owner_headers)
     assert comparison.status_code == 200
     diff = comparison.json()["diff_comparison"]
     assert diff["duration_delta_s"] == -4

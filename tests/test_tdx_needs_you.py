@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -12,46 +13,35 @@ from server.app import app
 from server.events import EventStore
 from veya.obase.approvals import ApprovalStore
 
-_ORIGINAL_REQUIRE_USER = auth_mod.require_user
 client = TestClient(app)
 
 
-def _owner(monkeypatch):
-    monkeypatch.setitem(
-        app.dependency_overrides,
-        _ORIGINAL_REQUIRE_USER,
-        lambda: {"user_id": "owner-123", "is_owner": True},
-    )
+@pytest.fixture
+def nonowner_headers(owner_token: str) -> dict[str, str]:
+    # Depends on owner_token so auth_mod._DB_PATH is already pointed at a temp db.
+    user = auth_mod.create_user("sec-test-nonowner", "another-long-password", is_owner=False)
+    return {"Authorization": f"Bearer {auth_mod.issue_token(user['user_id'])}"}
 
 
-def test_needs_you_flag_off(monkeypatch):
+def test_needs_you_flag_off(monkeypatch, owner_headers):
     monkeypatch.delenv("VEYA_TDX_NEEDS_YOU", raising=False)
-    _owner(monkeypatch)
-    assert client.get("/api/v1/tdx/needs-you").status_code == 404
+    assert client.get("/api/v1/tdx/needs-you", headers=owner_headers).status_code == 404
 
 
-def test_needs_you_requires_signed_in_owner(monkeypatch):
+def test_needs_you_requires_signed_in_owner(monkeypatch, nonowner_headers):
     monkeypatch.setenv("VEYA_TDX_NEEDS_YOU", "true")
-    monkeypatch.setenv("VEYA_OWNER_USER_ID", "owner-123")
-    app.dependency_overrides.pop(_ORIGINAL_REQUIRE_USER, None)
     assert client.get("/api/v1/tdx/needs-you").status_code == 401
-    monkeypatch.setitem(
-        app.dependency_overrides,
-        _ORIGINAL_REQUIRE_USER,
-        lambda: {"user_id": "other-user", "is_owner": False},
-    )
-    assert client.get("/api/v1/tdx/needs-you").status_code == 403
+    assert client.get("/api/v1/tdx/needs-you", headers=nonowner_headers).status_code == 403
 
 
-def test_needs_you_reads_actual_approval_and_blocked_events(monkeypatch, tmp_path):
+def test_needs_you_reads_actual_approval_and_blocked_events(monkeypatch, tmp_path, owner_token, owner_headers):
     monkeypatch.setenv("VEYA_TDX_NEEDS_YOU", "true")
-    _owner(monkeypatch)
     events = EventStore(tmp_path / "events.jsonl")
     monkeypatch.setattr(events_mod, "event_store", events)
     store = ApprovalStore(tmp_path / "approvals.sqlite")
     service = approval_mod.ApprovalService(store=store)
     monkeypatch.setattr(approval_mod, "_service", service)
-    scope = service.scope_for("owner-123")
+    scope = service.scope_for(auth_mod.resolve_token(owner_token)["user_id"])
     store.create_approval({
         "request_id": "real-approval-7", "scope": scope,
         "tool": "shell.exec", "tool_args": {"command": "pytest"},
@@ -72,7 +62,7 @@ def test_needs_you_reads_actual_approval_and_blocked_events(monkeypatch, tmp_pat
     })
     events.append({"topic": "task.blocked", "session_id": "no-task-id", "actor": "test", "ts": 2003, "payload": {"status": "blocked"}})
 
-    response = client.get("/api/v1/tdx/needs-you")
+    response = client.get("/api/v1/tdx/needs-you", headers=owner_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["count"] == 2
