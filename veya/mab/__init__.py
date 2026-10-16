@@ -124,12 +124,23 @@ class MABManager:
         if p.id in self._sessions:
             if self._loop is None or not self._loop.is_running(): raise ValueError('browser session is active')
             asyncio.run_coroutine_threadsafe(self.close_session(p.id),self._loop).result(timeout=10)
-        folder=self._profile_dir(p.id)
+        profiles_root = self.profiles_dir.resolve()
+        folder = self._profile_dir(p.id).resolve()
+        if folder == profiles_root or folder.parent != profiles_root or profiles_root not in folder.parents:
+            raise ValueError("profile directory escapes profiles storage root")
         if folder.exists():
-            for child in folder.rglob('*'):
-                if child.is_file() or child.is_symlink(): child.unlink()
-            for child in sorted(folder.rglob('*'),key=lambda item:len(item.parts),reverse=True):
-                if child.is_dir(): child.rmdir()
+            children = list(folder.rglob("*"))
+            # Validate all descendants before mutation; symlink escapes are refused.
+            for child in children:
+                resolved = child.resolve(strict=False)
+                if resolved == folder or folder not in resolved.parents:
+                    raise ValueError("profile child path escapes profile directory")
+            for child in children:
+                if child.is_file() or child.is_symlink():
+                    child.unlink()
+            for child in sorted(children, key=lambda item: len(item.parts), reverse=True):
+                if child.is_dir() and not child.is_symlink():
+                    child.rmdir()
             folder.rmdir()
         return True
     async def _start_session(self,p):

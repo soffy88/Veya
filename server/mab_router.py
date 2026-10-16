@@ -20,28 +20,26 @@ from server.events import append_canonical_event
 
 from server.auth import require_owner
 
-router = APIRouter(prefix="/api/v1/mab", tags=["mab"], dependencies=[Depends(require_owner)])
+router = APIRouter(prefix="/api/v1/mab", tags=["mab"])
 _WS_TICKETS: dict[str, dict[str, Any]] = {}
 _WS_TICKETS_LOCK = threading.Lock()
 _WS_TICKET_TTL = 60
 
+
 def is_mab_enabled() -> bool:
-    return os.environ.get("VEYA_MAB_BROWSER", "OFF").upper() in ("1", "TRUE", "ON", "YES")
+    return os.environ.get("VEYA_MAB_BROWSER", "OFF").strip().upper() in {"1", "TRUE", "ON", "YES"}
+
 
 def verify_mab_flag() -> None:
     if not is_mab_enabled():
         raise HTTPException(status_code=404, detail="MAB browser is disabled (VEYA_MAB_BROWSER is OFF)")
 
-def verify_owner(request: Request) -> dict[str, Any]:
-    """Use canonical require_owner from server.auth."""
-    from server.auth import require_owner
-    auth_header = request.headers.get("Authorization")
-    return require_owner(authorization=auth_header, request=request)
 
 class ProfileCreateRequest(BaseModel):
     name: str
     site: str
-    account_label: str
+    account_label: str = "default"
+
 
 class ProfileUpdateRequest(BaseModel):
     name: str | None = None
@@ -49,38 +47,32 @@ class ProfileUpdateRequest(BaseModel):
     account_label: str | None = None
     status: str | None = None
 
-def verify_mab_flag_check() -> None:
-    if not is_mab_enabled():
-        raise HTTPException(status_code=404, detail="MAB browser is disabled (VEYA_MAB_BROWSER is OFF)")
 
-def verify_mab_flag(_flag: None = Depends(verify_mab_flag_check)) -> None:
-    pass
-
-@router.get("/profiles", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+@router.get("/profiles", dependencies=[Depends(verify_mab_flag), Depends(require_owner)])
 def list_profiles(request: Request):
     profiles = mab_manager.list_profiles()
     return {"ok": True, "profiles": [vars(p) for p in profiles]}
 
-@router.post("/profiles", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+@router.post("/profiles", dependencies=[Depends(verify_mab_flag), Depends(require_owner)])
 def create_profile(payload: ProfileCreateRequest, request: Request):
     p = mab_manager.create_profile(payload.name, payload.site, payload.account_label)
     return {"ok": True, "profile": vars(p)}
 
-@router.get("/profiles/{profile_id}", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+@router.get("/profiles/{profile_id}", dependencies=[Depends(verify_mab_flag), Depends(require_owner)])
 def get_profile(profile_id: str, request: Request):
     p = mab_manager.get_profile(profile_id)
     if not p:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"ok": True, "profile": vars(p)}
 
-@router.put("/profiles/{profile_id}", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+@router.put("/profiles/{profile_id}", dependencies=[Depends(verify_mab_flag), Depends(require_owner)])
 def update_profile(profile_id: str, payload: ProfileUpdateRequest, request: Request):
     p = mab_manager.update_profile(profile_id, name=payload.name, site=payload.site, account_label=payload.account_label, status=payload.status)
     if not p:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"ok": True, "profile": vars(p)}
 
-@router.delete("/profiles/{profile_id}", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+@router.delete("/profiles/{profile_id}", dependencies=[Depends(verify_mab_flag), Depends(require_owner)])
 def delete_profile(profile_id: str, request: Request, confirm: bool = False):
     try:
         success = mab_manager.delete_profile(profile_id, confirm=confirm)
@@ -90,7 +82,7 @@ def delete_profile(profile_id: str, request: Request, confirm: bool = False):
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "deleted": profile_id}
 
-@router.post("/profiles/{profile_id}/revoke", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+@router.post("/profiles/{profile_id}/revoke", dependencies=[Depends(verify_mab_flag), Depends(require_owner)])
 def revoke_profile(profile_id: str, request: Request):
     """一键撤销授权（登出/禁用）"""
     p = mab_manager.update_profile(profile_id, status="disabled")
@@ -98,7 +90,7 @@ def revoke_profile(profile_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"ok": True, "profile": vars(p)}
 
-@router.post("/profiles/{profile_id}/enable", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+@router.post("/profiles/{profile_id}/enable", dependencies=[Depends(verify_mab_flag), Depends(require_owner)])
 def enable_profile(profile_id: str, request: Request):
     p = mab_manager.update_profile(profile_id, status="active")
     if not p:
@@ -106,7 +98,7 @@ def enable_profile(profile_id: str, request: Request):
     return {"ok": True, "profile": vars(p)}
 
 
-@router.post("/profiles/{profile_id}/stream-ticket", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+@router.post("/profiles/{profile_id}/stream-ticket", dependencies=[Depends(verify_mab_flag)])
 def create_stream_ticket(profile_id: str, request: Request, current_user: dict[str, Any] = Depends(require_owner)):
     p = mab_manager.get_profile(profile_id)
     if not p:
@@ -114,7 +106,9 @@ def create_stream_ticket(profile_id: str, request: Request, current_user: dict[s
     if p.status != "active":
         raise HTTPException(status_code=403, detail="Profile not active")
     token = secrets.token_urlsafe(32)
-    user_id = current_user.get("user_id") or current_user.get("sub") or "owner"
+    user_id = str(current_user.get("user_id") or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authenticated user identity missing")
     with _WS_TICKETS_LOCK:
         _WS_TICKETS[token] = {
             "profile_id": profile_id,
@@ -135,30 +129,43 @@ async def profile_stream_websocket(websocket: WebSocket, profile_id: str):
     if not profile or profile.status != "active":
         await websocket.close(code=4403, reason="Profile not active")
         return
-    await websocket.accept()
+    ticket_protocol = next(
+        (part for part in websocket.scope.get("subprotocols", []) if part.startswith("ticket.")),
+        None,
+    )
+    if ticket_protocol is None:
+        await websocket.close(code=4401, reason="Ticket subprotocol required")
+        return
+    await websocket.accept(subprotocol=ticket_protocol)
 
     session = None
     cdp = None
-    screencast_task = None
+    frame_tasks: set[asyncio.Task] = set()
     try:
         session = await mab_manager.ensure_browser(profile_id)
         page = session.get("page")
         context = session.get("context")
         if page and context:
             cdp = await context.new_cdp_session(page)
-            await cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 80, "everyNthFrame": 1})
+            await cdp.send("Page.enable")
 
-            async def screencast_loop():
-                try:
-                    while True:
-                        event = await cdp.wait_for_event("Page.screencastFrame", timeout=30.0)
-                        if not event:
-                            break
-                        await _forward_cdp_frame(websocket, cdp, event)
-                except Exception:
-                    pass
+            async def forward_frame(frame):
+                await _forward_cdp_frame(websocket, cdp, frame)
 
-            screencast_task = asyncio.create_task(screencast_loop())
+            def on_screencast_frame(frame):
+                task = asyncio.create_task(forward_frame(frame))
+                frame_tasks.add(task)
+                def consume_result(done):
+                    frame_tasks.discard(done)
+                    if not done.cancelled():
+                        try:
+                            done.exception()
+                        except Exception:
+                            pass
+                task.add_done_callback(consume_result)
+
+            cdp.on("Page.screencastFrame", on_screencast_frame)
+            await cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 70, "maxWidth": 1280, "maxHeight": 800, "everyNthFrame": 1})
 
         while True:
             data = await websocket.receive_text()
@@ -176,9 +183,16 @@ async def profile_stream_websocket(websocket: WebSocket, profile_id: str):
                     await websocket.send_json({"type": "error", "message": str(exc)})
     except WebSocketDisconnect:
         pass
+    except Exception:
+        try:
+            await websocket.close(code=1011, reason="Stream transport failed")
+        except Exception:
+            pass
     finally:
-        if screencast_task and not screencast_task.done():
-            screencast_task.cancel()
+        for task in tuple(frame_tasks):
+            task.cancel()
+        if frame_tasks:
+            await asyncio.gather(*tuple(frame_tasks), return_exceptions=True)
         if cdp:
             try:
                 await cdp.send("Page.stopScreencast")
@@ -191,19 +205,19 @@ async def profile_stream_websocket(websocket: WebSocket, profile_id: str):
 
 
 
-def _take_ws_ticket(websocket: WebSocket, profile_id: str) -> tuple[str | None, int]:
-    token = next((part[7:] for part in websocket.scope.get("subprotocols", []) if part.startswith("ticket.")), None)
+def _take_ws_ticket(websocket: Any, profile_id: str) -> tuple[str | None, int]:
+    protocols = websocket.scope.get("subprotocols", [])
+    token = next((part[len("ticket."):] for part in protocols if part.startswith("ticket.") and part[len("ticket."):]), None)
     if not token:
         return None, 4401
     with _WS_TICKETS_LOCK:
         item = _WS_TICKETS.pop(token, None)
     if not item or item["expires"] <= time.monotonic():
         return None, 4401
-    owner_id = (os.environ.get("VEYA_TAILNET_OWNER_USER_ID") or os.environ.get("VEYA_OWNER_USER_ID") or "").strip()
-    if owner_id and item["user_id"] != owner_id:
+    if item.get("profile_id") != profile_id:
         return None, 4403
-    if item["profile_id"] != profile_id:
-        return None, 4403
+    if not item.get("user_id"):
+        return None, 4401
     return item["user_id"], 0
 
 
