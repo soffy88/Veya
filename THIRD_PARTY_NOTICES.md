@@ -363,3 +363,35 @@ project is TypeScript-only, the idea was ported by hand into the repo's Python
 - Use in this worktree: `TAILNET_SPEC.md` documents wire compatibility based on the upstream `SPEC.md` and `tailmsg.py` receiver/whois/attachment/request-lifecycle behavior. The interoperability test imports `tailmsg.py` from the local reference checkout and invokes its HTTP/JSON client against temporary Veya test listeners. Veya's receiver, policy enforcement, storage integration, HTTP handler, and outbound tools were implemented for this worktree; no upstream source file is vendored as implementation code.
 
 The upstream MIT license permits use, copy, modification, merging, publication, distribution, sublicensing and sale, subject to retaining the upstream copyright and permission notice. Full license text is available at `.ref/yobiru/LICENSE` and was inspected locally.
+
+## gstack — design reference only
+
+Project: gstack
+URL: https://github.com/garrytan/gstack
+License: MIT (full license text copied below, including its copyright notice).
+
+The implementation in Veya is a Python rewrite and does not copy gstack source code. Design references borrowed: evidence-run ledger, careful/freeze command safeguards, untrusted external-text envelopes, chained egress receipts, and per-domain browser skill quarantine/activation.
+
+### MIT License (upstream text)
+
+MIT License
+
+Copyright (c) 2026 Garry Tan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -455,6 +455,11 @@ def register_executor_adapter(executor_id: str, adapter_class: type[ExecutorAdap
     _ADAPTER_REGISTRY[executor_id] = adapter_class
 
 
+def unregister_executor_adapter(executor_id: str) -> None:
+    """Remove an optional adapter from the registry."""
+    _ADAPTER_REGISTRY.pop(executor_id, None)
+
+
 def get_executor_adapter(executor_id: str, project_root: str) -> ExecutorAdapter | None:
     """Get executor adapter instance."""
     adapter_class = _ADAPTER_REGISTRY.get(executor_id)

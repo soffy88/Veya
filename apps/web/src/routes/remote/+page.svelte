@@ -27,6 +27,7 @@
 	} from "$lib/remote/api";
 	import { resolveApproval } from "$lib/approvals/api";
 	import { actionClass, cardClass, timeLabel } from "$lib/team/ui";
+	import XrtExternalRuntimes from "$lib/components/XrtExternalRuntimes.svelte";
 
 	let hosts = $state<RemoteHostView[]>([]);
 	let sessions = $state<RemoteSessionView[]>([]);
@@ -346,4 +347,5 @@
 			{/each}
 		</section>
 	{/if}
+	<XrtExternalRuntimes />
 </div>
