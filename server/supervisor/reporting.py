@@ -7,11 +7,62 @@ binding record (server.supervisor.binding).
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
 from server.goal_run.models import GoalStatus
 from server.goal_run.store import load_goal_run
+
+
+def _evidence_report_enabled() -> bool:
+    from server.feature_flags import enabled
+    try:
+        return bool(enabled("VEYA_EVIDENCE_REPORT"))
+    except Exception:
+        return False
+
+
+def _extract_sources(state) -> list[str]:
+    sources = set()
+    url_re = re.compile(r"https?://[^\s]+")
+    file_re = re.compile(r"\b[a-zA-Z0-9_/.-]+\.[a-zA-Z0-9]+\b")
+    for task in state.tasks.values():
+        texts = []
+        if task.execute_result:
+            texts.append(task.execute_result)
+        for ev in task.evidence:
+            if isinstance(ev, dict):
+                texts.append(str(ev.get("content", "") or ev.get("locator", "")))
+            else:
+                texts.append(str(ev))
+        for t in texts:
+            for url in url_re.findall(t):
+                sources.add(url)
+            for f in file_re.findall(t):
+                if "/" in f or f.endswith((".py", ".md", ".json", ".txt", ".yml", ".yaml")):
+                    sources.add(f)
+    return sorted(list(sources))
+
+
+def _extract_guesses(state) -> list[str]:
+    guesses = []
+    for task in state.tasks.values():
+        if task.execute_result and "assume" in task.execute_result.lower():
+            guesses.append(task.execute_result[:100])
+    if not guesses:
+        guesses.append("（无未证实猜测）")
+    return guesses
+
+
+def _extract_skips(state) -> list[str]:
+    skips = []
+    for task in state.tasks.values():
+        if task.status.value in ("blocked", "pending", "running") and task.status.value != "completed":
+            skips.append(task.title)
+    if not skips:
+        skips.append("（无跳过项）")
+    return skips
 
 
 def build_progress_report(
@@ -81,7 +132,20 @@ def build_progress_report(
             last_evidence = str(v_summary)[:200]
 
     # Build body
-    if is_done:
+    if _evidence_report_enabled():
+        sources = _extract_sources(state)
+        guesses = _extract_guesses(state)
+        skips = _extract_skips(state)
+        src_text = ", ".join(sources) if sources else "（无记录来源）"
+        guess_text = "; ".join(guesses)
+        skip_text = ", ".join(skips)
+        body = (
+            f"任务状态: {state.status.value}\n\n"
+            f"【来源】\n- {src_text}\n\n"
+            f"【猜测】\n- {guess_text}\n\n"
+            f"【跳过】\n- {skip_text}"
+        )
+    elif is_done:
         body = f"任务完成！已完成 {done}/{total} 个子任务。"
         if last_evidence:
             body += f"\n\n最新证据：{last_evidence[:100]}..."
