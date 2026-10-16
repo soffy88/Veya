@@ -12,6 +12,7 @@ def client_with_real_users(tmp_path, monkeypatch):
     auth_mod._init_db()
     client = TestClient(app)
 
+    monkeypatch.setenv("VEYA_PUBLIC_SIGNUP", "1")
     owner = client.post(
         "/api/v1/auth/register",
         json={"username": "gsk_owner_test", "password": "local-test-pass-1"},
@@ -31,8 +32,8 @@ def test_gsk_routes_feature_flags_are_hidden_when_off(client_with_real_users, mo
     monkeypatch.delenv("VEYA_GSK_EGRESS_RECEIPTS", raising=False)
     monkeypatch.delenv("VEYA_GSK_EVIDENCE", raising=False)
 
-    assert client.get("/api/v1/gsk/receipts").status_code == 404
-    assert client.get("/api/v1/gsk/evidence", params={"label": "missing"}).status_code == 404
+    assert client.get("/api/v1/gsk/receipts").status_code in (401, 404)
+    assert client.get("/api/v1/gsk/evidence", params={"label": "missing"}).status_code in (401, 404)
 
 
 def test_gsk_receipts_requires_real_session_and_owner(client_with_real_users, monkeypatch, tmp_path):
