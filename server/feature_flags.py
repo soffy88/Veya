@@ -88,6 +88,10 @@ FLAGS: tuple[FeatureFlag, ...] = (
     # FastClaw clean-room borrow items (default OFF; appended, never reordered)
     FeatureFlag("VEYA_IM_SANDBOX_ENFORCE", False, "safety", "2027-01-01"),
     FeatureFlag("VEYA_BOT_PUBLIC_SHARE", False, "safety", "2027-01-01"),
+    # TDX flags (default OFF)
+    FeatureFlag("VEYA_TDX_NEEDS_YOU", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_TDX_AGENT_PUBLISH_PERMS", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_TDX_RUN_HISTORY", False, "runtime", "2027-01-01"),
 )
 
 
