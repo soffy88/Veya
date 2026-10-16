@@ -4719,6 +4719,11 @@ class RemoteToolAdapter:
                 await terminate_process_group_id(pgid)
                 with contextlib.suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(proc.wait(), timeout=2.0)
+                # Cancelled mid-flight: do not leave pipe pumps / proc.wait()
+                # tasks pending after the process group is gone.
+                for leftover in locals().get("all_tasks", ()):
+                    if not leftover.done():
+                        leftover.cancel()
                 fc = ExecutorFailureClass.WORKER_CANCELLED
                 self.health_registry.record_failure(worker, fc, detail="cancelled")
                 reporter.failure(failure_class=str(fc), source=worker, detail="cancelled")
