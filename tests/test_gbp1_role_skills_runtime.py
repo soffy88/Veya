@@ -47,3 +47,18 @@ def test_build_objective_with_runtime_flag(monkeypatch: pytest.MonkeyPatch) -> N
     assert "<available_skills>" in prompt_a
     assert "test-driven-development" in prompt_a
     assert "<available_skills>" not in prompt_b
+
+
+def test_build_objective_invalid_skill_id_filtered(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEYA_ROLE_SKILLS_RUNTIME", "1")
+    bot = BotSpec(
+        bot_id="bot_c",
+        owner_id="u1",
+        instructions="Instructions C",
+        available_skill_ids=["../invalid/path/skill", "preset:test-driven-development"],
+    )
+    prompt = build_objective(bot=bot, text="hello")
+    assert "<available_skills>" in prompt
+    assert "test-driven-development" in prompt
+    assert "invalid" not in prompt
+
