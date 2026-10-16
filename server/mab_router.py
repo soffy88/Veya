@@ -12,11 +12,10 @@ import json
 import secrets
 import threading
 from typing import Any
-from urllib.parse import urlsplit
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Depends, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from veya.mab import mab_manager, MABProfile
+from veya.mab import mab_manager, MABProfile, url_host
 from server.events import append_canonical_event
 
 from server.auth import require_owner
@@ -291,7 +290,7 @@ def register_mab_tools() -> list[dict[str, Any]]:
         # Audit only the hostname: never persist URL userinfo, query strings, or fragments.
         domain = ""
         try:
-            domain = urlsplit(url or p.site).hostname or ""
+            domain = url_host(url or p.site)
         except Exception:
             pass
         

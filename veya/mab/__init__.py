@@ -24,6 +24,9 @@ def clean_site(value: str) -> str:
         raise ValueError('site must be a valid http(s) URL without embedded credentials')
     return urlunsplit((parsed.scheme.lower(), parsed.netloc, parsed.path or '/', '', ''))
 
+def url_host(value: str) -> str:
+    return urlsplit(str(value or "")).hostname or ""
+
 def safe_url(value: str) -> str:
     parsed = urlsplit(str(value or ''))
     if parsed.scheme in {'http', 'https'} and parsed.hostname and not parsed.username and not parsed.password:
