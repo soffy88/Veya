@@ -180,11 +180,22 @@ def strip_role_block(instructions: str) -> str:
     return _ROLE_BLOCK_RE.sub("", instructions or "").strip()
 
 
+def _evidence_report_enabled() -> bool:
+    from server.feature_flags import enabled
+    try:
+        return bool(enabled("VEYA_EVIDENCE_REPORT"))
+    except Exception:
+        return False
+
+
 def render_role_block(role: Preset, *, budget: int) -> str:
     """The marked role block, its body truncated to fit ``budget`` chars."""
+    note = UNTRUSTED_NOTE
+    if _evidence_report_enabled():
+        note += " 说不清数字怎么来的就不写；猜测和跳过的单独列出。"
     head = (
         f"{ROLE_BLOCK_START} id={role.preset_id} source={role.source} license={role.license} -->\n"
-        f"[{UNTRUSTED_NOTE}]\n"
+        f"[{note}]\n"
         f"Role: {role.name}" + (f" — {role.description}" if role.description else "") + "\n\n"
     )
     tail = "\n" + ROLE_BLOCK_END

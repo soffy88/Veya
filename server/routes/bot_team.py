@@ -74,12 +74,20 @@ def _default_bot_spec(owner_id: str) -> BotSpec:
     The default bot keeps working exactly as before; this only lets the new
     surface drive it without writing a record nobody asked for.
     """
+    from server.feature_flags import enabled
+    instr = ""
+    try:
+        if enabled("VEYA_EVIDENCE_REPORT"):
+            instr = "说不清数字怎么来的就不写；猜测和跳过的单独列出。"
+    except Exception:
+        pass
 
     return BotSpec(
         bot_id=DEFAULT_BOT_ID,
         owner_id=owner_id,
         name="Veya Bot",
         description="The default Veya bot.",
+        instructions=instr,
         runner_id="local",
     )
 
