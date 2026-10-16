@@ -8,6 +8,7 @@ introduced: this module only *routes* into ``run_bot_turn`` /
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -200,14 +201,21 @@ async def _run_group(group_id: str, text: str, user: dict[str, Any]) -> str:
 
 
 async def _deliver(adapter: ChannelAdapter, external_chat_id: str, reply: str) -> None:
+    """Post the reply back through the platform client (chunking long ones)."""
     from . import clients
 
-    client = await clients.client_for(adapter.platform)
+    try:
+        client = await clients.client_for(adapter.platform)
+    except Exception:
+        _log.warning(
+            "No client configured for platform %s", adapter.platform, exc_info=True
+        )
+        return
     from veya.gsk import is_enabled
 
     ledger = None
     body = reply.encode("utf-8")
-    body_hash = __import__("hashlib").sha256(body).hexdigest()
+    body_hash = hashlib.sha256(body).hexdigest()
     destination = f"channel:{adapter.platform}"
     if is_enabled("VEYA_GSK_EGRESS_RECEIPTS"):
         try:
