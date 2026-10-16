@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import { api } from "$lib/api";
+	import { onMount, onDestroy } from "svelte";
+	import { api, API_BASE } from "$lib/api";
 	import { Shield, Plus, Trash2, RefreshCw, Power, PowerOff, Globe, Lock, Play } from "lucide-svelte";
 
 	interface Profile {
@@ -22,13 +22,73 @@
 	let newSite = $state("");
 	let newLabel = $state("");
 	let creating = $state(false);
+	let featureEnabled = $state(false);
+	let streamStatus = $state("Disconnected");
+	let streamError = $state("");
+	let frameData = $state("");
+	let streamWidth = $state(1280);
+	let streamHeight = $state(800);
+	let textToSend = $state("");
+	let streamSocket: WebSocket | null = null;
+
+	function stopStream() {
+		const socket = streamSocket;
+		streamSocket = null;
+		if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, "Stream closed");
+		streamStatus = "Disconnected";
+		frameData = "";
+	}
+
+	function sendStreamMessage(message: Record<string, unknown>) {
+		if (streamSocket && streamSocket.readyState === WebSocket.OPEN) streamSocket.send(JSON.stringify(message));
+	}
+
+	function chooseProfile(profile: Profile) {
+		stopStream();
+		selectedProfile = profile;
+		streamError = "";
+	}
+
+	function sendMouse(event: MouseEvent, eventType: string) {
+		const viewport = event.currentTarget as HTMLElement;
+		const image = viewport.querySelector("img");
+		const rect = (image || viewport).getBoundingClientRect();
+		if (!rect.width || !rect.height) return;
+		const buttons = ["left", "middle", "right", "back", "forward"];
+		const message: Record<string, unknown> = {
+			type: "mouse",
+			eventType,
+			x: Math.round(((event.clientX - rect.left) / rect.width) * streamWidth),
+			y: Math.round(((event.clientY - rect.top) / rect.height) * streamHeight),
+			button: buttons[event.button] || "none",
+			clickCount: Math.max(1, event.detail || 1)
+		};
+		if (eventType === "mouseWheel") {
+			message.deltaX = (event as WheelEvent).deltaX;
+			message.deltaY = (event as WheelEvent).deltaY;
+		}
+		sendStreamMessage(message);
+	}
+
+	function sendKey(event: KeyboardEvent, eventType: "keyDown" | "keyUp") {
+		event.preventDefault();
+		const modifiers = (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
+		sendStreamMessage({ type: "keyboard", eventType, key: event.key, code: event.code, windowsVirtualKeyCode: event.keyCode, modifiers });
+	}
+
+	function sendText() {
+		if (!textToSend || streamSocket?.readyState !== WebSocket.OPEN) return;
+		sendStreamMessage({ type: "text", text: textToSend });
+		textToSend = "";
+	}
 
 	async function loadProfiles() {
 		loading = true;
 		error = "";
 		try {
 			const res = await api("gateway", "api/v1/mab/profiles");
-			if (res.status === 404) { window.location.replace("/"); return; }
+			if (res.status === 404) { featureEnabled = false; stopStream(); window.location.replace("/"); return; }
+			featureEnabled = true;
 			if (res.ok && res.data) {
 				profiles = (res.data as any).profiles || [];
 				if (profiles.length > 0 && !selectedProfile) {
@@ -103,32 +163,55 @@
 	}
 
 	async function requestStreamTicket(profile: Profile) {
+		stopStream();
+		streamError = "";
+		streamStatus = "Requesting ticket";
 		try {
-			const res = await api("gateway", `api/v1/mab/profiles/${profile.id}/stream-ticket`, {
-				method: "POST"
-			});
-			if (res.ok && res.data) {
-				const ticket = (res.data as any).ticket;
-				const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-				const host = window.location.host;
-				const wsUrl = `${proto}//${host}/api/v1/mab/profiles/${profile.id}/stream`;
-				const ws = new WebSocket(wsUrl, [`ticket.${ticket}`]);
-				ws.onopen = () => console.log("MAB WS connected with ticket subprotocol");
-				ws.onmessage = (event) => {
-					try {
-						const msg = JSON.parse(event.data);
-						if (msg.type === "frame") {
-							// screencast frame data
-						}
-					} catch {}
-				};
+			const response = await api("gateway", "api/v1/mab/profiles/" + profile.id + "/stream-ticket", { method: "POST" });
+			if (response.status === 404) {
+				featureEnabled = false;
+				window.location.replace("/");
+				return;
 			}
+			const data = response.data as { ticket?: string };
+			if (!response.ok || !data?.ticket) throw new Error("Stream ticket request failed (" + response.status + ")");
+			const wsUrl = new URL("/api/v1/mab/profiles/" + encodeURIComponent(profile.id) + "/stream", API_BASE || window.location.origin);
+			wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
+			streamStatus = "Connecting";
+			const socket = new WebSocket(wsUrl.toString(), ["ticket." + data.ticket]);
+			streamSocket = socket;
+			socket.onopen = () => { if (streamSocket === socket) streamStatus = "Connected"; };
+			socket.onmessage = (event) => {
+				if (streamSocket !== socket) return;
+				try {
+					const message = JSON.parse(String(event.data)) as { type?: string; data?: string; metadata?: { width?: number; height?: number }; error?: string; message?: string };
+					if (message.type === "frame" && message.data) {
+						frameData = message.data;
+						streamWidth = message.metadata?.width || 1280;
+						streamHeight = message.metadata?.height || 800;
+					} else if (message.type === "error") {
+						streamError = message.error || message.message || "Browser input was rejected";
+					}
+				} catch { streamError = "Invalid stream message"; }
+			};
+			socket.onerror = () => { if (streamSocket === socket) streamError = "WebSocket stream failed"; };
+			socket.onclose = (event) => {
+				if (streamSocket !== socket) return;
+				streamSocket = null;
+				streamStatus = "Disconnected";
+				if (event.code !== 1000) streamError = "Stream closed (" + event.code + ")";
+			};
 		} catch (err: any) {
-			error = err.message || "Failed to obtain stream ticket";
+			streamStatus = "Disconnected";
+			streamError = err?.message || "Failed to obtain stream ticket";
 		}
 	}
+
+	onDestroy(() => stopStream());
+
 </script>
 
+{#if featureEnabled}
 <div class="flex h-full w-full flex-col bg-slate-950 text-slate-100 p-6">
 	<div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
 		<div>
@@ -202,7 +285,7 @@
 									? "bg-slate-900 border-indigo-500/50 shadow-lg shadow-indigo-500/10"
 									: "bg-slate-900/50 border-slate-800 hover:bg-slate-900"
 							}`}
-							onclick={() => (selectedProfile = p)}
+							onclick={() => chooseProfile(p)}
 						>
 							<div class="flex items-center justify-between">
 								<span class="font-semibold text-slate-200">{p.name}</span>
@@ -261,40 +344,33 @@
 						<p class="text-xs text-slate-500">ID: {selectedProfile.id} • Storage: 0700 Isolated</p>
 					</div>
 					<div class="flex items-center gap-2">
-						<span class="text-xs flex items-center gap-1 text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2.5 py-1 rounded-lg">
-							<Lock class="h-3 w-3" />
-							Tools Authorized
-						</span>
+						<span class="text-xs text-slate-400 px-2 py-1 rounded-lg border border-slate-700">{streamStatus}</span>
+						<button type="button" onclick={() => requestStreamTicket(selectedProfile!)} disabled={streamStatus === "Connecting" || streamStatus === "Requesting ticket"} class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded text-xs">Connect stream</button>
+						<button type="button" onclick={stopStream} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs">Disconnect</button>
 					</div>
 				</div>
 
-				<div class="flex-1 bg-slate-950 flex flex-col items-center justify-center p-8 text-center relative">
-					<div class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-950/20 via-slate-950 to-slate-950 pointer-events-none"></div>
-					<div class="max-w-md flex flex-col items-center gap-4 z-10">
-						<div class="h-16 w-16 rounded-2xl bg-indigo-950/60 border border-indigo-800/60 flex items-center justify-center text-indigo-400 shadow-xl">
-							<Play class="h-8 w-8 ml-1" />
-						</div>
-						<h3 class="text-lg font-bold text-slate-200">Remote Profile Session Ready</h3>
-						<p class="text-sm text-slate-400">
-							This profile has an isolated user data directory. All tool requests targeting profile <code class="text-indigo-300 font-mono">{selectedProfile.name}</code> run within this encrypted boundary without leaking raw credentials.
-						</p>
-						<div class="flex items-center gap-3 pt-2">
-							<button
-								onclick={() => requestStreamTicket(selectedProfile!)}
-								class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition shadow-lg shadow-indigo-600/20"
-							>
-								Connect Live Stream
-							</button>
-							<a
-								href={selectedProfile.site}
-								target="_blank"
-								rel="noreferrer"
-								class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition"
-							>
-								Open External Target
-							</a>
-						</div>
+				<div class="flex-1 min-h-0 bg-black flex flex-col overflow-hidden">
+					<div class="flex-1 min-h-0 flex items-center justify-center overflow-hidden bg-black"
+						role="application" tabindex="0"
+						aria-label="Remote browser viewport; focus it to forward keyboard input"
+						onmousemove={(event) => sendMouse(event, "mouseMoved")}
+						onmousedown={(event) => { (event.currentTarget as HTMLElement).focus(); sendMouse(event, "mousePressed"); }}
+						onmouseup={(event) => sendMouse(event, "mouseReleased")}
+						onwheel={(event) => { event.preventDefault(); sendMouse(event, "mouseWheel"); }}
+						onkeydown={(event) => sendKey(event, "keyDown")}
+						onkeyup={(event) => sendKey(event, "keyUp")}>
+						{#if frameData}
+							<img class="max-w-full max-h-full object-contain select-none" width={streamWidth} height={streamHeight} src={"data:image/jpeg;base64," + frameData} alt="Live remote browser frame" draggable="false" />
+						{:else}
+							<div class="p-8 text-center text-sm text-slate-400"><Play class="h-8 w-8 mx-auto mb-3 text-indigo-400" />Connect to view and control the isolated Playwright browser session.</div>
+						{/if}
 					</div>
+					<div class="flex gap-2 p-3 border-t border-slate-800 bg-slate-900">
+						<input class="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm" placeholder="Send text to the focused browser element" bind:value={textToSend} onkeydown={(event) => { if (event.key === "Enter") { event.preventDefault(); sendText(); } }} />
+						<button type="button" onclick={sendText} disabled={!textToSend || streamStatus !== "Connected"} class="px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-lg text-sm">Send text</button>
+					</div>
+					{#if streamError}<div class="px-4 pb-3 bg-slate-900 text-sm text-red-300">{streamError}</div>{/if}
 				</div>
 			{:else}
 				<div class="flex-1 flex items-center justify-center text-slate-500 text-sm">
@@ -304,3 +380,4 @@
 		</div>
 	</div>
 </div>
+{/if}

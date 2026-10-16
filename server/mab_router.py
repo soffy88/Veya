@@ -12,6 +12,7 @@ import json
 import secrets
 import threading
 from typing import Any
+from urllib.parse import urlsplit
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Depends, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
@@ -183,9 +184,9 @@ async def profile_stream_websocket(websocket: WebSocket, profile_id: str):
                     await websocket.send_json({"type": "error", "message": str(exc)})
     except WebSocketDisconnect:
         pass
-    except Exception:
+    except Exception as exc:
         try:
-            await websocket.close(code=1011, reason="Stream transport failed")
+            await websocket.close(code=1011, reason=f"Stream transport failed ({type(exc).__name__})")
         except Exception:
             pass
     finally:
@@ -252,8 +253,19 @@ async def _dispatch_cdp_input(cdp: Any, message: dict[str, Any]) -> None:
 
 async def _forward_cdp_frame(websocket: WebSocket, cdp: Any, frame: dict[str, Any]) -> None:
     meta = frame.get("metadata", {})
-    await websocket.send_json({"type": "frame", "data": frame.get("data", ""), "metadata": {"width": meta.get("deviceWidth", 1280), "height": meta.get("deviceHeight", 800)}})
-    await cdp.send("Page.screencastFrameAck", {"sessionId": frame["sessionId"]})
+    try:
+        await websocket.send_json({
+            "type": "frame",
+            "data": frame.get("data", ""),
+            "metadata": {
+                "width": max(1, min(20000, int(meta.get("deviceWidth") or 1280))),
+                "height": max(1, min(20000, int(meta.get("deviceHeight") or 800))),
+            },
+        })
+    finally:
+        # Every received CDP frame is acknowledged, including send failures when the
+        # client disconnected between frame receipt and WebSocket forwarding.
+        await cdp.send("Page.screencastFrameAck", {"sessionId": frame["sessionId"]})
 
 
 # Tool and Audit bridge
@@ -276,14 +288,12 @@ def register_mab_tools() -> list[dict[str, Any]]:
         
         mab_manager.touch_profile(profile)
 
-        # Write audit event (no credentials / raw sensitive storage)
-        from urllib.parse import urlparse
+        # Audit only the hostname: never persist URL userinfo, query strings, or fragments.
         domain = ""
-        if url:
-            try:
-                domain = urlparse(url).netloc
-            except Exception:
-                pass
+        try:
+            domain = urlsplit(url or p.site).hostname or ""
+        except Exception:
+            pass
         
         try:
             append_canonical_event(

@@ -8,6 +8,7 @@ flag OFF behavior, and non-owner 403 authorization checks.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import stat
 import pytest
@@ -24,7 +25,16 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def setup_auth_override():
     app.dependency_overrides.pop(auth_mod.require_owner, None)
+    # Isolate session/loop state: a previous test's browser must not consume
+    # the manager's limited concurrent-session slots for a later test.
+    mab_manager._sessions.clear()
+    mab_manager._loop = None
+    mab_manager._reaper_task = None
+    mab_manager._lock = asyncio.Lock()
     yield
+    mab_manager._sessions.clear()
+    mab_manager._loop = None
+    mab_manager._reaper_task = None
     app.dependency_overrides.pop(auth_mod.require_owner, None)
 
 @pytest.fixture
@@ -371,3 +381,101 @@ def test_7_tool_execution_integration(monkeypatch, tmp_path):
 
 
 
+
+
+def test_8_websocket_stream_relay_and_cdp_cleanup(monkeypatch, tmp_path, owner_headers):
+    monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
+    monkeypatch.setattr(mab_manager, "base_dir", tmp_path / "mab")
+    monkeypatch.setattr(mab_manager, "profiles_dir", tmp_path / "mab" / "profiles")
+    mab_manager._ensure_storage()
+
+    class FakePage:
+        url = "https://example.com"
+
+    class FakeCDP:
+        def __init__(self):
+            self.commands = []
+            self.listeners = {}
+            self.detached = False
+
+        def on(self, event, callback):
+            self.listeners[event] = callback
+
+        async def send(self, method, params=None):
+            self.commands.append((method, params))
+            if method == "Page.startScreencast":
+                frame = {
+                    "data": "ZmFrZS1qcGVn",
+                    "metadata": {"deviceWidth": 1280, "deviceHeight": 800},
+                    "sessionId": 42,
+                }
+                asyncio.get_running_loop().call_soon(self.listeners["Page.screencastFrame"], frame)
+            return {}
+
+        async def detach(self):
+            self.detached = True
+
+    class FakeContext:
+        def __init__(self, cdp):
+            self.cdp = cdp
+
+        async def new_cdp_session(self, page):
+            assert isinstance(page, FakePage)
+            return self.cdp
+
+    cdp = FakeCDP()
+    page = FakePage()
+
+    async def session_factory(profile):
+        return {"page": page, "context": FakeContext(cdp), "playwright": None}
+
+    monkeypatch.setattr(mab_manager, "_session_factory", session_factory)
+    profile = mab_manager.create_profile("CDP relay test", "https://example.com", "cdp")
+    issued = client.post(
+        f"/api/v1/mab/profiles/{profile.id}/stream-ticket",
+        headers=owner_headers,
+    )
+    assert issued.status_code == 200
+    assert issued.json()["expires_in"] == 60
+
+    with client.websocket_connect(
+        f"/api/v1/mab/profiles/{profile.id}/stream",
+        subprotocols=[f"ticket.{issued.json()['ticket']}"],
+    ) as websocket:
+        frame = websocket.receive_json()
+        assert frame["type"] == "frame"
+        assert frame["data"] == "ZmFrZS1qcGVn"
+        assert frame["metadata"] == {"width": 1280, "height": 800}
+        websocket.send_json({"type": "text", "text": "hello"})
+        websocket.send_json({"type": "keyboard", "eventType": "keyDown", "key": "A", "code": "KeyA"})
+        websocket.send_json({"type": "mouse", "eventType": "mousePressed", "x": 20, "y": 30, "button": "left"})
+        websocket.send_json({"type": "ping"})
+        assert websocket.receive_json() == {"type": "pong"}
+
+    methods = [name for name, _params in cdp.commands]
+    for expected in (
+        "Page.enable",
+        "Page.startScreencast",
+        "Page.screencastFrameAck",
+        "Input.insertText",
+        "Input.dispatchKeyEvent",
+        "Input.dispatchMouseEvent",
+        "Page.stopScreencast",
+    ):
+        assert expected in methods
+    assert cdp.detached
+
+
+def test_9_profile_deletion_rejects_symlink_escape(monkeypatch, tmp_path):
+    monkeypatch.setattr(mab_manager, "base_dir", tmp_path / "mab")
+    monkeypatch.setattr(mab_manager, "profiles_dir", tmp_path / "mab" / "profiles")
+    mab_manager._ensure_storage()
+    profile = mab_manager.create_profile("Delete safety", "https://example.com", "safe")
+    profile_dir = mab_manager._profile_dir(profile.id)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep", encoding="utf-8")
+    (profile_dir / "outside-link").symlink_to(outside)
+    with pytest.raises(ValueError, match="escapes profile directory"):
+        mab_manager.delete_profile(profile.id, confirm=True)
+    assert outside.read_text(encoding="utf-8") == "keep"
+    assert mab_manager.get_profile(profile.id) is not None
