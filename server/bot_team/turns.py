@@ -93,13 +93,40 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
         parts.append(f"Your one job: {bot.description.strip()}")
     if getattr(bot, "available_skill_ids", None):
         import os
-
+        import logging
         from server.skill_progressive import is_skill_progressive_enabled, render_skills_block
+        from server.skill_authority import canonical_skill_id, SkillAuthorityError
 
-        if is_skill_progressive_enabled():
-            skills_block = render_skills_block(bot.available_skill_ids, progressive=True)
-            if skills_block:
-                parts.append(skills_block)
+        role_skills_on = False
+        try:
+            from server.feature_flags import enabled as _flag_enabled
+            if _flag_enabled("VEYA_ROLE_SKILLS_RUNTIME"):
+                role_skills_on = True
+        except Exception:
+            pass
+
+        if role_skills_on or is_skill_progressive_enabled():
+            validated_skill_ids = []
+            for sid in bot.available_skill_ids:
+                try:
+                    clean = sid
+                    if sid.startswith("preset:"):
+                        clean = sid[len("preset:") :]
+                    canonical_skill_id(clean)
+                    validated_skill_ids.append(sid)
+                except (SkillAuthorityError, Exception) as exc:
+                    logging.getLogger("server.bot_team.turns").warning(f"Invalid skill id {sid!r}: {exc}")
+
+            if validated_skill_ids:
+                skills_block = render_skills_block(validated_skill_ids, progressive=True)
+                max_len = 3000
+                if len(skills_block) > max_len:
+                    logging.getLogger("server.bot_team.turns").warning(
+                        f"Skills block length {len(skills_block)} exceeds limit {max_len}, truncating."
+                    )
+                    skills_block = skills_block[:max_len - 30] + "\n... [truncated due to length limit]\n</available_skills>"
+                if skills_block:
+                    parts.append(skills_block)
         elif os.environ.get("VEYA_SKILL_INJECT_FULL", "0").lower() in ("1", "true", "yes"):
             skills_block = render_skills_block(bot.available_skill_ids, progressive=False)
             if skills_block:
