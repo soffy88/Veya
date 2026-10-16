@@ -365,13 +365,14 @@ class CLIWorkerExecutorAdapter(ExecutorAdapter):
         reporter.phase("STARTING", message=f"{self.executor_id} starting", event="STARTING")
 
         try:
-            proc = await asyncio.create_subprocess_exec(
+            from veya.remote._proc import spawn_process
+
+            # Cancel-safe spawn (F10), see veya/remote/_proc.py.
+            proc = await spawn_process(
                 *argv,
                 cwd=cwd,
                 env=env,
                 stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
             )
         except OSError as exc:

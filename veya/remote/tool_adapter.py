@@ -4612,13 +4612,14 @@ class RemoteToolAdapter:
             env["VEYA_EXECUTION_ID"] = reporter._execution_id
             reporter.model_started(activity=f"{worker} model request")
             reporter.phase("THINKING", message=f"{worker} thinking", event="MODEL_REQUEST_STARTED")
-            proc = await asyncio.create_subprocess_exec(
+            from veya.remote._proc import spawn_process
+
+            # Cancel-safe spawn (F10), see veya/remote/_proc.py.
+            proc = await spawn_process(
                 *argv,
                 cwd=worktree,
                 env=env,
                 stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
             )
             try:

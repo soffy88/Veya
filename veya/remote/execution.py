@@ -57,7 +57,7 @@ from veya.remote.qualification_faults import checkpoint as qualification_checkpo
 _logger = logging.getLogger(__name__)
 
 
-async def _await_cancelled_task(task: "asyncio.Future[Any]") -> None:
+async def _await_cancelled_task(task: asyncio.Future[Any]) -> None:
     """Await a child task we just cancelled without swallowing *our own* cancellation.
 
     ``contextlib.suppress(asyncio.CancelledError)`` around ``await task`` also
@@ -4108,7 +4108,7 @@ class DurableJobManager:
                     if current is not None and current.cancelling():
                         raise
                 except Exception:
-                    logger.debug("goal task did not settle after cancel", exc_info=True)
+                    _logger.debug("goal task did not settle after cancel", exc_info=True)
             record = self._lookup(execution_id) or record
             if not record.is_terminal:
                 self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
