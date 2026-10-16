@@ -96,6 +96,7 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_ROLE_SKILLS_RUNTIME", False, "runtime", "2027-01-01"),
     # GBP2: Teach once save as skill flag (default OFF)
     FeatureFlag("VEYA_TEACH_SKILL", False, "learning", "2027-01-01"),
+    FeatureFlag("VEYA_EVENT_TRIGGERS", False, "runtime", "2027-01-01"),
 )
 
 

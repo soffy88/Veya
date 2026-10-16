@@ -42,6 +42,7 @@ ALL_FLAGS: dict[str, bool] = {
     "VEYA_ACP_MEMBERS": False,
     "VEYA_AUDIT_CHAIN": False,
     "VEYA_CLI_GEN": False,
+    "VEYA_EVENT_TRIGGERS": False,
 }
 
 #: Error code returned by every disabled surface (stable, machine-readable).

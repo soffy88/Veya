@@ -1,9 +1,12 @@
 import contextlib
+import json
+import os
 import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Any
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from server import auth as auth_mod
@@ -297,8 +300,60 @@ def get_history(bot_id: str, routine_id: str, limit: int = 50):
 
     try:
         history = RoutineHistoryStore(bot_id=bot_id).get_history(routine_id)
-        if len(history) > limit:
-            history = history[-limit:]
-        return {"history": history}
+        return {"status": "ok", "routine_id": routine_id, "history": history[-limit:]}
+    except Exception as exc:
+        return {"status": "ok", "routine_id": routine_id, "history": []}
+
+
+@router.post("/webhook")
+async def routine_webhook(
+    request: Request,
+    bot_id: str,
+):
+    from server.nano_w9.flags import flag_enabled, FeatureDisabled
+    if not flag_enabled("VEYA_EVENT_TRIGGERS") and not flag_enabled("VEYA_ROUTINE_TRIGGERS"):
+        raise HTTPException(status_code=404, detail={"code": "FEATURE_DISABLED", "flag": "VEYA_EVENT_TRIGGERS"})
+
+    body = await request.body()
+    secret = os.environ.get("VEYA_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(status_code=401, detail="Webhook authentication is not configured")
+    supplied = (
+        request.headers.get("X-Veya-Signature") or request.headers.get("X-Hub-Signature-256") or ""
+    ).strip()
+    if not supplied:
+        raise HTTPException(status_code=401, detail="Missing webhook signature")
+
+    from server.nano_w9.routine_triggers import verify_webhook_signature, RoutineSignalRouter
+    if not verify_webhook_signature(body, secret=secret, signature=supplied):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    try:
+        payload = json.loads(body)
     except Exception:
-        return {"history": []}
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    registry = _get_registry(bot_id)
+    history_store = RoutineHistoryStore(bot_id=bot_id)
+
+    from server.goal_run.routine_dispatch import dispatch_trigger
+    from server.goal_run.models import GoalRunState
+
+    def dispatch_fn(topic: str, trigger_id: str, payload: dict[str, Any]):
+        state = GoalRunState(goal_id=uuid.uuid4().hex, goal_text=str(payload.get("event") or "webhook"), bot_id=bot_id)
+        routines = registry.lookup(topic, bot_id=bot_id)
+        handoffs = dispatch_trigger(state, routines, topic=topic, trigger_id=trigger_id, payload=payload)
+        for h in handoffs:
+            history_store.add_record(h["routine_id"], {"trigger_id": trigger_id, "payload": payload, "at": time.time()})
+        return {"handoffs": handoffs}
+
+    router = RoutineSignalRouter(registry=registry, dispatch=dispatch_fn)
+    signal = {
+        "kind": "webhook",
+        "event": payload.get("event") or payload.get("action") or "webhook",
+        "verified": True,
+        "id": payload.get("id") or uuid.uuid4().hex,
+        **payload,
+    }
+    result = await router.handle(signal)
+    return {"status": result["status"], **result}
