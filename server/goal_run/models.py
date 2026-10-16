@@ -305,6 +305,7 @@ class RoutineSpec:
     probe: dict = field(default_factory=lambda: {"kind": "none"})
     model: str = ""
     workspace_path: str = ""
+    triggers: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -330,6 +331,7 @@ class RoutineSpec:
             probe=dict(value.get("probe") or {"kind": "none"}),
             model=str(value.get("model") or ""),
             workspace_path=str(value.get("workspace_path") or ""),
+            triggers=list(value.get("triggers") or []),
         )
 
 
