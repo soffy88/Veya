@@ -275,6 +275,17 @@ class ApprovalService:
                     approval_id=str(record.get("request_id") or approval_id),
                 )
 
+            if record.get("tool") == "teach_skill_draft":
+                args = record.get("tool_args") or {}
+                version_id = args.get("skill_version_id")
+                if version_id:
+                    try:
+                        from runtime.personal import get_personal_runtime
+                        runtime = get_personal_runtime()
+                        await runtime.confirm_skill(version_id)
+                    except Exception:
+                        pass
+
         return result
 
     # ── human handoff ─────────────────────────────────────────────────

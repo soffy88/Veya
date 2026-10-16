@@ -4596,6 +4596,43 @@ async def _tool_skill_create(
     )
 
 
+async def _tool_skill_teach(
+    name: str,
+    description: str,
+    trajectory_summary: str = "",
+) -> dict:
+    if not flag_enabled("VEYA_TEACH_SKILL"):
+        return {"status": "error", "error": "VEYA_TEACH_SKILL feature flag is disabled"}
+    user_id, session_id, task_id, trace_id = _personal_request_ids()
+    judgment_suffix = "\n\n[需要你补的判断规则]\n请补充触发该技能的条件、边界与预期校验规则。"
+    full_description = description.strip() + judgment_suffix
+    runtime = get_personal_runtime()
+    created = await runtime.create_skill_candidate(
+        name,
+        full_description,
+        scope_type="user",
+        scope_id=user_id,
+        execution_type="prompt",
+        execution_ref=trajectory_summary,
+        created_by=user_id,
+    )
+    from server.approvals import get_approval_service
+    approval_svc = get_approval_service()
+    approval_res = await approval_svc.request(
+        tool="teach_skill_draft",
+        args={"skill_id": created.get("skill_id"), "skill_version_id": created.get("id"), "name": name},
+        user_id=user_id,
+        reason=f"Approve skill draft '{name}' via bot tool",
+    )
+    return {
+        "status": "draft_created",
+        "skill_id": created.get("skill_id"),
+        "version_id": created.get("id"),
+        "approval_id": approval_res.get("approval_id") or approval_res.get("approval", {}).get("request_id"),
+        "description": full_description,
+    }
+
+
 async def _tool_skill_confirm(skill_version_id: str) -> dict:
     try:
         user_id, _, _, _ = _personal_request_ids()
@@ -4793,6 +4830,22 @@ if not master_tools.has("skill_create"):
             "required": ["name", "description"],
         },
         _tool_skill_create,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+if not master_tools.has("skill_teach"):
+    master_tools.register(
+        "skill_teach",
+        "将一次完成的操作轨迹转成有名字的技能草稿（带判断规则段落，需 ApprovalService 批准后方可激活）。",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "trajectory_summary": {"type": "string"},
+            },
+            "required": ["name", "description"],
+        },
+        _tool_skill_teach,
         side_effect=SideEffect.LOCAL_WRITE,
     )
 if not master_tools.has("skill_confirm"):
