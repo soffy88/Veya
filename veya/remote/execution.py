@@ -3192,23 +3192,25 @@ class DurableJobManager:
         )
         self._monitors[record.execution_id] = monitor
         try:
-            response = await project_run_goal(
-                project_root=project_root,
-                goal=f"Remote execution {record.execution_id}: {record.tool}",
-                tasks=[
-                    {
-                        "id": record.goal_task_id,
-                        "title": f"Remote execution {record.execution_id}",
-                        "instruction": record.command or record.tool,
-                        "acceptance": ["remote provider returned a successful result"],
-                        "assignee": "builtin",
-                    }
-                ],
-                mode="act_eager",
-                resume_goal_id=record.goal_run_id,
-                integration_adapter=RemoteGoalRunAdapter(),
-                semantic_session_id=record.session_id,
-                wait=True,
+            response = await asyncio.shield(
+                project_run_goal(
+                    project_root=project_root,
+                    goal=f"Remote execution {record.execution_id}: {record.tool}",
+                    tasks=[
+                        {
+                            "id": record.goal_task_id,
+                            "title": f"Remote execution {record.execution_id}",
+                            "instruction": record.command or record.tool,
+                            "acceptance": ["remote provider returned a successful result"],
+                            "assignee": "builtin",
+                        }
+                    ],
+                    mode="act_eager",
+                    resume_goal_id=record.goal_run_id,
+                    integration_adapter=RemoteGoalRunAdapter(),
+                    semantic_session_id=record.session_id,
+                    wait=True,
+                )
             )
             record.goal_run_id = response.goal_id or record.goal_run_id
             value = getattr(response.status, "value", response.status)
