@@ -95,3 +95,6 @@ deploy/hevi_deps/
 *.bak-*
 *.py.bak*
 .qualification-provider-real
+
+# MAB profile data contains persistent authenticated browser state and must never be tracked.
+.veya/mab/profiles/

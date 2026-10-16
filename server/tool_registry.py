@@ -4863,6 +4863,18 @@ from server.github_pr_tools import register_tools as _register_github_pr_tools  
 
 _register_github_pr_tools(master_tools)
 
+# MAB is opt-in and additive; preserve the canonical GitHub PR registration above.
+if os.environ.get("VEYA_MAB_BROWSER", "OFF").strip().upper() in {"1", "TRUE", "ON", "YES"}:
+    from server.mab_router import register_mab_tools as _register_mab_tools  # noqa: E402
+
+    for _mab_tool in _register_mab_tools():
+        master_tools.register(
+            name=_mab_tool["name"],
+            description=_mab_tool["description"],
+            parameters=_mab_tool["parameters"],
+            func=_mab_tool["handler"],
+        )
+
 # MAB is strictly opt-in; keep the canonical GitHub tool registration intact.
 if os.environ.get("VEYA_MAB_BROWSER", "OFF").strip().upper() in {"1", "TRUE", "ON", "YES"}:
     from server.mab_router import register_mab_tools as _register_mab_tools
