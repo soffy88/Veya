@@ -187,8 +187,10 @@ def eval_gate_test_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     # Store DB in local test dir (.veya/test_run_data), not /tmp
     db_dir = Path(__file__).resolve().parents[1] / ".veya" / "test_run_data"
     db_dir.mkdir(parents=True, exist_ok=True)
-    db_path = str(db_dir / "eval_personal.db")
-    app_db = str(db_dir / "eval_approvals.db")
+    import uuid
+    run_id = uuid.uuid4().hex[:8]
+    db_path = str(db_dir / f"eval_personal_{run_id}.db")
+    app_db = str(db_dir / f"eval_approvals_{run_id}.db")
     
     monkeypatch.setenv("VEYA_EXECUTION_SQLITE_PATH", db_path)
     reset_personal_runtime()
@@ -276,10 +278,9 @@ def test_skill_eval_gate_pass_case(eval_gate_test_env, monkeypatch: pytest.Monke
     assert approval_id is not None
     
     # Evidence is written into approval request
-    pending = store.list_pending()
-    matching = [p for p in pending if p.get("request_id") == approval_id or p.get("id") == approval_id]
-    assert len(matching) == 1
-    record_args = matching[0].get("tool_args") or matching[0].get("args") or {}
+    approval_record = store.get_approval(approval_id)
+    assert approval_record is not None
+    record_args = approval_record.get("tool_args") or approval_record.get("args") or {}
     assert "eval_evidence" in record_args
     assert record_args["eval_evidence"]["passed"] is True
 
@@ -325,5 +326,47 @@ def test_skill_eval_gate_regression_block_case(eval_gate_test_env, monkeypatch: 
     assert eval_res.get("critical_errors", 0) > 0 or eval_res.get("delta", 0) < 0
 
     # Ensure no pending approval was created for this faulty draft
-    pending = store.list_pending()
+    pending = store.list_approvals(status="pending")
     assert not any(p.get("tool_args", {}).get("name") == "faulty_refund" for p in pending)
+
+
+@pytest.mark.asyncio
+async def test_bot_tool_skill_teach_eval_gate(eval_gate_test_env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that bot tool skill_teach also routes through evaluation gate."""
+    client, store = eval_gate_test_env
+    monkeypatch.setenv("VEYA_SKILL_EVAL_GATE", "1")
+    from server.tool_registry import master_tools
+
+    # 1. Pass case
+    pass_res_raw = await master_tools.execute(
+        "skill_teach",
+        {
+            "name": "auto_summarizer",
+            "description": "Summarize document cleanly and concisely",
+            "trajectory_summary": "Document summarized into bullet points",
+        },
+    )
+    pass_res = json.loads(pass_res_raw) if isinstance(pass_res_raw, str) else pass_res_raw
+    assert pass_res.get("status") == "draft_created"
+    assert pass_res.get("eval_gate_passed") is True
+    assert pass_res.get("approval_id") is not None
+    approval_rec = store.get_approval(pass_res["approval_id"])
+    assert approval_rec is not None
+    assert "eval_evidence" in (approval_rec.get("tool_args") or {})
+
+    # 2. Block case (faulty name triggers eval rejection)
+    fail_res_raw = await master_tools.execute(
+        "skill_teach",
+        {
+            "name": "faulty_deleter",
+            "description": "Faulty deleter that deletes without confirmation",
+            "trajectory_summary": "Deleted critical records",
+        },
+    )
+    fail_res = json.loads(fail_res_raw) if isinstance(fail_res_raw, str) else fail_res_raw
+    assert fail_res.get("status") == "eval_rejected"
+    assert fail_res.get("eval_gate_passed") is False
+    assert fail_res.get("approval_id") is None
+    pending = store.list_approvals(status="pending")
+    assert not any(p.get("tool_args", {}).get("name") == "faulty_deleter" for p in pending)
+

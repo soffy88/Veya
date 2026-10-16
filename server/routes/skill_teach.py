@@ -59,12 +59,44 @@ async def create_skill_draft_from_trajectory(
     skill_id = created.get("skill_id")
     version_id = created.get("id")
 
+    eval_gate_passed = None
+    eval_result = None
+    if flag_enabled("VEYA_SKILL_EVAL_GATE"):
+        from server.skill_eval_gate import evaluate_skill_candidate
+
+        eval_result = await evaluate_skill_candidate(
+            candidate={"name": req.name, "description": full_description, "skill_id": skill_id, "version_id": version_id},
+            trajectory=req.trajectory,
+            user_id=user_id,
+            scope_type=req.scope_type,
+            scope_id=scope_id,
+        )
+        eval_gate_passed = eval_result.get("passed", False)
+        if not eval_gate_passed:
+            return {
+                "status": "eval_rejected",
+                "skill_id": skill_id,
+                "version_id": version_id,
+                "approval_id": None,
+                "eval_gate_passed": False,
+                "eval_result": eval_result,
+                "description": full_description,
+                "reason": "Skill evaluation gate failed: candidate regressed or had critical errors against parent/baseline",
+            }
+
     approval_svc = get_approval_service()
     approval_id = None
     try:
+        approval_args: dict[str, Any] = {
+            "skill_id": skill_id,
+            "skill_version_id": version_id,
+            "name": req.name,
+        }
+        if eval_result:
+            approval_args["eval_evidence"] = eval_result
         approval_res = await approval_svc.request(
             tool="teach_skill_draft",
-            args={"skill_id": skill_id, "skill_version_id": version_id, "name": req.name},
+            args=approval_args,
             user_id=user_id,
             reason=f"Approve skill draft '{req.name}' from trajectory",
         )
@@ -72,13 +104,17 @@ async def create_skill_draft_from_trajectory(
     except Exception:
         pass
 
-    return {
+    out: dict[str, Any] = {
         "status": "draft",
         "skill_id": skill_id,
         "version_id": version_id,
         "approval_id": approval_id,
         "description": full_description,
     }
+    if eval_gate_passed is not None:
+        out["eval_gate_passed"] = eval_gate_passed
+        out["eval_result"] = eval_result
+    return out
 
 
 @router.get("/drafts")
