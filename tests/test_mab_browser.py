@@ -17,25 +17,61 @@ from server.app import app
 from veya.mab import mab_manager
 from server.mab_router import register_mab_tools, is_mab_enabled
 
+from server import auth as auth_mod
+
 client = TestClient(app)
 
-def test_1_flag_off_and_non_owner(monkeypatch):
+@pytest.fixture(autouse=True)
+def setup_auth_override():
+    app.dependency_overrides.pop(auth_mod.require_owner, None)
+    yield
+    app.dependency_overrides.pop(auth_mod.require_owner, None)
+
+@pytest.fixture
+def owner_token(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> str:
+    db = tmp_path_factory.mktemp("sec-auth") / "auth.db"
+    monkeypatch.setattr(auth_mod, "_DB_PATH", db)
+    monkeypatch.delenv("VEYA_LOCAL_SINGLE_USER", raising=False)
+    auth_mod._DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with auth_mod._lock, auth_mod._connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS users ("
+            "  id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE,"
+            "  password_hash TEXT NOT NULL, created_at INTEGER NOT NULL,"
+            "  is_owner INTEGER NOT NULL DEFAULT 0)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tokens ("
+            "  token TEXT PRIMARY KEY, user_id TEXT NOT NULL,"
+            "  created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)"
+        )
+    user = auth_mod.create_user("owner_123", "very-long-secure-password-12345", is_owner=True)
+    return auth_mod.issue_token(user["user_id"])
+
+@pytest.fixture
+def owner_headers(owner_token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {owner_token}"}
+
+@pytest.fixture
+def nonowner_headers(owner_token: str) -> dict[str, str]:
+    user = auth_mod.create_user("sec-test-nonowner", "another-long-password-99999", is_owner=False)
+    return {"Authorization": f"Bearer {auth_mod.issue_token(user['user_id'])}"}
+
+def test_1_flag_off_and_non_owner(monkeypatch, owner_headers, nonowner_headers):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "OFF")
-    response = client.get("/api/v1/mab/profiles")
+    response = client.get("/api/v1/mab/profiles", headers=owner_headers)
     assert response.status_code == 404
     assert not is_mab_enabled()
     tools = register_mab_tools()
     assert len(tools) == 0
 
-    # Test non-owner header check if configured
+    # Test non-owner and unauthenticated check when VEYA_MAB_BROWSER is ON
     monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
-    monkeypatch.setenv("VEYA_OWNER_USER_ID", "owner_123")
-    res_forbidden = client.get("/api/v1/mab/profiles", headers={"X-Veya-User": "intruder_999"})
-    assert res_forbidden.status_code == 403
+    assert client.get("/api/v1/mab/profiles").status_code == 401
+    assert client.get("/api/v1/mab/profiles", headers=nonowner_headers).status_code == 403
 
-def test_2_crud_0700_and_permissions(monkeypatch, tmp_path):
+def test_2_crud_0700_and_permissions(monkeypatch, tmp_path, owner_headers):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
-    monkeypatch.setenv("VEYA_OWNER_USER_ID", "")
     monkeypatch.setattr(mab_manager, "base_dir", tmp_path / "mab")
     monkeypatch.setattr(mab_manager, "profiles_dir", tmp_path / "mab" / "profiles")
     mab_manager._ensure_storage()
@@ -50,7 +86,7 @@ def test_2_crud_0700_and_permissions(monkeypatch, tmp_path):
         "name": "Work Account",
         "site": "https://example.com",
         "account_label": "work_user"
-    })
+    }, headers=owner_headers)
     assert res_create.status_code == 200
     data = res_create.json()
     assert data["ok"] is True
@@ -65,7 +101,7 @@ def test_2_crud_0700_and_permissions(monkeypatch, tmp_path):
     # Rename / update profile
     res_update = client.put(f"/api/v1/mab/profiles/{pid}", json={
         "name": "Updated Work Account"
-    })
+    }, headers=owner_headers)
     assert res_update.status_code == 200
     assert res_update.json()["profile"]["name"] == "Updated Work Account"
 
@@ -74,23 +110,23 @@ def test_2_crud_0700_and_permissions(monkeypatch, tmp_path):
         "name": "Personal Account",
         "site": "https://example.org",
         "account_label": "personal_user"
-    })
+    }, headers=owner_headers)
     assert res_create2.status_code == 200
     pid2 = res_create2.json()["profile"]["id"]
 
-    profiles_list = client.get("/api/v1/mab/profiles").json()["profiles"]
+    profiles_list = client.get("/api/v1/mab/profiles", headers=owner_headers).json()["profiles"]
     assert len(profiles_list) == 2
 
     # Delete without confirm fails
-    res_del_bad = client.delete(f"/api/v1/mab/profiles/{pid}", params={"confirm": False})
+    res_del_bad = client.delete(f"/api/v1/mab/profiles/{pid}", params={"confirm": False}, headers=owner_headers)
     assert res_del_bad.status_code in (400, 422)
 
     # Delete with confirm succeeds
-    res_del_ok = client.delete(f"/api/v1/mab/profiles/{pid}", params={"confirm": True})
+    res_del_ok = client.delete(f"/api/v1/mab/profiles/{pid}", params={"confirm": True}, headers=owner_headers)
     assert res_del_ok.status_code == 200
-    assert len(client.get("/api/v1/mab/profiles").json()["profiles"]) == 1
+    assert len(client.get("/api/v1/mab/profiles", headers=owner_headers).json()["profiles"]) == 1
 
-def test_3_tool_revocation_and_audit(monkeypatch, tmp_path):
+def test_3_tool_revocation_and_audit(monkeypatch, tmp_path, owner_headers):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
     monkeypatch.setattr(mab_manager, "base_dir", tmp_path / "mab")
     monkeypatch.setattr(mab_manager, "profiles_dir", tmp_path / "mab" / "profiles")
@@ -106,7 +142,7 @@ def test_3_tool_revocation_and_audit(monkeypatch, tmp_path):
     assert res_ok["success"] is True
 
     # Revoke profile via API
-    res_rev = client.post(f"/api/v1/mab/profiles/{p.id}/revoke")
+    res_rev = client.post(f"/api/v1/mab/profiles/{p.id}/revoke", headers=owner_headers)
     assert res_rev.status_code == 200
     assert res_rev.json()["profile"]["status"] == "disabled"
 
@@ -116,7 +152,7 @@ def test_3_tool_revocation_and_audit(monkeypatch, tmp_path):
     assert "disabled" in res_fail["error"]
 
     # Re-enable
-    res_en = client.post(f"/api/v1/mab/profiles/{p.id}/enable")
+    res_en = client.post(f"/api/v1/mab/profiles/{p.id}/enable", headers=owner_headers)
     assert res_en.status_code == 200
     assert res_en.json()["profile"]["status"] == "active"
 
