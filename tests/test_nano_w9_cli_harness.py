@@ -142,6 +142,7 @@ class TestJsonContract:
             "VEYA_BRANCH_ROOMS",
             "VEYA_CLI_GEN",
             "VEYA_ROUTINE_TRIGGERS",
+            "VEYA_EVENT_TRIGGERS",
         }
         assert not any(payload["flags"].values())
 
