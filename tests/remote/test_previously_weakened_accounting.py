@@ -43,7 +43,12 @@ ACCOUNTED: list[tuple[str, CommandEffect, Decision, str]] = [
         "GATED: LOCAL2-R3 catastrophic hard deny",
     ),
     ("dd of=/dev/sda", CommandEffect.DESTRUCTIVE_MUTATION, Decision.DENY, "GATED: catastrophic"),
-    ("mkfs.ext4 /dev/sda", CommandEffect.DESTRUCTIVE_MUTATION, Decision.DENY, "GATED: catastrophic"),
+    (
+        "mkfs.ext4 /dev/sda",
+        CommandEffect.DESTRUCTIVE_MUTATION,
+        Decision.DENY,
+        "GATED: catastrophic",
+    ),
     (
         "chmod 777 /",
         CommandEffect.DESTRUCTIVE_MUTATION,
@@ -64,10 +69,25 @@ ACCOUNTED: list[tuple[str, CommandEffect, Decision, str]] = [
     ),
     # ── Git: destructive and remote gated ───────────────────────────────
     ("git clean -fd", CommandEffect.DESTRUCTIVE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
-    ("git fetch --all", CommandEffect.REMOTE_MUTATION, Decision.ALLOW, "OPEN_BY_POLICY: LOCAL2-R3 ordinary git"),
+    (
+        "git fetch --all",
+        CommandEffect.REMOTE_MUTATION,
+        Decision.ALLOW,
+        "OPEN_BY_POLICY: LOCAL2-R3 ordinary git",
+    ),
     ("git gc --prune", CommandEffect.DESTRUCTIVE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
-    ("git pull --rebase", CommandEffect.REMOTE_MUTATION, Decision.ALLOW, "OPEN_BY_POLICY: LOCAL2-R3 ordinary git"),
-    ("git push origin main", CommandEffect.REMOTE_MUTATION, Decision.ALLOW, "OPEN_BY_POLICY: LOCAL2-R3 ordinary git"),
+    (
+        "git pull --rebase",
+        CommandEffect.REMOTE_MUTATION,
+        Decision.ALLOW,
+        "OPEN_BY_POLICY: LOCAL2-R3 ordinary git",
+    ),
+    (
+        "git push origin main",
+        CommandEffect.REMOTE_MUTATION,
+        Decision.ALLOW,
+        "OPEN_BY_POLICY: LOCAL2-R3 ordinary git",
+    ),
     (
         "git push --force",
         CommandEffect.REMOTE_IRREVERSIBLE_MUTATION,
@@ -76,7 +96,12 @@ ACCOUNTED: list[tuple[str, CommandEffect, Decision, str]] = [
     ),
     ("git reset --hard", CommandEffect.DESTRUCTIVE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
     ("git restore f", CommandEffect.DESTRUCTIVE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
-    ("git clone url", CommandEffect.REMOTE_MUTATION, Decision.ALLOW, "OPEN_BY_POLICY: LOCAL2-R3 ordinary git"),
+    (
+        "git clone url",
+        CommandEffect.REMOTE_MUTATION,
+        Decision.ALLOW,
+        "OPEN_BY_POLICY: LOCAL2-R3 ordinary git",
+    ),
     (
         "git branch -D x",
         CommandEffect.DESTRUCTIVE_MUTATION,

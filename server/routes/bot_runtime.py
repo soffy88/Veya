@@ -28,7 +28,9 @@ from pydantic import BaseModel
 from server import auth as auth_mod
 
 router = APIRouter(
-    prefix="/api/v1/bot-runtime", tags=["bot-runtime"], dependencies=[Depends(auth_mod.require_user)]
+    prefix="/api/v1/bot-runtime",
+    tags=["bot-runtime"],
+    dependencies=[Depends(auth_mod.require_user)],
 )
 
 
@@ -151,7 +153,9 @@ def _require_owned_bot(bot_registry: Any, bot_id: str, user: dict[str, Any]) -> 
 
 
 @router.post("", response_model=BotResponse)
-async def create_bot(req: CreateBotRequest, user: dict[str, Any] = Depends(auth_mod.require_user)) -> BotResponse:
+async def create_bot(
+    req: CreateBotRequest, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> BotResponse:
     """Create a new Bot with full identity chain."""
     if req.owner_id and req.owner_id != _user_id(user):
         raise HTTPException(status_code=403, detail="owner_id must be the signed-in user")
@@ -190,7 +194,9 @@ async def list_bots(user: dict[str, Any] = Depends(auth_mod.require_user)) -> li
 
 
 @router.get("/{bot_id}", response_model=BotResponse)
-async def get_bot(bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)) -> BotResponse:
+async def get_bot(
+    bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> BotResponse:
     """Get a Bot by ID."""
     manager, bot_registry = _manager()
     _require_owned_bot(bot_registry, bot_id, user)
@@ -201,7 +207,9 @@ async def get_bot(bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_u
 
 
 @router.post("/{bot_id}/deploy", response_model=BotResponse)
-async def deploy_bot(bot_id: str, req: DeployBotRequest, user: dict[str, Any] = Depends(auth_mod.require_user)) -> BotResponse:
+async def deploy_bot(
+    bot_id: str, req: DeployBotRequest, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> BotResponse:
     """Deploy a new revision for an existing Bot."""
     manager, bot_registry = _manager()
     _require_owned_bot(bot_registry, bot_id, user)
@@ -215,7 +223,9 @@ async def deploy_bot(bot_id: str, req: DeployBotRequest, user: dict[str, Any] = 
 
 
 @router.post("/{bot_id}/start")
-async def start_bot(bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, Any]:
+async def start_bot(
+    bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> dict[str, Any]:
     """Start a Bot runtime instance."""
     manager, bot_registry = _manager()
     _require_owned_bot(bot_registry, bot_id, user)
@@ -231,7 +241,9 @@ async def start_bot(bot_id: str, user: dict[str, Any] = Depends(auth_mod.require
 
 
 @router.post("/{bot_id}/pause")
-async def pause_bot(bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, Any]:
+async def pause_bot(
+    bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> dict[str, Any]:
     """Pause a running Bot."""
     manager, bot_registry = _manager()
     _require_owned_bot(bot_registry, bot_id, user)
@@ -245,7 +257,9 @@ async def pause_bot(bot_id: str, user: dict[str, Any] = Depends(auth_mod.require
 
 
 @router.post("/{bot_id}/resume")
-async def resume_bot(bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, Any]:
+async def resume_bot(
+    bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> dict[str, Any]:
     """Resume a paused Bot."""
     manager, bot_registry = _manager()
     _require_owned_bot(bot_registry, bot_id, user)
@@ -259,7 +273,9 @@ async def resume_bot(bot_id: str, user: dict[str, Any] = Depends(auth_mod.requir
 
 
 @router.post("/{bot_id}/stop")
-async def stop_bot(bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, Any]:
+async def stop_bot(
+    bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> dict[str, Any]:
     """Stop a Bot runtime."""
     manager, bot_registry = _manager()
     _require_owned_bot(bot_registry, bot_id, user)
@@ -276,7 +292,9 @@ async def stop_bot(bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_
 
 
 @router.post("/{bot_id}/messages", response_model=GoalResponse)
-async def submit_message(bot_id: str, req: MessageRequest, user: dict[str, Any] = Depends(auth_mod.require_user)) -> GoalResponse:
+async def submit_message(
+    bot_id: str, req: MessageRequest, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> GoalResponse:
     """Independent Bot entry: submit a message/goal directly to the Bot.
 
     This route does NOT go through MasterAgent. It enters:
@@ -302,7 +320,9 @@ async def submit_message(bot_id: str, req: MessageRequest, user: dict[str, Any] 
 
 
 @router.post("/{bot_id}/goals", response_model=GoalResponse)
-async def submit_goal(bot_id: str, req: SubmitGoalRequest, user: dict[str, Any] = Depends(auth_mod.require_user)) -> GoalResponse:
+async def submit_goal(
+    bot_id: str, req: SubmitGoalRequest, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> GoalResponse:
     """Submit a goal to a Bot for execution."""
     manager, bot_registry = _manager()
     _require_owned_bot(bot_registry, bot_id, user)
@@ -324,7 +344,9 @@ async def submit_goal(bot_id: str, req: SubmitGoalRequest, user: dict[str, Any] 
 
 
 @router.get("/{bot_id}/sessions")
-async def list_sessions(bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, Any]:
+async def list_sessions(
+    bot_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> dict[str, Any]:
     """List sessions for a Bot."""
     manager, bot_registry = _manager()
     _require_owned_bot(bot_registry, bot_id, user)
@@ -333,7 +355,9 @@ async def list_sessions(bot_id: str, user: dict[str, Any] = Depends(auth_mod.req
 
 
 @router.get("/{bot_id}/goals/{goal_id}")
-async def get_goal(bot_id: str, goal_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, Any]:
+async def get_goal(
+    bot_id: str, goal_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)
+) -> dict[str, Any]:
     """Get a goal's status."""
     _, bot_registry = _manager()
     _require_owned_bot(bot_registry, bot_id, user)

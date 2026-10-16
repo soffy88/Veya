@@ -122,12 +122,14 @@ TAXONOMY: dict[str, DurabilityClass] = {
 }
 
 REPLAYABLE_CLASSES = frozenset({DurabilityClass.DURABLE, DurabilityClass.REPLAYABLE})
-PERSISTED_CLASSES = frozenset({
-    DurabilityClass.DURABLE,
-    DurabilityClass.REPLAYABLE,
-    DurabilityClass.OBSERVABLE,
-    DurabilityClass.AUDIT,
-})
+PERSISTED_CLASSES = frozenset(
+    {
+        DurabilityClass.DURABLE,
+        DurabilityClass.REPLAYABLE,
+        DurabilityClass.OBSERVABLE,
+        DurabilityClass.AUDIT,
+    }
+)
 
 
 class HookFailurePolicy(StrEnum):
@@ -541,6 +543,7 @@ class LifecycleEventBus:
                     continue
                 if hook.failure_policy is HookFailurePolicy.WARN:
                     import logging
+
                     logging.getLogger("lifecycle_hooks").warning(
                         "hook %s failed for %s: %s", hook.hook_id, event.event_type, exc
                     )

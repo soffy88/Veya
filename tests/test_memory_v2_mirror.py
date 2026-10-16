@@ -66,7 +66,9 @@ def test_review_writer_mirrors_bot_scope_on_running_loop(v2_store):
 
     async def scenario():
         write = _make_writer(LayeredMemoryStore("bot_mirror"))
-        assert write("add", "用户住在杭州 [source: part 1 #x; added: 2026-10-13; by: bot_mirror]")["ok"]
+        assert write("add", "用户住在杭州 [source: part 1 #x; added: 2026-10-13; by: bot_mirror]")[
+            "ok"
+        ]
         await asyncio.gather(*list(memory_v2_mirror._BG_TASKS))
         active = await v2_store.search_memory(
             "杭州", scope_type="user", scope_id="user_mirror", limit=10

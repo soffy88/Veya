@@ -140,8 +140,7 @@ class TurnQueue:
         """Conversations with a turn in flight."""
 
         return [
-            {"conversation_ref": ref, "bot_ref": bot_ref}
-            for ref, bot_ref in self._running.items()
+            {"conversation_ref": ref, "bot_ref": bot_ref} for ref, bot_ref in self._running.items()
         ]
 
     def steer_log(self, conversation_ref: str) -> list[str]:

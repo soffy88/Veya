@@ -189,9 +189,7 @@ async def test_start_running_failed(repo: Path) -> None:
     gateway, secret = make_gateway([repo])
     session = await open_session(gateway, secret, str(repo))
 
-    envelope = await start(
-        gateway, secret, session, repo, f'{PY} -c "import sys; sys.exit(3)"'
-    )
+    envelope = await start(gateway, secret, session, repo, f'{PY} -c "import sys; sys.exit(3)"')
     terminal = await wait_terminal(gateway, secret, session, envelope["execution_id"])
 
     assert terminal["status"] == str(ExecutionStatus.FAILED), terminal
@@ -211,7 +209,7 @@ async def test_a_running_execution_reports_running_before_it_terminates(
         secret,
         session,
         repo,
-        f'{PY} -c "import time; print(\'go\', flush=True); time.sleep(3)"',
+        f"{PY} -c \"import time; print('go', flush=True); time.sleep(3)\"",
     )
     execution_id = envelope["execution_id"]
 
@@ -283,9 +281,7 @@ async def test_cancelling_a_terminal_execution_is_idempotent(repo: Path) -> None
     first = await wait_terminal(gateway, secret, session, execution_id)
     assert first["status"] == str(ExecutionStatus.COMPLETED), first
 
-    repeat = await call(
-        gateway, secret, session, "process.cancel", {"execution_id": execution_id}
-    )
+    repeat = await call(gateway, secret, session, "process.cancel", {"execution_id": execution_id})
 
     assert repeat["ok"] is True, repeat
     after = await record_of(gateway, secret, session, execution_id)
@@ -311,7 +307,10 @@ async def test_one_principal_cannot_cancel_another_principals_execution(
     other_gateway, other_secret = make_gateway([repo], principal="intruder")
     other_session = await open_session(other_gateway, other_secret, str(repo))
     attempt = await call(
-        other_gateway, other_secret, other_session, "process.cancel",
+        other_gateway,
+        other_secret,
+        other_session,
+        "process.cancel",
         {"execution_id": execution_id},
     )
 
@@ -362,7 +361,7 @@ async def test_a_clipped_tail_is_reported_as_clipped(repo: Path) -> None:
         secret,
         session,
         repo,
-        f'{PY} -c "print(\'x\'*400000)"',
+        f"{PY} -c \"print('x'*400000)\"",
     )
     terminal = await wait_terminal(gateway, secret, session, envelope["execution_id"])
 
@@ -376,9 +375,7 @@ async def test_a_clipped_tail_is_reported_as_clipped(repo: Path) -> None:
 async def test_short_output_is_not_reported_as_clipped(repo: Path) -> None:
     gateway, secret = make_gateway([repo])
     session = await open_session(gateway, secret, str(repo))
-    envelope = await start(
-        gateway, secret, session, repo, f'{PY} -c "print(\'short\')"'
-    )
+    envelope = await start(gateway, secret, session, repo, f"{PY} -c \"print('short')\"")
     terminal = await wait_terminal(gateway, secret, session, envelope["execution_id"])
 
     assert terminal["stdout_truncated"] is False, terminal

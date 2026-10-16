@@ -11,6 +11,7 @@ import pytest
 
 # 测试套件内禁止 test_gate 递归启动 pytest(agent 执行分队 → H4 hook → pytest → 死循环)
 os.environ.setdefault("VEYA_SKIP_TEST_GATE", "1")
+os.environ.setdefault("VEYA_ALLOWED_HOSTS", "testserver")
 
 # The canonical EventStore and TaskStore default to ~/.veya/. Tests must never
 # append to (or replay) the developer's real, unbounded event log: on a long
@@ -90,6 +91,46 @@ def tmp_sandbox_dir(tmp_path: Path) -> Path:
     sb = tmp_path / "sandbox"
     sb.mkdir()
     return sb
+
+
+# ── SEC H1: 默认拒绝中间件下的测试凭据 ────────────────────────────────
+#
+# server.app 现在有全局默认拒绝中间件 (server.auth.AuthGateMiddleware):
+# 除公开白名单外的路由都要有效 token。需要打真实根 app 的测试不再能匿名调用
+# —— 这里发一个测试 owner token (独立临时 auth.db, 绝不碰 ~/.veya/auth.db),
+# 不要为了过测试而放宽生产鉴权。
+
+
+@pytest.fixture
+def owner_token(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> str:
+    """在临时 auth.db 上建一个 owner 用户并签发 token (SEC H1 测试用)。"""
+    from server import auth as auth_mod
+
+    db = tmp_path_factory.mktemp("sec-auth") / "auth.db"
+    monkeypatch.setattr(auth_mod, "_DB_PATH", db)
+    monkeypatch.delenv("VEYA_LOCAL_SINGLE_USER", raising=False)
+    auth_mod._DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with auth_mod._lock, auth_mod._connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS users ("
+            "  id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE,"
+            "  password_hash TEXT NOT NULL, created_at INTEGER NOT NULL,"
+            "  is_owner INTEGER NOT NULL DEFAULT 0)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tokens ("
+            "  token TEXT PRIMARY KEY, user_id TEXT NOT NULL,"
+            "  created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)"
+        )
+    user = auth_mod.create_user("sec-test-owner", "a-very-long-password", is_owner=True)
+    return auth_mod.issue_token(user["user_id"])
+
+
+@pytest.fixture
+def owner_headers(owner_token: str) -> dict[str, str]:
+    """给 TestClient 用的 ``Authorization`` 头 (SEC H1 默认拒绝下打真实 app)。"""
+    return {"Authorization": f"Bearer {owner_token}"}
+
 
 # funcfix 2026-10-14: supervise_task now dispatches the GoalRun it creates. Unit
 # tests exercise the bookkeeping only; a test that wants the real dispatch opts in.

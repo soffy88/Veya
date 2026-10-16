@@ -126,7 +126,7 @@ def test_health_has_no_secrets(tmp_path: Path) -> None:
     health = gateway.health()
     assert health["status"] == "ok"
     assert secret not in json.dumps(health)
-    assert health["tools"] == 42  # hicode.execute retired from the surface
+    assert health["tools"] == 45  # hicode.execute retired from the surface
 
 
 async def test_initialize_requires_auth(tmp_path: Path) -> None:
@@ -158,7 +158,7 @@ async def test_tools_list_requires_session(tmp_path: Path) -> None:
         "file.read" in names
         and "veya.mission.create" in names
         and "worker.dispatch" in names
-        and len(names) == 42
+        and len(names) == 45
     )
     # HICODE_TOOL_SURFACE=REMOVED: the retired executor must not be advertised.
     assert not [name for name in names if "hicode" in name.lower()]
@@ -207,7 +207,11 @@ async def test_path_escape_denied_at_call(tmp_path: Path) -> None:
     # Scope escapes are rejected by the canonical permission engine before
     # workspace resolution; the public contract is policy denial, not a
     # filesystem-resolution detail.
-    assert response["result"]["structuredContent"]["error_code"] in {"POLICY_BLOCKED", "WORKSPACE_DENIED", "APPROVAL_REQUIRED"}
+    assert response["result"]["structuredContent"]["error_code"] in {
+        "POLICY_BLOCKED",
+        "WORKSPACE_DENIED",
+        "APPROVAL_REQUIRED",
+    }
 
 
 async def test_read_only_session_cannot_write(tmp_path: Path) -> None:

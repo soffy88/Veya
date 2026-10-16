@@ -159,7 +159,7 @@ P1 之前先验了 P0 未验证项的第 1、2 条。两条都指向同一个结
 `veya/supervision/runner.py:351` 每次迭代**新建**单元素集合:
 
 ```python
-attempted={selected.executor_id},
+attempted = ({selected.executor_id},)
 ```
 
 它不是历史记忆,只排除本迭代刚失败的那一个。

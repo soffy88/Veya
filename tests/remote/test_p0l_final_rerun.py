@@ -591,18 +591,20 @@ async def test_canonical_target_is_refused_as_a_promotion_source(
         worktree = ""
 
         if preload_session_worktree:
-            await run.call("file.write", {
-                **target, "path": "calc.py", "content": "def add(a, b):\n    return a + b\n"})
+            await run.call(
+                "file.write",
+                {**target, "path": "calc.py", "content": "def add(a, b):\n    return a + b\n"},
+            )
             await run.call("git.stage", {**target, "paths": ["calc.py"]})
             committed = await run.call(
-                "git.commit",
-                {**target, "message": "fix add", "expect_paths": ["calc.py"]})
+                "git.commit", {**target, "message": "fix add", "expect_paths": ["calc.py"]}
+            )
             assert committed["ok"] is True, committed
             commit_sha = committed["result"]["commit_sha"]
             worktree = committed["result"]["path"]
             verified = await run.call(
-                "git.verify",
-                {**target, "commit_sha": commit_sha, "expect_paths": ["calc.py"]})
+                "git.verify", {**target, "commit_sha": commit_sha, "expect_paths": ["calc.py"]}
+            )
             assert verified["ok"] is True, verified
             verification = verified["result"]
 
@@ -616,8 +618,9 @@ async def test_canonical_target_is_refused_as_a_promotion_source(
             assert envelope["ok"] is False, (tool, envelope)
             assert envelope["error_code"] == "POLICY_BLOCKED", (tool, envelope)
 
-        envelope = await run.call("git.promote", {
-            **canonical, "commit_sha": commit_sha, "verification": verification})
+        envelope = await run.call(
+            "git.promote", {**canonical, "commit_sha": commit_sha, "verification": verification}
+        )
         assert envelope["ok"] is False, (
             "git.promote accepted a canonical source and substituted "
             f"{(envelope.get('result') or {}).get('worktree')} for it"

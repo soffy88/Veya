@@ -73,9 +73,7 @@ class Executor:
             manager = WorktreeManager(kwargs["workspace_path"])
             record = manager.create(str(kwargs["task_id"]), str(kwargs.get("objective") or "p0j"))
             self.worktrees.append(record.path)
-            return json.dumps(
-                {"status": "ok", "data": {"worktree": record.to_dict()}}, default=str
-            )
+            return json.dumps({"status": "ok", "data": {"worktree": record.to_dict()}}, default=str)
         if name == "write_file":
             from server.tool_registry import _tool_write_file
 
@@ -151,9 +149,7 @@ def make_gateway(repo: Path, executor: Executor):
     auth = RemoteAuth()
     _record, secret = auth.issue("tester", permissions=PERMS, workspaces=[str(repo)])
     audit = RemoteAudit(None)
-    adapter = RemoteToolAdapter(
-        executor, redact=audit.redact, execution_store=ExecutionStore(None)
-    )
+    adapter = RemoteToolAdapter(executor, redact=audit.redact, execution_store=ExecutionStore(None))
     gateway = create_gateway(
         auth=auth,
         sessions=RemoteSessionManager(ttl_s=3600, max_sessions=8),
@@ -173,8 +169,12 @@ async def open_session(gateway, secret, workspace: str) -> str:
 
 async def call(gateway, secret, session, name, arguments):
     response = await gateway.handle_message(
-        {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-         "params": {"name": name, "arguments": arguments}},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        },
         authorization=f"Bearer {secret}",
         session_header=session,
     )
@@ -471,9 +471,7 @@ def test_governed_paths_contain_no_destructive_git() -> None:
     """
     import re
 
-    forbidden = re.compile(
-        r"(reset\s+--hard|clean\s+-[a-z]*f|checkout\s+--\s|stash\s+(drop|pop))"
-    )
+    forbidden = re.compile(r"(reset\s+--hard|clean\s+-[a-z]*f|checkout\s+--\s|stash\s+(drop|pop))")
     targets = [
         "veya/remote/tool_adapter.py",
         "veya/remote/direct_exec.py",

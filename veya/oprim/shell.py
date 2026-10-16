@@ -69,4 +69,11 @@ async def shell_run_script(
     return await _sandbox_of(sandbox).run_script(script, timeout=timeout)
 
 
-__all__ = ["HostCommandError", "HostCommandResult", "host_exec_args", "shell_exec", "shell_exec_args", "shell_run_script"]
+__all__ = [
+    "HostCommandError",
+    "HostCommandResult",
+    "host_exec_args",
+    "shell_exec",
+    "shell_exec_args",
+    "shell_run_script",
+]

@@ -76,9 +76,7 @@ def plan_observation(
     known = [t for t in OBSERVATION_TIERS if available.get(t)]
     if not known:
         raise ObservationLadderError(
-            "no observation source available (need one of "
-            + ", ".join(OBSERVATION_TIERS)
-            + ")"
+            "no observation source available (need one of " + ", ".join(OBSERVATION_TIERS) + ")"
         )
     if prefer_full:
         # Richest structured first, screenshot last.

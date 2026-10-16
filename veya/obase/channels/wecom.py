@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-import xml.etree.ElementTree as ET
 from typing import Any
 
 import httpx
@@ -19,6 +18,7 @@ from veya.obase.channels import (
     chunk_text,
     verify_wecom_signature,
 )
+from veya.obase.channels.safe_xml import ET
 
 _log = logging.getLogger("veya.obase.channels.wecom")
 
@@ -246,7 +246,7 @@ class WeComClient:
                     json=payload,
                 )
                 resp.raise_for_status()
-                data = resp.json()
+                data: dict[str, Any] = resp.json()
                 if data.get("errcode") != 0:
                     raise RuntimeError(f"WeCom send error: {data.get('errmsg')}")
                 return data
@@ -281,7 +281,8 @@ class WeComClient:
                     headers={"Content-Type": "application/json"},
                 )
                 resp.raise_for_status()
-                return resp.json()
+                result: dict[str, Any] = resp.json()
+                return result
             except (httpx.RequestError, httpx.HTTPStatusError) as exc:
                 last_exc = exc
                 if attempt < self._max_retries - 1:
@@ -317,7 +318,8 @@ class WeComClient:
             params={"access_token": token, "agentid": self.agent_id},
         )
         resp.raise_for_status()
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
 
 # ---- Convenience factory ----

@@ -69,9 +69,7 @@ class AutonomousState:
     @property
     def budget_exhausted(self) -> bool:
         return (
-            self.wall_clock_exhausted
-            or self.token_budget_exhausted
-            or self.cost_budget_exhausted
+            self.wall_clock_exhausted or self.token_budget_exhausted or self.cost_budget_exhausted
         )
 
     @property

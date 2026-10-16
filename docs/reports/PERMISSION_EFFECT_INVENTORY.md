@@ -44,7 +44,7 @@ CURRENT_ABSTAIN  0
 `veya/remote/policy_resolver.py:454` 的 effect 硬编码:
 
 ```python
-effect = "write" if request.tool in {"file.write","file.patch","artifact.write"} else "read"
+effect = "write" if request.tool in {"file.write", "file.patch", "artifact.write"} else "read"
 ```
 
 实测这三个工具名 **都不在 master registry 里**,因此对真实的 146 个工具,

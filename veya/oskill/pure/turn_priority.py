@@ -257,8 +257,7 @@ def coalesce_window(
             "members": items,
             "first_arrived_at": first,
             "reason": (
-                f"{elapsed:.3f}s since the first message is outside the "
-                f"{window}s coalescing window"
+                f"{elapsed:.3f}s since the first message is outside the {window}s coalescing window"
             ),
         }
 

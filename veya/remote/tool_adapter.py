@@ -835,6 +835,28 @@ class RemoteToolAdapterError(Exception):
         self.message = message
 
 
+def _remote_principal_is_owner(principal: str) -> bool:
+    """Resolve the token principal against the canonical account owner flag."""
+    if not principal:
+        return False
+    try:
+        from server.auth import is_owner, list_users
+
+        return any(
+            str(user.get("username") or "") == principal and is_owner(user) for user in list_users()
+        )
+    except Exception:
+        return False
+
+
+def _configured_remote_verify_command(principal: str) -> str | None:
+    from veya.remote.verify_command_policy import select_server_verify_command
+
+    return select_server_verify_command(
+        None, owner_authorized=_remote_principal_is_owner(principal)
+    )
+
+
 def _obj(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
     schema: dict[str, Any] = {"type": "object", "properties": properties}
     if required:
@@ -1057,7 +1079,7 @@ BINDINGS: tuple[ToolBinding, ...] = (
                             "task_contract": {
                                 "type": "object",
                                 "description": "Caller-declared L1 effect/verification contract; preserved as received.",
-                                "additionalProperties": True,
+                                "additionalProperties": False,
                             },
                             "task_kind": {
                                 "type": "string",
@@ -1664,12 +1686,17 @@ def _link_canonical_venvs(worktree: str | Path, repo_root: str | Path) -> list[s
             # (harmless for the canonical tree, which already ignores it).
             still = subprocess.run(
                 ["git", "-C", str(wt), "check-ignore", "-q", name],
-                capture_output=True, timeout=10, check=False,
+                capture_output=True,
+                timeout=10,
+                check=False,
             )
             if still.returncode != 0:
                 common = subprocess.run(
                     ["git", "-C", str(wt), "rev-parse", "--git-common-dir"],
-                    capture_output=True, text=True, timeout=10, check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
                 ).stdout.strip()
                 if common:
                     exclude = (wt / common).resolve() / "info" / "exclude"
@@ -1703,12 +1730,24 @@ def _init_worktree_submodules(worktree: str | Path, repo_root: str | Path) -> li
         if wt == root or not (wt / ".gitmodules").is_file():
             return done
         listing = subprocess.run(
-            ["git", "-C", str(wt), "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
-            capture_output=True, text=True, timeout=10, check=False,
+            [
+                "git",
+                "-C",
+                str(wt),
+                "config",
+                "-f",
+                ".gitmodules",
+                "--get-regexp",
+                r"^submodule\..*\.path$",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         for line in listing.stdout.splitlines():
             key, _, sub_path = line.partition(" ")
-            name = key[len("submodule."):-len(".path")]
+            name = key[len("submodule.") : -len(".path")]
             target = wt / sub_path
             source = root / sub_path
             if not sub_path or ".." in Path(sub_path).parts:
@@ -1719,12 +1758,23 @@ def _init_worktree_submodules(worktree: str | Path, repo_root: str | Path) -> li
                 continue
             result = subprocess.run(
                 [
-                    "git", "-C", str(wt),
-                    "-c", "protocol.file.allow=always",
-                    "-c", f"submodule.{name}.url={source}",
-                    "submodule", "update", "--init", "--", sub_path,
+                    "git",
+                    "-C",
+                    str(wt),
+                    "-c",
+                    "protocol.file.allow=always",
+                    "-c",
+                    f"submodule.{name}.url={source}",
+                    "submodule",
+                    "update",
+                    "--init",
+                    "--",
+                    sub_path,
                 ],
-                capture_output=True, text=True, timeout=180, check=False,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
             )
             if result.returncode == 0:
                 done.append(sub_path)
@@ -2353,9 +2403,7 @@ class RemoteToolAdapter:
                     risk = RiskClass(raw_risk)
                 except ValueError:
                     allowed = ", ".join(r.value for r in RiskClass)
-                    raise ValueError(
-                        f"risk_class {raw_risk!r} is not one of: {allowed}"
-                    ) from None
+                    raise ValueError(f"risk_class {raw_risk!r} is not one of: {allowed}") from None
                 record = store.create_approval(
                     principal=session.principal,
                     capability_id=str(args["capability_id"]),
@@ -2415,9 +2463,9 @@ class RemoteToolAdapter:
             selector = str(workspace_path).strip()
             existing_path = normalized.get("path")
             workspace_arg = normalized.get("workspace")
-            if Path(selector).is_absolute() and not workspace_arg:
-                normalized["workspace"] = selector
-            elif Path(selector).is_absolute() and str(workspace_arg) != selector:
+            if (Path(selector).is_absolute() and not workspace_arg) or (
+                Path(selector).is_absolute() and str(workspace_arg) != selector
+            ):
                 normalized["workspace"] = selector
             elif workspace_arg and (
                 name not in _COMMAND_TOOLS
@@ -3019,7 +3067,9 @@ class RemoteToolAdapter:
         ).encode()
         return "remote-" + hashlib.sha1(seed).hexdigest()[:20]
 
-    def _hydrate_session_worktree(self, session: RemoteSession, repo_root: str | None) -> str | None:
+    def _hydrate_session_worktree(
+        self, session: RemoteSession, repo_root: str | None
+    ) -> str | None:
         """Re-attach this principal's persistent worktree to a new session.
 
         Returns the usable worktree path for ``repo_root`` or ``None`` when the
@@ -4169,7 +4219,24 @@ class RemoteToolAdapter:
                 ("supports_shell_effect" if str(cap) == "supports_shell" else str(cap)): True
                 for cap in required_caps
             }
-        task_contract = L1TaskContract.from_dict(item.get("task_contract"))
+        raw_contract = item.get("task_contract")
+        raw_contract_command = (
+            raw_contract.get("verification_command") if isinstance(raw_contract, dict) else None
+        )
+        if item.get("verification_command") not in (None, "") or raw_contract_command not in (
+            None,
+            "",
+        ):
+            return self._fail(
+                "worker.dispatch",
+                session,
+                RemoteErrorCode.POLICY_BLOCKED,
+                "caller-supplied verification_command is not accepted; verification commands are server-configured",
+            )
+        server_verify_command = _configured_remote_verify_command(session.principal)
+        task_contract = L1TaskContract.from_dict(raw_contract)
+        if not task_contract.verification_command:
+            task_contract.verification_command = server_verify_command
         # The contract is explicit data.  Legacy dispatch callers are retained
         # as READ tasks; WRITE/TEST/BUILD callers must opt into their stronger
         # effect and finalization requirements.
@@ -4196,11 +4263,7 @@ class RemoteToolAdapter:
                 allowed_files=[str(v) for v in item.get("allowed_files") or []],
                 allowed_roots=[str(v) for v in item.get("allowed_roots") or []],
                 allow_noop=bool(item.get("allow_noop", False)),
-                verification_command=(
-                    str(item["verification_command"])
-                    if item.get("verification_command") is not None
-                    else None
-                ),
+                verification_command=server_verify_command,
             )
 
         # 1. load ExecutionSpec
@@ -4549,13 +4612,14 @@ class RemoteToolAdapter:
             env["VEYA_EXECUTION_ID"] = reporter._execution_id
             reporter.model_started(activity=f"{worker} model request")
             reporter.phase("THINKING", message=f"{worker} thinking", event="MODEL_REQUEST_STARTED")
-            proc = await asyncio.create_subprocess_exec(
+            from veya.remote._proc import spawn_process
+
+            # Cancel-safe spawn (F10), see veya/remote/_proc.py.
+            proc = await spawn_process(
                 *argv,
                 cwd=worktree,
                 env=env,
                 stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
             )
             try:
@@ -4658,6 +4722,11 @@ class RemoteToolAdapter:
                 await terminate_process_group_id(pgid)
                 with contextlib.suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(proc.wait(), timeout=2.0)
+                # Cancelled mid-flight: do not leave pipe pumps / proc.wait()
+                # tasks pending after the process group is gone.
+                for leftover in locals().get("all_tasks", ()):
+                    if not leftover.done():
+                        leftover.cancel()
                 fc = ExecutorFailureClass.WORKER_CANCELLED
                 self.health_registry.record_failure(worker, fc, detail="cancelled")
                 reporter.failure(failure_class=str(fc), source=worker, detail="cancelled")
@@ -5284,7 +5353,14 @@ class RemoteToolAdapter:
                     files = args.get("files")
                     expected_base_sha = args.get("expected_base_sha")
                     verify_after = bool(args.get("verify_after", True))
-                    verify_command = args.get("verify_command")
+                    if args.get("verify_command") not in (None, ""):
+                        return self._fail(
+                            name,
+                            session,
+                            RemoteErrorCode.POLICY_BLOCKED,
+                            "caller-supplied verify_command is not accepted; configure VEYA_VERIFY_COMMAND_ALLOWLIST server-side",
+                        )
+                    verify_command = _configured_remote_verify_command(session.principal)
                     rollback_on_failure = bool(args.get("rollback_on_failure", True))
 
                     try:

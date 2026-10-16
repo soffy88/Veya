@@ -18,8 +18,15 @@ def test_app(tmp_path, monkeypatch):
     monkeypatch.setenv("VEYA_ROUTINE_REGISTRY_PATH", str(tmp_path / "routines.json"))
     app = FastAPI()
     # W11 D2: routine routes check bot ownership; these tests cover routine logic.
+    from server import auth as auth_mod
     from server.routes import routines as _routines_mod
+
     app.dependency_overrides[_routines_mod._require_owned_bot] = lambda: None
+    app.dependency_overrides[auth_mod.require_user] = lambda: {
+        "user_id": "u1",
+        "username": "test-owner",
+        "is_owner": True,
+    }
     app.include_router(router)
     return app
 
@@ -274,8 +281,8 @@ async def test_fired_routine_appends_bot_reply_to_conversation(tmp_path, monkeyp
     from server.bot_team.conversations import ConversationStore
     from server.bot_team.routine_clock import RoutineClock, _default_handoff_consumer
     from server.goal_run.bot_identity import BotRegistry, BotSpec
-    from server.goal_run.routine_registry import RoutineRegistry
     from server.goal_run.models import RoutineSpec
+    from server.goal_run.routine_registry import RoutineRegistry
 
     BotRegistry().register(BotSpec(bot_id="bot_123", owner_id="u1", runner_id="local"))
 
@@ -325,8 +332,8 @@ async def test_fired_routine_pause_stops_firing(tmp_path, monkeypatch, fake_mast
 
     from server.bot_team.routine_clock import RoutineClock
     from server.goal_run.bot_identity import BotRegistry, BotSpec
-    from server.goal_run.routine_registry import RoutineRegistry
     from server.goal_run.models import RoutineSpec
+    from server.goal_run.routine_registry import RoutineRegistry
 
     BotRegistry().register(BotSpec(bot_id="bot_123", owner_id="u1", runner_id="local"))
     reg = RoutineRegistry(bot_id="bot_123")
@@ -360,8 +367,8 @@ async def test_deleted_routine_no_longer_fires(tmp_path, monkeypatch, fake_maste
 
     from server.bot_team.routine_clock import RoutineClock
     from server.goal_run.bot_identity import BotRegistry, BotSpec
-    from server.goal_run.routine_registry import RoutineRegistry
     from server.goal_run.models import RoutineSpec
+    from server.goal_run.routine_registry import RoutineRegistry
 
     BotRegistry().register(BotSpec(bot_id="bot_123", owner_id="u1", runner_id="local"))
     reg = RoutineRegistry(bot_id="bot_123")

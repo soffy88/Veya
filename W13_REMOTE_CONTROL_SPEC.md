@@ -150,12 +150,12 @@ code, no `subprocess`, no `open()`. Path: `VEYA_REMOTE_CONTROL_HOSTS_PATH` or
 ```python
 @dataclass
 class RemoteHost:
-    host_id: str          # ^[a-z0-9][a-z0-9-]{0,62}$
+    host_id: str  # ^[a-z0-9][a-z0-9-]{0,62}$
     display_name: str
     tailnet_ip: str
-    agent_command: str    # executor command template, see §8
-    agent_label: str      # "pi" | "claude-wb" | "codex" | …
-    owner_id: str         # the Veya user who may drive it
+    agent_command: str  # executor command template, see §8
+    agent_label: str  # "pi" | "claude-wb" | "codex" | …
+    owner_id: str  # the Veya user who may drive it
     workspace_path: str = ""
     enabled: bool = True
     last_seen_at: float | None = None

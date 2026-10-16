@@ -114,7 +114,9 @@ def compute_fingerprint_for(config: Any, input_data: Any) -> str:
     # Reuse the canonical digest atom rather than re-deriving one here.
     from veya.oprim.turn_envelope import envelope_fingerprint
 
-    return envelope_fingerprint({key: data.get(key) for key in sorted(fields)}, tuple(sorted(fields)))
+    return envelope_fingerprint(
+        {key: data.get(key) for key in sorted(fields)}, tuple(sorted(fields))
+    )
 
 
 def _call(fn: Callable[..., Any] | None, default: Any, *args: Any) -> Any:
@@ -163,7 +165,9 @@ def loop_run(
     fingerprint = compute_fingerprint_for(config, input_data)
 
     if not str(getattr(input_data, "goal_run_id", "") or "").strip():
-        _record(config, trail, "loop.failed", code="INVALID_INPUT", reason="goal_run_id is required")
+        _record(
+            config, trail, "loop.failed", code="INVALID_INPUT", reason="goal_run_id is required"
+        )
         return {
             "status": "failed",
             "error": {"code": "INVALID_INPUT", "reason": "goal_run_id is required"},

@@ -57,6 +57,24 @@ from veya.remote.qualification_faults import checkpoint as qualification_checkpo
 _logger = logging.getLogger(__name__)
 
 
+async def _await_cancelled_task(task: asyncio.Future[Any]) -> None:
+    """Await a child task we just cancelled without swallowing *our own* cancellation.
+
+    ``contextlib.suppress(asyncio.CancelledError)`` around ``await task`` also
+    eats a cancel aimed at the caller, so the caller keeps running and teardown
+    (``asyncio.runners._cancel_all_tasks``) waits forever.  Only the child's
+    CancelledError is absorbed; a pending cancel on the current task re-raises.
+    """
+    try:
+        await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if current is not None and current.cancelling():
+            raise
+    except Exception:  # child failure is not the caller's failure here
+        _logger.debug("cancelled child task ended with error", exc_info=True)
+
+
 def _normalize_execution_cap(value: Any) -> int | None:
     """Positive hard cap, or ``None`` for unlimited execution admission."""
     if value is None:
@@ -66,7 +84,6 @@ def _normalize_execution_cap(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return number if number > 0 else None
-
 
 
 #: SF-RECEIPT. A receipt is a mapping carrying every EffectReceipt field that has
@@ -796,7 +813,9 @@ class ExecutionRecord:
             "affinity_state": self.affinity_state,
             "context_continuity_lost": self.context_continuity_lost,
             "provider_session_id": self.provider_session_id,
-            "provider_request": None if self.provider_request is None else {
+            "provider_request": None
+            if self.provider_request is None
+            else {
                 "request_id": self.provider_request.request_id,
                 "execution_id": self.provider_request.execution_id,
                 "goal_run_id": self.provider_request.goal_run_id,
@@ -930,7 +949,9 @@ class ExecutionRecord:
         provider_request = clean.get("provider_request")
         if isinstance(provider_request, dict):
             provider_request = ProviderRequest(
-                execution_id=str(provider_request.get("execution_id") or clean.get("execution_id") or ""),
+                execution_id=str(
+                    provider_request.get("execution_id") or clean.get("execution_id") or ""
+                ),
                 goal_run_id=provider_request.get("goal_run_id"),
                 provider=provider_request.get("provider"),
                 model=provider_request.get("model"),
@@ -1273,7 +1294,11 @@ class DurableJobManager:
         self.worker_registry = worker_registry
         self.outbox = outbox
         self.recovery_runner_factory = recovery_runner_factory
-        checkpoint_root = self.store.root if self.store.root is not None else Path.home() / ".veya" / "remote_executions"
+        checkpoint_root = (
+            self.store.root
+            if self.store.root is not None
+            else Path.home() / ".veya" / "remote_executions"
+        )
         self.checkpoint_store = ExecutionCheckpointStore(checkpoint_root)
         self.recovery_failures: list[dict[str, Any]] = []
         # Durable-write failures must be observable; a swallowed projection
@@ -1740,8 +1765,7 @@ class DurableJobManager:
             task = self._tasks.get(execution_id)
         if task is not None and not task.done():
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
+            await _await_cancelled_task(task)
 
         record.phase = ExecutionPhase.SUSPENDED
         record.status = "SUSPENDED"
@@ -1792,7 +1816,9 @@ class DurableJobManager:
         except CheckpointError as exc:
             raise ExecutionError("CHECKPOINT_INVALID", str(exc)) from exc
         if checkpoint is None:
-            raise ExecutionError("CHECKPOINT_MISSING", "no durable execution checkpoint is available")
+            raise ExecutionError(
+                "CHECKPOINT_MISSING", "no durable execution checkpoint is available"
+            )
         if checkpoint.goal_run_id != record.goal_run_id or checkpoint.execution_id != execution_id:
             raise ExecutionError(
                 "CHECKPOINT_LINEAGE_MISMATCH",
@@ -1803,7 +1829,9 @@ class DurableJobManager:
             str(ExecutionStatus.TIMED_OUT),
             str(ExecutionStatus.BLOCKED),
         }:
-            raise ExecutionError("EXECUTION_NOT_RESUMABLE", f"execution is terminal: {record.status}")
+            raise ExecutionError(
+                "EXECUTION_NOT_RESUMABLE", f"execution is terminal: {record.status}"
+            )
 
         chosen = runner or (
             self.recovery_runner_factory(record) if self.recovery_runner_factory else None
@@ -2124,14 +2152,10 @@ class DurableJobManager:
             if limits and limits.get(field_name) is not None:
                 setattr(record, field_name, limits[field_name])
         requested_timeout_s = (
-            limits.get("execution_timeout_sec")
-            if limits
-            else None
-        ) or (
-            limits.get("command_timeout_sec")
-            if limits
-            else None
-        ) or 1800.0
+            (limits.get("execution_timeout_sec") if limits else None)
+            or (limits.get("command_timeout_sec") if limits else None)
+            or 1800.0
+        )
         record.execution_policy = ExecutionPolicy.from_legacy(
             float(requested_timeout_s),
             separated_cli=True,
@@ -3114,8 +3138,8 @@ class DurableJobManager:
                 record_failed = (
                     (exit_code is not None and exit_code != 0)
                     or bool(record.failure_class)
-                    or str(getattr(record, "direct_status", "") or "") in
-                    {"failed", "error", "blocked"}
+                    or str(getattr(record, "direct_status", "") or "")
+                    in {"failed", "error", "blocked"}
                 )
                 bundle = bundle.add_evidence(
                     EvidenceItem(
@@ -3401,8 +3425,12 @@ class DurableJobManager:
         self._persist(record)
         self._execution_event_store(record).append(
             ExecutionEventType.EXECUTION_STATE_CHANGED,
-            payload={"kind": "status", "status": status, "phase": status,
-                     "message": str(record.message or status)[:400]},
+            payload={
+                "kind": "status",
+                "status": status,
+                "phase": status,
+                "message": str(record.message or status)[:400],
+            },
         )
         qualification_checkpoint(
             "AFTER_TERMINAL_PERSIST",
@@ -3508,8 +3536,13 @@ class DurableJobManager:
             event_type = ExecutionEventType.CHECKPOINT_CREATED
         self._execution_event_store(record).append(
             event_type,
-            payload={"kind": kind, "message": message, "phase": phase or record.phase,
-                     "step": record.current_step, "total": record.total_steps},
+            payload={
+                "kind": kind,
+                "message": message,
+                "phase": phase or record.phase,
+                "step": record.current_step,
+                "total": record.total_steps,
+            },
         )
 
     def record_event(
@@ -3732,9 +3765,7 @@ class DurableJobManager:
         record.effect_receipt = receipt
         self._persist(record)
 
-    def _fail_receipt_contract(
-        self, record: ExecutionRecord, problem: str, *, source: str
-    ) -> None:
+    def _fail_receipt_contract(self, record: ExecutionRecord, problem: str, *, source: str) -> None:
         """Record a receipt contract failure loudly and without a false receipt."""
 
         record.receipt_contract_status = "invalid"
@@ -3893,8 +3924,13 @@ class DurableJobManager:
             record.message = line[:400]
             self._execution_event_store(record).append(
                 ExecutionEventType.OUTPUT,
-                payload={"stream": stream, "text": line[:400], "phase": record.phase,
-                         "step": record.current_step, "total": record.total_steps},
+                payload={
+                    "stream": stream,
+                    "text": line[:400],
+                    "phase": record.phase,
+                    "step": record.current_step,
+                    "total": record.total_steps,
+                },
             )
             record.events.append(
                 {
@@ -4051,8 +4087,7 @@ class DurableJobManager:
                 task = self._tasks.get(execution_id)
             if task is not None and not task.done():
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
+                await _await_cancelled_task(task)
             if not record.is_terminal:
                 self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
             return record
@@ -4066,8 +4101,14 @@ class DurableJobManager:
             with self._lock:
                 goal_task = self._tasks.get(execution_id)
             if goal_task is not None and not goal_task.done():
-                with contextlib.suppress(asyncio.CancelledError, Exception):
+                try:
                     await asyncio.wait_for(asyncio.shield(goal_task), timeout=5.0)
+                except asyncio.CancelledError:
+                    current = asyncio.current_task()
+                    if current is not None and current.cancelling():
+                        raise
+                except Exception:
+                    _logger.debug("goal task did not settle after cancel", exc_info=True)
             record = self._lookup(execution_id) or record
             if not record.is_terminal:
                 self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
@@ -4076,8 +4117,7 @@ class DurableJobManager:
             task = self._tasks.get(execution_id)
         if task is not None and not task.done():
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
+            await _await_cancelled_task(task)
         # Explicit cancellation must always converge the remote projection.
         # If a canonical GoalRun exists it owns the business transition and is
         # commanded above; otherwise there is no business authority left to

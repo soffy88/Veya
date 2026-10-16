@@ -1,10 +1,11 @@
 """Independent provider-request lifecycle for a durable Execution."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import StrEnum
 import time
 import uuid
+from dataclasses import dataclass, field
+from enum import StrEnum
 
 
 class ProviderRequestStatus(StrEnum):
@@ -16,15 +17,19 @@ class ProviderRequestStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
-_TERMINAL = frozenset({
-    ProviderRequestStatus.COMPLETED,
-    ProviderRequestStatus.TIMED_OUT,
-    ProviderRequestStatus.FAILED,
-    ProviderRequestStatus.CANCELLED,
-})
+_TERMINAL = frozenset(
+    {
+        ProviderRequestStatus.COMPLETED,
+        ProviderRequestStatus.TIMED_OUT,
+        ProviderRequestStatus.FAILED,
+        ProviderRequestStatus.CANCELLED,
+    }
+)
 
 _ALLOWED = {
-    ProviderRequestStatus.REQUESTED: frozenset({ProviderRequestStatus.RUNNING, ProviderRequestStatus.CANCELLED}),
+    ProviderRequestStatus.REQUESTED: frozenset(
+        {ProviderRequestStatus.RUNNING, ProviderRequestStatus.CANCELLED}
+    ),
     ProviderRequestStatus.RUNNING: frozenset(_TERMINAL),
 }
 
@@ -44,7 +49,13 @@ class ProviderRequest:
     completed_at: float | None = None
     error_code: str | None = None
 
-    def transition(self, status: ProviderRequestStatus, *, error_code: str | None = None, now: float | None = None) -> None:
+    def transition(
+        self,
+        status: ProviderRequestStatus,
+        *,
+        error_code: str | None = None,
+        now: float | None = None,
+    ) -> None:
         if self.status in _TERMINAL:
             if status == self.status:
                 return

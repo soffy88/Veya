@@ -7,12 +7,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from server import auth as auth_mod
 from veya.tools import create_tool_executor
 
-router = APIRouter(prefix="/tools", tags=["tools"])
+# SEC C2/H1: 工具执行 = 在服务账户下跑命令。仅 owner 可调用 (审计 C2)。
+router = APIRouter(
+    prefix="/tools",
+    tags=["tools"],
+    dependencies=[Depends(auth_mod.require_owner)],
+)
 
 # 全局工具执行器
 tool_executor = create_tool_executor()

@@ -90,9 +90,7 @@ class DesignCaptureResponse(BaseModel):
     message_id: str
 
 
-async def _get_current_session_id(
-    request: DesignCaptureRequest, user: dict[str, Any]
-) -> str:
+async def _get_current_session_id(request: DesignCaptureRequest, user: dict[str, Any]) -> str:
     """Resolve session_id: request > active session > new session."""
     if request.session_id:
         return request.session_id

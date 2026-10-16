@@ -47,9 +47,7 @@ def _healthy_admission_executor(monkeypatch: pytest.MonkeyPatch) -> None:
             selectable=True,
             matched_capabilities=matched,
             missing_capabilities=missing,
-            reason=(
-                f"executor_capability_mismatch:{','.join(missing)}" if missing else "admitted"
-            ),
+            reason=(f"executor_capability_mismatch:{','.join(missing)}" if missing else "admitted"),
         )
 
     real_probe = ExecutionRecovery._probe_provider

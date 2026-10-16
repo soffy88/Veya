@@ -11,7 +11,6 @@ Run: .venv/bin/python -m pytest tests/test_allon_features.py -q
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from types import SimpleNamespace
 

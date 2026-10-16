@@ -365,13 +365,14 @@ class CLIWorkerExecutorAdapter(ExecutorAdapter):
         reporter.phase("STARTING", message=f"{self.executor_id} starting", event="STARTING")
 
         try:
-            proc = await asyncio.create_subprocess_exec(
+            from veya.remote._proc import spawn_process
+
+            # Cancel-safe spawn (F10), see veya/remote/_proc.py.
+            proc = await spawn_process(
                 *argv,
                 cwd=cwd,
                 env=env,
                 stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
             )
         except OSError as exc:
@@ -410,6 +411,12 @@ class CLIWorkerExecutorAdapter(ExecutorAdapter):
         ]
         try:
             await asyncio.wait_for(proc.wait(), timeout=request.timeout_s)
+        except asyncio.CancelledError:
+            # Caller cancelled: kill the sandbox process group (bounded) before
+            # propagating, otherwise the bwrap child outlives the task.
+            await self._terminate(record)
+            record["status"] = "CANCELLED"
+            raise
         except TimeoutError:
             await self._terminate(record)
             record["status"] = "FAILED"
@@ -429,6 +436,9 @@ class CLIWorkerExecutorAdapter(ExecutorAdapter):
                 await asyncio.wait_for(
                     asyncio.gather(*readers, return_exceptions=True), timeout=3.0
                 )
+            for reader in readers:
+                if not reader.done():
+                    reader.cancel()
 
         record["exit_code"] = proc.returncode
         record["stdout"] = "".join(stdout_lines)

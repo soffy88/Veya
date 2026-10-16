@@ -81,7 +81,8 @@ alternate   opencode      真实 READ 任务(preflight 实测 COMPLETED)
 
 ```python
 ExecutorHealthRegistry().record_failure(
-    "claude_code", ExecutorFailureClass.AUTH_FAILURE, detail="observed in preflight")
+    "claude_code", ExecutorFailureClass.AUTH_FAILURE, detail="observed in preflight"
+)
 ```
 
 这与 supervision runner 自身在 provider 故障后写入的是同一入口

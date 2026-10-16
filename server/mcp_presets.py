@@ -24,7 +24,11 @@ from typing import Any
 from server.feature_flags import enabled as _flag_enabled
 from server.tool_registry import SideEffect
 
-PRESET_FILE = Path(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))) / "config" / "mcp_presets.yaml"
+PRESET_FILE = (
+    Path(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+    / "config"
+    / "mcp_presets.yaml"
+)
 
 # Preset 声明的逻辑名 → tool_registry SideEffect (全部只读)。
 EFFECTS: dict[str, str] = {
@@ -47,7 +51,6 @@ def _python() -> str:
 def _venv_bin() -> str:
     """Directory holding the interpreter's console scripts (pip entries)."""
     import sys
-    from pathlib import Path
 
     return os.path.dirname(os.path.realpath(sys.executable))
 

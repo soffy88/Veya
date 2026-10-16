@@ -101,8 +101,11 @@ class ExecutionPolicy:
 
     def __post_init__(self) -> None:
         for name in (
-            "idle_timeout_ms", "max_runtime_ms", "heartbeat_interval_ms",
-            "checkpoint_interval_ms", "provider_request_timeout_ms",
+            "idle_timeout_ms",
+            "max_runtime_ms",
+            "heartbeat_interval_ms",
+            "checkpoint_interval_ms",
+            "provider_request_timeout_ms",
         ):
             if int(getattr(self, name)) <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -112,7 +115,9 @@ class ExecutionPolicy:
             )
 
     @classmethod
-    def from_legacy(cls, requested_timeout_s: float, *, separated_cli: bool = True) -> ExecutionPolicy:
+    def from_legacy(
+        cls, requested_timeout_s: float, *, separated_cli: bool = True
+    ) -> ExecutionPolicy:
         requested_ms = max(1_000, int(float(requested_timeout_s) * 1000))
         if separated_cli:
             max_ms = max(requested_ms, 1_800_000)

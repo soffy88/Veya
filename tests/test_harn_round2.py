@@ -1,6 +1,5 @@
 """Tests for round 2 HARN S3 language constraint fix."""
 
-import pytest
 from server.bot_team.turns import build_objective
 from server.goal_run.bot_identity import BotSpec
 

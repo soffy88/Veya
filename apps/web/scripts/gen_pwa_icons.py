@@ -29,13 +29,15 @@ def _gradient(size: int) -> Image.Image:
     for y in range(64):
         for x in range(64):
             t = (x + y) / 126  # the SVG's unit-square diagonal, normalised
-            pixels[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(SKY, VIOLET))
+            pixels[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(SKY, VIOLET, strict=False))
     return ramp.resize((size, size), Image.BICUBIC)
 
 
 def _rounded_mask(size: int) -> Image.Image:
     mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size - 1, size - 1), radius=int(size * 112 / 512), fill=255)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, size - 1, size - 1), radius=int(size * 112 / 512), fill=255
+    )
     return mask
 
 
@@ -44,13 +46,17 @@ def _mark(size: int) -> Image.Image:
 
     layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
-    points = [(size * 154 / 512, size * 160 / 512), (size * 256 / 512, size * 372 / 512), (size * 358 / 512, size * 160 / 512)]
+    points = [
+        (size * 154 / 512, size * 160 / 512),
+        (size * 256 / 512, size * 372 / 512),
+        (size * 358 / 512, size * 160 / 512),
+    ]
     width = int(size * 42 / 512)
-    draw.line(points, fill=WHITE + (255,), width=width, joint="curve")
+    draw.line(points, fill=(*WHITE, 255), width=width, joint="curve")
     # Rounded caps: PIL only joints the polyline, so cap the two ends by hand.
     for x, y in (points[0], points[-1]):
         r = width / 2
-        draw.ellipse((x - r, y - r, x + r, y + r), fill=WHITE + (255,))
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=(*WHITE, 255))
     return layer
 
 
@@ -69,7 +75,9 @@ def main() -> None:
     here = os.path.dirname(os.path.abspath(__file__))
     out = os.path.join(here, "..", "static", "icons")
     for size in (192, 512):
-        build(size, full_bleed=False).resize((size, size)).save(os.path.join(out, f"icon-{size}.png"))
+        build(size, full_bleed=False).resize((size, size)).save(
+            os.path.join(out, f"icon-{size}.png")
+        )
     build(180, full_bleed=True).save(os.path.join(out, "apple-touch-icon.png"))
     # maskable needs its mark safely inside the 80% safe zone
     icon = build(512, full_bleed=True)

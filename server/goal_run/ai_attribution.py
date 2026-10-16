@@ -46,9 +46,7 @@ class AttributionEntry:
     def overlaps(self, line_start: int, line_end: int) -> bool:
         return not (self.line_end < line_start or self.line_start > line_end)
 
-    def remove_overlap(
-        self, line_start: int, line_end: int
-    ) -> list[AttributionEntry]:
+    def remove_overlap(self, line_start: int, line_end: int) -> list[AttributionEntry]:
         """Return 0-2 non-overlapping sub-entries after removing [line_start, line_end]."""
         result = []
         if self.line_start < line_start:

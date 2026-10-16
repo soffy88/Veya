@@ -123,8 +123,6 @@ def _record(
     )
 
 
-
-
 def test_execution_policy_migrates_legacy_hard_max_and_preserves_clock_order():
     policy = ExecutionPolicy.from_legacy(600.0)
     assert policy.max_runtime_ms == 1_800_000
@@ -140,6 +138,7 @@ def test_execution_policy_rejects_invalid_clock_order():
             idle_timeout_ms=300_000,
             max_runtime_ms=1_800_000,
         )
+
 
 # ── the execution deadline is a nameable clock ─────────────────────
 

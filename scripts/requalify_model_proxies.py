@@ -347,9 +347,25 @@ def nim_catalog() -> list[str]:
 # veya-nim proxy then routes ordinary chat to e.g. a safety classifier that
 # replies "User Safety: safe". Only general chat models enter the pool.
 _NON_CHAT_MARKERS = (
-    "safety", "guard", "reward", "embed", "rerank", "retriever", "parse",
-    "calibration", "translate", "clip", "vila", "neva", "glimmer", "ocr",
-    "-vlm", "deplot", "kosmos", "fuyu", "paligemma",
+    "safety",
+    "guard",
+    "reward",
+    "embed",
+    "rerank",
+    "retriever",
+    "parse",
+    "calibration",
+    "translate",
+    "clip",
+    "vila",
+    "neva",
+    "glimmer",
+    "ocr",
+    "-vlm",
+    "deplot",
+    "kosmos",
+    "fuyu",
+    "paligemma",
 )
 
 

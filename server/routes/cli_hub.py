@@ -50,9 +50,7 @@ router = APIRouter(prefix="/api/v1/cli-hub", tags=["cli-hub"])
 
 def _require_cli_hub() -> None:
     if not flag_enabled("VEYA_CLI_HUB"):
-        raise HTTPException(
-            status_code=404, detail="CLI Hub not enabled (VEYA_CLI_HUB=1)"
-        )
+        raise HTTPException(status_code=404, detail="CLI Hub not enabled (VEYA_CLI_HUB=1)")
 
 
 def _registry_or_empty() -> str:
@@ -72,8 +70,7 @@ def _registry_unconfigured_payload() -> dict[str, Any]:
         "results": [],
         "available": False,
         "reason": (
-            "no CLI-Hub registry is configured for this deployment "
-            "(set VEYA_CLI_HUB_BASE_URL)"
+            "no CLI-Hub registry is configured for this deployment (set VEYA_CLI_HUB_BASE_URL)"
         ),
     }
 

@@ -64,10 +64,11 @@ class TelegramClient:
             try:
                 resp = await self.client.post(self._url(method), json=json_data)
                 resp.raise_for_status()
-                data = resp.json()
+                data: dict[str, Any] = resp.json()
                 if not data.get("ok"):
                     raise RuntimeError(f"Telegram API error: {data.get('description')}")
-                return data.get("result", {})
+                result: dict[str, Any] = data.get("result", {})
+                return result
             except (httpx.RequestError, httpx.HTTPStatusError) as exc:
                 last_exc = exc
                 if attempt < self._max_retries - 1:
@@ -174,10 +175,11 @@ class TelegramClient:
             params["allowed_updates"] = allowed_updates
         resp = await self.client.get(self._url("getUpdates"), params=params)
         resp.raise_for_status()
-        data = resp.json()
+        data: dict[str, Any] = resp.json()
         if not data.get("ok"):
             raise RuntimeError(f"Telegram API error: {data.get('description')}")
-        return data.get("result", [])
+        result: list[dict[str, Any]] = data.get("result", [])
+        return result
 
     # ---- Bot info (oprim: single HTTP call) ----
 

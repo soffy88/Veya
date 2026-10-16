@@ -17,15 +17,9 @@ from tests.conftest import ROOT  # noqa: F401 — path bootstrap
 def supervisor_on(monkeypatch, tmp_path: Path):
     """Enable the supervisor flag and isolate its storage."""
     monkeypatch.setenv("VEYA_SUPERVISOR", "1")
-    monkeypatch.setenv(
-        "VEYA_SUPERVISOR_BINDING_PATH", str(tmp_path / "supervisor_bindings.json")
-    )
-    monkeypatch.setenv(
-        "VEYA_ROUTINE_REGISTRY_PATH", str(tmp_path / "routine_registry.json")
-    )
-    monkeypatch.setenv(
-        "VEYA_BOT_REGISTRY_PATH", str(tmp_path / "bot_registry.json")
-    )
+    monkeypatch.setenv("VEYA_SUPERVISOR_BINDING_PATH", str(tmp_path / "supervisor_bindings.json"))
+    monkeypatch.setenv("VEYA_ROUTINE_REGISTRY_PATH", str(tmp_path / "routine_registry.json"))
+    monkeypatch.setenv("VEYA_BOT_REGISTRY_PATH", str(tmp_path / "bot_registry.json"))
     from server.supervisor import binding
 
     yield binding
@@ -60,9 +54,7 @@ def test_supervise_task_disabled_by_default(supervisor_off, bot_ctx, tmp_path):
         supervise_task(project_root=str(tmp_path), objective="修好 X")
 
 
-def test_supervise_task_creates_goalrun_routine_binding(
-    supervisor_on, bot_ctx, tmp_path
-):
+def test_supervise_task_creates_goalrun_routine_binding(supervisor_on, bot_ctx, tmp_path):
     from server.goal_run.routine_registry import RoutineRegistry
     from server.goal_run.store import load_goal_run
     from server.supervision_tools import supervise_task
@@ -205,9 +197,7 @@ def test_report_shows_progress(supervisor_on, bot_ctx, tmp_path):
         last_activity_at=time.time(),
     )
 
-    report = build_progress_report(
-        goal_run_id=goal_id, project_root=str(tmp_path), binding=binding
-    )
+    report = build_progress_report(goal_run_id=goal_id, project_root=str(tmp_path), binding=binding)
     assert report["tasks_done"] == 1
     assert report["tasks_total"] == 3
     assert report["tasks_blocked"] == 0
@@ -239,9 +229,7 @@ def test_report_no_invented_progress(supervisor_on, bot_ctx, tmp_path):
         stall_after_minutes=20,
         last_activity_at=time.time(),
     )
-    report = build_progress_report(
-        goal_run_id=goal_id, project_root=str(tmp_path), binding=binding
-    )
+    report = build_progress_report(goal_run_id=goal_id, project_root=str(tmp_path), binding=binding)
     assert report["tasks_done"] == 0
     assert "尚未完成任何子任务" in report["body"]
 
@@ -270,9 +258,7 @@ def test_report_done_when_all_completed(supervisor_on, bot_ctx, tmp_path):
         project_root=str(tmp_path),
         last_activity_at=time.time(),
     )
-    report = build_progress_report(
-        goal_run_id=goal_id, project_root=str(tmp_path), binding=binding
-    )
+    report = build_progress_report(goal_run_id=goal_id, project_root=str(tmp_path), binding=binding)
     assert report["is_done"] is True
     assert "任务完成" in report["body"]
     assert report["last_evidence"] is not None
@@ -301,9 +287,7 @@ def test_report_stall_detected(supervisor_on, bot_ctx, tmp_path):
         stall_after_minutes=20,
         last_activity_at=time.time() - (25 * 60),  # 25 min ago
     )
-    report = build_progress_report(
-        goal_run_id=goal_id, project_root=str(tmp_path), binding=binding
-    )
+    report = build_progress_report(goal_run_id=goal_id, project_root=str(tmp_path), binding=binding)
     assert report["is_stalled"] is True
     assert "卡住" in report["body"]
 
@@ -330,9 +314,7 @@ def test_report_not_stalled_when_recent(supervisor_on, bot_ctx, tmp_path):
         stall_after_minutes=20,
         last_activity_at=time.time(),  # just now
     )
-    report = build_progress_report(
-        goal_run_id=goal_id, project_root=str(tmp_path), binding=binding
-    )
+    report = build_progress_report(goal_run_id=goal_id, project_root=str(tmp_path), binding=binding)
     assert report["is_stalled"] is False
 
 
@@ -419,9 +401,7 @@ def test_owned_binding_allows_owner(supervisor_on, bot_ctx, tmp_path):
 
     from server.routes.supervised import _owned_binding
 
-    result = _owned_binding(
-        "b8", "bot_a", {"user_id": "user_a", "username": "a"}
-    )
+    result = _owned_binding("b8", "bot_a", {"user_id": "user_a", "username": "a"})
     assert result.binding_id == "b8"
 
 
@@ -529,6 +509,7 @@ async def test_supervisor_phrase_starts_supervised_task(
         }
 
     import server.supervision_tools as st
+
     monkeypatch.setattr(st, "supervise_task", fake_supervise)
 
     bot = BotSpec(bot_id="bot_test", owner_id="user_test", name="T", description="")
@@ -570,9 +551,7 @@ async def test_non_phrase_turn_not_intercepted(supervisor_on, bot_ctx, tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_report_seq_increments_across_reports(
-    supervisor_on, bot_ctx, tmp_path
-):
+async def test_report_seq_increments_across_reports(supervisor_on, bot_ctx, tmp_path):
     """Every routine fire posts a distinct, monotonic report_seq."""
     from server.supervisor.binding import SupervisorBinding
     from server.supervisor.handoff import supervisor_handoff
@@ -613,9 +592,7 @@ async def test_report_seq_increments_across_reports(
 
 
 @pytest.mark.asyncio
-async def test_restart_does_not_replay_report_seq(
-    supervisor_on, bot_ctx, tmp_path
-):
+async def test_restart_does_not_replay_report_seq(supervisor_on, bot_ctx, tmp_path):
     """After a restart (fresh load from disk) the next report is
     seq N+1, not a replay of the last seq the user already saw."""
     from server.supervisor.binding import SupervisorBinding
@@ -702,6 +679,7 @@ async def test_supervisor_phrase_records_user_message(
         }
 
     import server.supervision_tools as st
+
     monkeypatch.setattr(st, "supervise_task", fake_supervise)
 
     recorded = []

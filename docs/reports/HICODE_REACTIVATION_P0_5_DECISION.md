@@ -74,12 +74,12 @@ hicode 的移除是两个相隔 5 天的独立事件：
 `veya/supervision/runner.py:201` 显示现行唯一结构区分是 `local`：
 
 ```python
-local = identity.executor_kind == _LOCAL_SUBSTRATE_KIND   # "in_process_substrate"
+local = identity.executor_kind == _LOCAL_SUBSTRATE_KIND  # "in_process_substrate"
 ...
 capability_satisfied = local_capable if local else check_capability_compatible(...)
-reachable            = True if local else identity.reachable
-authenticated        = True if local else identity.authenticated
-health               = "LOCAL" if local else health.get_health(name)
+reachable = True if local else identity.reachable
+authenticated = True if local else identity.authenticated
+health = "LOCAL" if local else health.get_health(name)
 ```
 
 把 hicode 归为 `in_process_substrate` 会让它**绕过 capability 检查、

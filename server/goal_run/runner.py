@@ -98,6 +98,24 @@ from server.versioning import VersionRecord
 logger = logging.getLogger("veya.goal_run")
 
 
+async def _await_cancelled_task(task: "asyncio.Future[Any]") -> None:
+    """Await a child task we just cancelled without swallowing *our own* cancellation.
+
+    ``contextlib.suppress(asyncio.CancelledError)`` around ``await task`` also
+    eats a cancel aimed at the caller, so the caller keeps running and teardown
+    (``asyncio.runners._cancel_all_tasks``) waits forever.  Only the child's
+    CancelledError is absorbed; a pending cancel on the current task re-raises.
+    """
+    try:
+        await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if current is not None and current.cancelling():
+            raise
+    except Exception:  # child failure is not the caller's failure here
+        logger.debug("cancelled child task ended with error", exc_info=True)
+
+
 def _is_dispatch_assignee(assignee: str) -> bool:
     """Whether this assignee is dispatched to an external execution plane.
 
@@ -168,8 +186,7 @@ async def _durable_lease_heartbeat(repository: DurableExecutionRepository, claim
         yield
     finally:
         beat.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await beat
+        await _await_cancelled_task(beat)
 
 
 async def _release_durable_finalization(
@@ -1210,11 +1227,7 @@ async def project_run_goal(
         if state is None:
             # 若目标不存在，则视为新 run
             state = None
-        elif (
-            not state.tasks
-            and state.started_at is None
-            and not state.is_terminal()
-        ):
+        elif not state.tasks and state.started_at is None and not state.is_terminal():
             # A pre-registered shell (W12 supervise_task records the GoalRun
             # before it is dispatched): there is no task graph to resume, so
             # plan it now under the id the supervisor binding already holds.
@@ -1974,354 +1987,29 @@ async def _run_loop_and_finalize(
         if active:
             await asyncio.gather(*active.values(), return_exceptions=True)
 
-    while True:
-        elapsed_s = max(0.0, time.time() - start_ts)
-        remaining_s = max(0.0, total_wall_s - elapsed_s)
+    try:
+        while True:
+            elapsed_s = max(0.0, time.time() - start_ts)
+            remaining_s = max(0.0, total_wall_s - elapsed_s)
 
-        operator_stop = bool(cancel_event and cancel_event.is_set())
-        spawn_snapshot = spawn_guard.snapshot()
-        budget_near = spawn_snapshot["used_tokens"] + spawn_snapshot[
-            "reserved_tokens"
-        ] >= spawn_snapshot["max_tokens"] or (
-            spawn_guard.budget.max_cost_usd is not None
-            and spawn_snapshot["used_cost_usd"] + spawn_snapshot["reserved_cost_usd"]
-            >= spawn_guard.budget.max_cost_usd
-        )
-        if not finalization.started and finalization.start(
-            remaining_s,
-            budget_near=budget_near,
-            operator_stop=operator_stop,
-        ):
-            if durable_repository is not None:
-                # Persist the finalizer edge before exposing the local SSE
-                # transition.  This is the durable-before-visible boundary:
-                # a crash during the reserve must leave resumable work.
-                await durable_repository.ensure_finalization_item(state.goal_id)
-            state.finalization_started = True
-            state.status = GoalStatus.finalizing
-            _emit_runtime_event(
-                state,
-                project_root,
-                "finalization.started",
-                reason=(
-                    "operator_stop"
-                    if operator_stop
-                    else "budget_near"
-                    if budget_near
-                    else "wall_reserve"
-                ),
-                remaining_wall_s=remaining_s,
-                reserve_s=finalization.reserve_s,
+            operator_stop = bool(cancel_event and cancel_event.is_set())
+            spawn_snapshot = spawn_guard.snapshot()
+            budget_near = spawn_snapshot["used_tokens"] + spawn_snapshot[
+                "reserved_tokens"
+            ] >= spawn_snapshot["max_tokens"] or (
+                spawn_guard.budget.max_cost_usd is not None
+                and spawn_snapshot["used_cost_usd"] + spawn_snapshot["reserved_cost_usd"]
+                >= spawn_guard.budget.max_cost_usd
             )
-            _write_execution_checkpoint(state, project_root, list(active))
-            harness_adapter.observe()
-            harness_adapter.persist(reason="task_round")
-            save_goal_run(state, project_root)
-
-        if finalization.started and (remaining_s <= 0 or operator_stop) and active:
-            await cancel_active()
-
-        if not finalization.started:
-            scheduler_state.promote_ready()
-            selected = _take_continuous_tasks(state, max_concurrent, active)
-            for task in selected:
-                # P1-03: advisory topology suggestion for this task.  It is
-                # recorded only — the executor is unchanged.
-                topology = _select_task_topology(task)
-                _emit_runtime_event(
-                    state,
-                    project_root,
-                    "scheduler.task_ready",
-                    task_id=task.id,
-                    topology_mode=topology.mode.value,
-                    topology_reason=topology.reason,
-                )
-                _emit_runtime_event(
-                    state,
-                    project_root,
-                    "scheduler.task_started",
-                    task_id=task.id,
-                    topology_mode=topology.mode.value,
-                    topology_confidence=topology.confidence,
-                    topology_escalation_suggested=topology.mode is not TopologyMode.INLINE,
-                )
-
-                async def _run_guarded(current_task: Any = task):
-                    async def execute_current(_cancel: asyncio.Event):
-                        if integration_adapter is not None:
-                            await integration_adapter.before_iteration(
-                                state, project_root, current_task
-                            )
-                        if durable_repository is None or durable_worker_id is None:
-                            return await _process_one_task(
-                                current_task,
-                                state,
-                                project_root,
-                                integration_adapter=integration_adapter,
-                            )
-                        claim = await _claim_durable_goal_task(
-                            durable_repository,
-                            durable_worker_id,
-                            state,
-                            current_task,
-                        )
-                        await durable_repository.start(claim)
-                        try:
-                            async with _durable_lease_heartbeat(durable_repository, claim):
-                                response = await _process_one_task(
-                                    current_task,
-                                    state,
-                                    project_root,
-                                    integration_adapter=integration_adapter,
-                                )
-                            if current_task.status == TaskStatus.completed:
-                                await durable_repository.complete(
-                                    claim,
-                                    {
-                                        "task_id": current_task.id,
-                                        "status": "completed",
-                                        "summary": current_task.execute_result or "",
-                                        "delegate_result": current_task.delegate_result,
-                                        "canonical_action": state.budget.get(
-                                            "last_canonical_action"
-                                        ),
-                                    },
-                                )
-                            elif current_task.status == TaskStatus.ready:
-                                await durable_repository.fail(
-                                    claim,
-                                    {"message": "acceptance failed; retry branch remains ready"},
-                                    classification="safe_retry",
-                                )
-                            else:
-                                await durable_repository.fail(
-                                    claim,
-                                    {
-                                        "message": current_task.block_reason
-                                        or "leaf did not complete"
-                                    },
-                                    classification="permanent_failure",
-                                )
-                            return response
-                        except asyncio.CancelledError:
-                            with contextlib.suppress(DurableExecutionError):
-                                await durable_repository.fail(
-                                    claim,
-                                    {"message": "worker cancelled"},
-                                    classification="cancelled",
-                                )
-                            raise
-                        except DurableExecutionError:
-                            raise
-                        except Exception as exc:
-                            classification = (
-                                "unknown"
-                                if _is_dispatch_assignee(current_task.assignee)
-                                else "safe_retry"
-                            )
-                            with contextlib.suppress(DurableExecutionError):
-                                await durable_repository.fail(
-                                    claim,
-                                    {"message": f"{type(exc).__name__}: {exc}"},
-                                    classification=classification,
-                                )
-                            raise
-
-                    return await spawn_guard.run(
-                        current_task.id,
-                        execute_current,
-                        depth=1,
-                        estimated_tokens=0,
-                        timeout_s=int(state.budget.get("subagent_timeout_s", 5400)),
-                    )
-
-                active[task.id] = asyncio.create_task(
-                    _run_guarded(),
-                    name=f"veya-goal-{state.goal_id}-{task.id}",
-                )
-            if selected:
-                goal_no_progress.reset()
-                progress_tracker.record(ProgressSignal.STATE_TRANSITION)
-
-        if active:
-            # Re-check the reserve periodically even when the current child is
-            # slow.  Once the root deadline is reached the children are
-            # cancelled and their partial projection is finalized below.
-            wait_timeout = min(1.0, max(0.05, remaining_s))
-            done, _ = await asyncio.wait(
-                list(active.values()), timeout=wait_timeout, return_when=asyncio.FIRST_COMPLETED
-            )
-            if not done:
-                continue
-            for child in done:
-                task_id = next(key for key, value in list(active.items()) if value is child)
-                active.pop(task_id, None)
-                task = state.tasks[task_id]
-                try:
-                    response = child.result()
-                except asyncio.CancelledError:
-                    task.status = TaskStatus.cancelled
-                    task.stop_reason = "cancelled"
-                    state.running_ids.discard(task_id)
-                    if task_id not in state.unfinished_work:
-                        state.unfinished_work.append(task_id)
-                    _emit_runtime_event(state, project_root, "delegate.cancelled", task_id=task_id)
-                    response = None
-                except Exception as exc:
-                    task.status = TaskStatus.blocked
-                    task.stop_reason = "exception"
-                    task.block_reason = f"{type(exc).__name__}: {exc}"
-                    task.unfinished_work.append(task.instruction)
-                    state.running_ids.discard(task_id)
-                    _emit_runtime_event(
-                        state,
-                        project_root,
-                        "delegate.failed",
-                        task_id=task_id,
-                        error=str(exc),
-                    )
-                    response = None
-                else:
-                    if response is None and task.status == TaskStatus.completed:
-                        _emit_runtime_event(
-                            state, project_root, "delegate.completed", task_id=task_id
-                        )
-                    elif response is None and task.status == TaskStatus.ready:
-                        _emit_runtime_event(
-                            state, project_root, "delegate.partial", task_id=task_id
-                        )
-                    elif response is not None:
-                        _emit_runtime_event(
-                            state,
-                            project_root,
-                            "delegate.failed",
-                            task_id=task_id,
-                            error=response.block_reason,
-                        )
-                        # Constitution/sandbox violations are fail-closed.  A
-                        # normal acceptance failure is preserved and allowed
-                        # to become partial_completed with sibling results.
-                        if "constitution" in (response.block_reason or "").lower():
-                            safety_response = response
-                        else:
-                            state.status = GoalStatus.running
-                            state.last_stop_reason = "acceptance_failed"
-                            if task_id not in state.unfinished_work:
-                                state.unfinished_work.append(task_id)
-                if safety_response is not None:
-                    await cancel_active()
-                    save_goal_run(state, project_root)
-                    _finalize_episode(state, project_root, outcome=safety_response.status.value)
-                    return safety_response
-                goal_no_progress.reset()
-                if task.status == TaskStatus.completed and task_id in state.completed_ids:
-                    progress_tracker.record(ProgressSignal.NEW_TASK_COMPLETION)
-                elif task.evidence:
-                    progress_tracker.record(ProgressSignal.NEW_EVIDENCE)
-                elif task.artifacts:
-                    progress_tracker.record(ProgressSignal.NEW_ARTIFACT)
-                else:
-                    progress_tracker.record(ProgressSignal.STATE_TRANSITION)
-            _write_execution_checkpoint(state, project_root, list(active))
-            if integration_adapter is not None:
-                integration_adapter.checkpoint(state, project_root, reason="task_round")
-            save_goal_run(state, project_root)
-            if loop_policy is not None:
-                # One round of work has drained. The Loop policy decides whether
-                # this run keeps going, checkpoints, or stops. Stopping is done
-                # by starting the run's OWN finalization — the same edge the
-                # budget reserve uses — so the ordinary finalize path still runs.
-                loop_rounds_done += 1
-                progressed = len(state.completed_ids) > loop_completed_before
-                loop_completed_before = len(state.completed_ids)
-                loop_no_progress_rounds = 0 if progressed else loop_no_progress_rounds + 1
-                state.budget["loop_rounds_done"] = loop_rounds_done
-                state.budget["loop_no_progress_rounds"] = loop_no_progress_rounds
-                verdict = loop_policy.decide(
-                    state.goal_id,
-                    mode="loop",
-                    round_index=loop_rounds_done,
-                    rounds_done=loop_rounds_done,
-                    elapsed_s=max(0.0, time.time() - start_ts),
-                    turn_budget=int(loop_brief.get("turn_budget") or 0) or None,
-                    time_budget_s=float(loop_brief.get("time_budget_s") or 0.0) or None,
-                    no_progress_rounds=loop_no_progress_rounds,
-                    user_stop=bool(cancel_event and cancel_event.is_set()),
-                    summary=(
-                        f"round {loop_rounds_done}: "
-                        f"{loop_completed_before}/{len(state.tasks)} tasks completed so far"
-                    ),
-                    did=[
-                        task.id
-                        for task in state.tasks.values()
-                        if task.status == TaskStatus.completed
-                    ][-5:],
-                )
-                _emit_runtime_event(
-                    state,
-                    project_root,
-                    "goal_run.loop_round",
-                    round=loop_rounds_done,
-                    next=verdict.get("next"),
-                    stop=bool(verdict.get("stop")),
-                    reason=verdict.get("reason"),
-                )
-                if verdict.get("stop") and not finalization.started:
-                    finalization.started = True
-                    state.finalization_started = True
-                    state.status = GoalStatus.finalizing
-                    state.last_stop_reason = f"loop:{verdict.get('reason_code')}"
-                    _emit_runtime_event(
-                        state,
-                        project_root,
-                        "finalization.started",
-                        reason=f"loop_{verdict.get('reason_code')}",
-                        round=loop_rounds_done,
-                    )
-            continue
-
-        # No active work remains.  Completed/blocked/cancelled are now ready
-        # for finalization; otherwise a dependency deadlock is a no-progress
-        # condition rather than an infinite loop.
-        if finalization.started:
-            break
-        if state.tasks and all(
-            task.status in (TaskStatus.completed, TaskStatus.blocked, TaskStatus.cancelled)
-            for task in state.tasks.values()
-        ):
-            break
-        scheduler_decision = scheduler_state.promote_ready()
-        if any(task.status == TaskStatus.ready for task in state.tasks.values()):
-            goal_no_progress.reset()
-            continue
-        state_signature = tuple(
-            sorted(
-                (task.id, task.status.value, tuple(task.depends_on))
-                for task in state.tasks.values()
-            )
-        )
-        # §25: the structural guard only fires on a *repeated identical*
-        # signature, so it cannot see a livelock that keeps mutating the
-        # signature without ever finishing work.  The semantic tick counts
-        # cycles that produced no progress signal at all and routes to the
-        # same finalization path.
-        semantic_verdict = progress_tracker.tick()
-        if (
-            goal_no_progress.observe(
-                signature=(
-                    state_signature,
-                    tuple(sorted(state.completed_ids)),
-                    scheduler_decision.value,
-                ),
-            )
-            or semantic_verdict is NoProgressVerdict.NO_PROGRESS_DETECTED
-        ):
-            if semantic_verdict is NoProgressVerdict.NO_PROGRESS_DETECTED:
-                semantic_no_progress = "no_progress_detected"
-            _mark_unfinished(state)
-            state.last_stop_reason = "cross_turn_repetition"
-            if finalization.start(remaining_s, no_progress=True):
+            if not finalization.started and finalization.start(
+                remaining_s,
+                budget_near=budget_near,
+                operator_stop=operator_stop,
+            ):
                 if durable_repository is not None:
+                    # Persist the finalizer edge before exposing the local SSE
+                    # transition.  This is the durable-before-visible boundary:
+                    # a crash during the reserve must leave resumable work.
                     await durable_repository.ensure_finalization_item(state.goal_id)
                 state.finalization_started = True
                 state.status = GoalStatus.finalizing
@@ -2329,11 +2017,347 @@ async def _run_loop_and_finalize(
                     state,
                     project_root,
                     "finalization.started",
-                    reason="no_progress",
+                    reason=(
+                        "operator_stop"
+                        if operator_stop
+                        else "budget_near"
+                        if budget_near
+                        else "wall_reserve"
+                    ),
+                    remaining_wall_s=remaining_s,
                     reserve_s=finalization.reserve_s,
                 )
-            continue
-        await asyncio.sleep(0)
+                _write_execution_checkpoint(state, project_root, list(active))
+                harness_adapter.observe()
+                harness_adapter.persist(reason="task_round")
+                save_goal_run(state, project_root)
+
+            if finalization.started and (remaining_s <= 0 or operator_stop) and active:
+                await cancel_active()
+
+            if not finalization.started:
+                scheduler_state.promote_ready()
+                selected = _take_continuous_tasks(state, max_concurrent, active)
+                for task in selected:
+                    # P1-03: advisory topology suggestion for this task.  It is
+                    # recorded only — the executor is unchanged.
+                    topology = _select_task_topology(task)
+                    _emit_runtime_event(
+                        state,
+                        project_root,
+                        "scheduler.task_ready",
+                        task_id=task.id,
+                        topology_mode=topology.mode.value,
+                        topology_reason=topology.reason,
+                    )
+                    _emit_runtime_event(
+                        state,
+                        project_root,
+                        "scheduler.task_started",
+                        task_id=task.id,
+                        topology_mode=topology.mode.value,
+                        topology_confidence=topology.confidence,
+                        topology_escalation_suggested=topology.mode is not TopologyMode.INLINE,
+                    )
+
+                    async def _run_guarded(current_task: Any = task):
+                        async def execute_current(_cancel: asyncio.Event):
+                            if integration_adapter is not None:
+                                await integration_adapter.before_iteration(
+                                    state, project_root, current_task
+                                )
+                            if durable_repository is None or durable_worker_id is None:
+                                return await _process_one_task(
+                                    current_task,
+                                    state,
+                                    project_root,
+                                    integration_adapter=integration_adapter,
+                                )
+                            claim = await _claim_durable_goal_task(
+                                durable_repository,
+                                durable_worker_id,
+                                state,
+                                current_task,
+                            )
+                            await durable_repository.start(claim)
+                            try:
+                                async with _durable_lease_heartbeat(durable_repository, claim):
+                                    response = await _process_one_task(
+                                        current_task,
+                                        state,
+                                        project_root,
+                                        integration_adapter=integration_adapter,
+                                    )
+                                if current_task.status == TaskStatus.completed:
+                                    await durable_repository.complete(
+                                        claim,
+                                        {
+                                            "task_id": current_task.id,
+                                            "status": "completed",
+                                            "summary": current_task.execute_result or "",
+                                            "delegate_result": current_task.delegate_result,
+                                            "canonical_action": state.budget.get(
+                                                "last_canonical_action"
+                                            ),
+                                        },
+                                    )
+                                elif current_task.status == TaskStatus.ready:
+                                    await durable_repository.fail(
+                                        claim,
+                                        {"message": "acceptance failed; retry branch remains ready"},
+                                        classification="safe_retry",
+                                    )
+                                else:
+                                    await durable_repository.fail(
+                                        claim,
+                                        {
+                                            "message": current_task.block_reason
+                                            or "leaf did not complete"
+                                        },
+                                        classification="permanent_failure",
+                                    )
+                                return response
+                            except asyncio.CancelledError:
+                                with contextlib.suppress(DurableExecutionError):
+                                    await durable_repository.fail(
+                                        claim,
+                                        {"message": "worker cancelled"},
+                                        classification="cancelled",
+                                    )
+                                raise
+                            except DurableExecutionError:
+                                raise
+                            except Exception as exc:
+                                classification = (
+                                    "unknown"
+                                    if _is_dispatch_assignee(current_task.assignee)
+                                    else "safe_retry"
+                                )
+                                with contextlib.suppress(DurableExecutionError):
+                                    await durable_repository.fail(
+                                        claim,
+                                        {"message": f"{type(exc).__name__}: {exc}"},
+                                        classification=classification,
+                                    )
+                                raise
+
+                        return await spawn_guard.run(
+                            current_task.id,
+                            execute_current,
+                            depth=1,
+                            estimated_tokens=0,
+                            timeout_s=int(state.budget.get("subagent_timeout_s", 5400)),
+                        )
+
+                    active[task.id] = asyncio.create_task(
+                        _run_guarded(),
+                        name=f"veya-goal-{state.goal_id}-{task.id}",
+                    )
+                if selected:
+                    goal_no_progress.reset()
+                    progress_tracker.record(ProgressSignal.STATE_TRANSITION)
+
+            if active:
+                # Re-check the reserve periodically even when the current child is
+                # slow.  Once the root deadline is reached the children are
+                # cancelled and their partial projection is finalized below.
+                wait_timeout = min(1.0, max(0.05, remaining_s))
+                done, _ = await asyncio.wait(
+                    list(active.values()), timeout=wait_timeout, return_when=asyncio.FIRST_COMPLETED
+                )
+                if not done:
+                    continue
+                for child in done:
+                    task_id = next(key for key, value in list(active.items()) if value is child)
+                    active.pop(task_id, None)
+                    task = state.tasks[task_id]
+                    try:
+                        response = child.result()
+                    except asyncio.CancelledError:
+                        task.status = TaskStatus.cancelled
+                        task.stop_reason = "cancelled"
+                        state.running_ids.discard(task_id)
+                        if task_id not in state.unfinished_work:
+                            state.unfinished_work.append(task_id)
+                        _emit_runtime_event(state, project_root, "delegate.cancelled", task_id=task_id)
+                        response = None
+                    except Exception as exc:
+                        task.status = TaskStatus.blocked
+                        task.stop_reason = "exception"
+                        task.block_reason = f"{type(exc).__name__}: {exc}"
+                        task.unfinished_work.append(task.instruction)
+                        state.running_ids.discard(task_id)
+                        _emit_runtime_event(
+                            state,
+                            project_root,
+                            "delegate.failed",
+                            task_id=task_id,
+                            error=str(exc),
+                        )
+                        response = None
+                    else:
+                        if response is None and task.status == TaskStatus.completed:
+                            _emit_runtime_event(
+                                state, project_root, "delegate.completed", task_id=task_id
+                            )
+                        elif response is None and task.status == TaskStatus.ready:
+                            _emit_runtime_event(
+                                state, project_root, "delegate.partial", task_id=task_id
+                            )
+                        elif response is not None:
+                            _emit_runtime_event(
+                                state,
+                                project_root,
+                                "delegate.failed",
+                                task_id=task_id,
+                                error=response.block_reason,
+                            )
+                            # Constitution/sandbox violations are fail-closed.  A
+                            # normal acceptance failure is preserved and allowed
+                            # to become partial_completed with sibling results.
+                            if "constitution" in (response.block_reason or "").lower():
+                                safety_response = response
+                            else:
+                                state.status = GoalStatus.running
+                                state.last_stop_reason = "acceptance_failed"
+                                if task_id not in state.unfinished_work:
+                                    state.unfinished_work.append(task_id)
+                    if safety_response is not None:
+                        await cancel_active()
+                        save_goal_run(state, project_root)
+                        _finalize_episode(state, project_root, outcome=safety_response.status.value)
+                        return safety_response
+                    goal_no_progress.reset()
+                    if task.status == TaskStatus.completed and task_id in state.completed_ids:
+                        progress_tracker.record(ProgressSignal.NEW_TASK_COMPLETION)
+                    elif task.evidence:
+                        progress_tracker.record(ProgressSignal.NEW_EVIDENCE)
+                    elif task.artifacts:
+                        progress_tracker.record(ProgressSignal.NEW_ARTIFACT)
+                    else:
+                        progress_tracker.record(ProgressSignal.STATE_TRANSITION)
+                _write_execution_checkpoint(state, project_root, list(active))
+                if integration_adapter is not None:
+                    integration_adapter.checkpoint(state, project_root, reason="task_round")
+                save_goal_run(state, project_root)
+                if loop_policy is not None:
+                    # One round of work has drained. The Loop policy decides whether
+                    # this run keeps going, checkpoints, or stops. Stopping is done
+                    # by starting the run's OWN finalization — the same edge the
+                    # budget reserve uses — so the ordinary finalize path still runs.
+                    loop_rounds_done += 1
+                    progressed = len(state.completed_ids) > loop_completed_before
+                    loop_completed_before = len(state.completed_ids)
+                    loop_no_progress_rounds = 0 if progressed else loop_no_progress_rounds + 1
+                    state.budget["loop_rounds_done"] = loop_rounds_done
+                    state.budget["loop_no_progress_rounds"] = loop_no_progress_rounds
+                    verdict = loop_policy.decide(
+                        state.goal_id,
+                        mode="loop",
+                        round_index=loop_rounds_done,
+                        rounds_done=loop_rounds_done,
+                        elapsed_s=max(0.0, time.time() - start_ts),
+                        turn_budget=int(loop_brief.get("turn_budget") or 0) or None,
+                        time_budget_s=float(loop_brief.get("time_budget_s") or 0.0) or None,
+                        no_progress_rounds=loop_no_progress_rounds,
+                        user_stop=bool(cancel_event and cancel_event.is_set()),
+                        summary=(
+                            f"round {loop_rounds_done}: "
+                            f"{loop_completed_before}/{len(state.tasks)} tasks completed so far"
+                        ),
+                        did=[
+                            task.id
+                            for task in state.tasks.values()
+                            if task.status == TaskStatus.completed
+                        ][-5:],
+                    )
+                    _emit_runtime_event(
+                        state,
+                        project_root,
+                        "goal_run.loop_round",
+                        round=loop_rounds_done,
+                        next=verdict.get("next"),
+                        stop=bool(verdict.get("stop")),
+                        reason=verdict.get("reason"),
+                    )
+                    if verdict.get("stop") and not finalization.started:
+                        finalization.started = True
+                        state.finalization_started = True
+                        state.status = GoalStatus.finalizing
+                        state.last_stop_reason = f"loop:{verdict.get('reason_code')}"
+                        _emit_runtime_event(
+                            state,
+                            project_root,
+                            "finalization.started",
+                            reason=f"loop_{verdict.get('reason_code')}",
+                            round=loop_rounds_done,
+                        )
+                continue
+
+            # No active work remains.  Completed/blocked/cancelled are now ready
+            # for finalization; otherwise a dependency deadlock is a no-progress
+            # condition rather than an infinite loop.
+            if finalization.started:
+                break
+            if state.tasks and all(
+                task.status in (TaskStatus.completed, TaskStatus.blocked, TaskStatus.cancelled)
+                for task in state.tasks.values()
+            ):
+                break
+            scheduler_decision = scheduler_state.promote_ready()
+            if any(task.status == TaskStatus.ready for task in state.tasks.values()):
+                goal_no_progress.reset()
+                continue
+            state_signature = tuple(
+                sorted(
+                    (task.id, task.status.value, tuple(task.depends_on))
+                    for task in state.tasks.values()
+                )
+            )
+            # §25: the structural guard only fires on a *repeated identical*
+            # signature, so it cannot see a livelock that keeps mutating the
+            # signature without ever finishing work.  The semantic tick counts
+            # cycles that produced no progress signal at all and routes to the
+            # same finalization path.
+            semantic_verdict = progress_tracker.tick()
+            if (
+                goal_no_progress.observe(
+                    signature=(
+                        state_signature,
+                        tuple(sorted(state.completed_ids)),
+                        scheduler_decision.value,
+                    ),
+                )
+                or semantic_verdict is NoProgressVerdict.NO_PROGRESS_DETECTED
+            ):
+                if semantic_verdict is NoProgressVerdict.NO_PROGRESS_DETECTED:
+                    semantic_no_progress = "no_progress_detected"
+                _mark_unfinished(state)
+                state.last_stop_reason = "cross_turn_repetition"
+                if finalization.start(remaining_s, no_progress=True):
+                    if durable_repository is not None:
+                        await durable_repository.ensure_finalization_item(state.goal_id)
+                    state.finalization_started = True
+                    state.status = GoalStatus.finalizing
+                    _emit_runtime_event(
+                        state,
+                        project_root,
+                        "finalization.started",
+                        reason="no_progress",
+                        reserve_s=finalization.reserve_s,
+                    )
+                continue
+            await asyncio.sleep(0)
+    except BaseException:
+        # The scheduler was cancelled (or crashed) mid-flight: never leave
+        # child goal tasks (and their sandbox subprocesses) running orphaned.
+        # Bounded wait so a stuck child cannot hang the caller's teardown.
+        pending = [child for child in active.values() if not child.done()]
+        for child in pending:
+            child.cancel()
+        if pending:
+            await asyncio.wait(pending, timeout=10.0)
+        raise
 
     # ── G3: Finalize ───────────────────────────────────────────────────
     _mark_unfinished(state)

@@ -15,10 +15,12 @@ Ops (``input_data["op"]``):
 
 from __future__ import annotations
 
+import contextlib
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from veya.oprim.approval import (
     approval_create,
@@ -35,7 +37,7 @@ STATUS_ERROR = "error"
 class ApprovalFlowConfig:
     """Injection points for the approval flow."""
 
-    _enabled_pillars = {"decision_trail"}
+    _enabled_pillars: frozenset[str] = frozenset({"decision_trail"})
 
     def __init__(
         self,
@@ -58,10 +60,8 @@ class ApprovalFlowConfig:
 def _trail(config: ApprovalFlowConfig, topic: str, payload: dict[str, Any]) -> None:
     if config.trail is None:
         return
-    try:
+    with contextlib.suppress(Exception):  # a trail failure must never block an approval decision
         config.trail(topic, payload)
-    except Exception:
-        pass  # a trail failure must never block an approval decision
 
 
 async def run_approval_flow(
@@ -113,7 +113,7 @@ def _op_request(config: ApprovalFlowConfig, data: dict[str, Any]) -> dict[str, A
         },
     )
     if config.notify is not None:
-        try:
+        with contextlib.suppress(Exception):  # a push failure must not lose the approval record
             config.notify(
                 {
                     "type": "APPROVAL_REQUIRED",
@@ -126,8 +126,6 @@ def _op_request(config: ApprovalFlowConfig, data: dict[str, Any]) -> dict[str, A
                     },
                 }
             )
-        except Exception:
-            pass  # a push failure must not lose the approval record
     return {
         "status": STATUS_COMPLETED,
         "op": "request",
@@ -198,9 +196,7 @@ def _op_handoff_request(config: ApprovalFlowConfig, data: dict[str, Any]) -> dic
     }
 
 
-def _op_handoff_resume(
-    config: ApprovalFlowConfig, data: dict[str, Any], op: str
-) -> dict[str, Any]:
+def _op_handoff_resume(config: ApprovalFlowConfig, data: dict[str, Any], op: str) -> dict[str, Any]:
     handoff_id = str(data.get("handoff_id") or "")
     status = "done" if op == "handoff_done" else "cancelled"
     row = handoff_resolve(handoff_id, status=status, store=config.store)
@@ -223,4 +219,4 @@ def _op_handoff_resume(
     }
 
 
-__all__ = ["ApprovalFlowConfig", "run_approval_flow", "STATUS_COMPLETED", "STATUS_ERROR"]
+__all__ = ["STATUS_COMPLETED", "STATUS_ERROR", "ApprovalFlowConfig", "run_approval_flow"]

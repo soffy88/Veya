@@ -186,6 +186,7 @@ markers = [
     "optional_dependency: requires an optional package or local installation",
     "quant: requires the quantitative/market-data dependency stack",
     "docker_required: requires a running Docker service",
+    "asyncio: mark test as asyncio",
 ]
 
 # ---------------------------------------------------------------------------
@@ -225,6 +226,12 @@ known-first-party = ["veya", "server", "agents", "tools", "cli", "hooks", "regis
 # These phase tests load the vendored 3O libraries before importing elements.
 "tests/test_phase2.py" = ["E402"]
 "tests/test_phase4.py" = ["E402"]
+# server/app.py mounts routers in feature order and imports each router just
+# before its include_router() call (keeps optional/flag-gated surfaces off the
+# import path until the app is assembled). The late imports are intentional;
+# the file already carries an explicit `# noqa: E402` on one of them, which is
+# redundant under this ignore (RUF100 suppressed here to keep that comment).
+"server/app.py" = ["E402", "RUF100"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -261,6 +268,15 @@ ignore_missing_imports = true
 # (Silero VAD 需要 onnxruntime, 缺失时回落纯 Python 能量检测)。
 [[tool.mypy.overrides]]
 module = ["sounddevice", "onnxruntime"]
+ignore_missing_imports = true
+
+# NANO-W10d web-reading probes (veya/obase/channel_probes.py) probe for these
+# at runtime with try/except ImportError and degrade when absent; they are
+# optional, so a missing stub is not a missing implementation.
+# PyCryptodome (Crypto.Cipher) is only needed by the WeCom channel's AES
+# decryption and is likewise an optional runtime dependency.
+[[tool.mypy.overrides]]
+module = ["playwright", "feedparser", "Crypto.*"]
 ignore_missing_imports = true
 
 # 3O 子库用 veya.platform.load() 动态挂载到 sys.path, mypy 静态分析看不到这条路径,

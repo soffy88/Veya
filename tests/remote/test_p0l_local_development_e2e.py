@@ -205,7 +205,7 @@ async def test_the_full_development_lifecycle_runs_on_its_own_evidence(
         observed["test_fail"] = failing_record
 
         # 5. diagnose — the failure evidence points at the file we changed.
-        assert "calc.py" in (failing_record.get("command") or "") or True
+        assert "calc.py" in (failing_record.get("command") or ""), failing_record
         assert failing_record.get("failure_class") == "TEST_SUITE_FAILED"
 
         # 6. repair, governed, no shell.

@@ -40,4 +40,4 @@ def pairing_code_consume(code: str, *, store: Any = None) -> dict[str, Any]:
     return _store_of(store).consume(code)
 
 
-__all__ = ["pairing_code_create", "pairing_code_consume"]
+__all__ = ["pairing_code_consume", "pairing_code_create"]

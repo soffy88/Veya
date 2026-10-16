@@ -37,7 +37,12 @@ _KEY_ENV_NAMES = {
 
 
 @key_router.post("/key")
-async def set_api_key(req: SetKeyRequest) -> dict:
+async def set_api_key(req: SetKeyRequest, user: dict = Depends(auth_mod.require_owner)) -> dict:
+    """设置全局 provider key (写入进程环境变量, 影响全站 LLM 流量)。
+
+    SEC H1: 危险端点 —— 未鉴权替换 ``OPENAI_API_KEY`` 可劫持全站 LLM 流量到
+    攻击者账号 (审计 H1)。仅 owner。
+    """
     env_name = _KEY_ENV_NAMES.get(req.provider.lower())
     if not env_name:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {req.provider!r}")
@@ -61,7 +66,14 @@ async def list_providers() -> dict:
 
 @router.post("/register")
 async def register(req: RegisterRequest) -> dict:
-    """注册账号, 直接返回 token (注册即登录)。"""
+    """注册账号, 直接返回 token (注册即登录)。
+
+    SEC 默认关闭: 单人部署无需公开注册 —— 攻击者注册即拿到 require_user 通行证,
+    再叠加 H2/C3 等漏洞即可接管 (审计"注册是公开的")。只有显式
+    ``VEYA_PUBLIC_SIGNUP=1`` 才开放; owner 建号走 ``veya auth adduser``。
+    """
+    if not auth_mod.public_signup_enabled():
+        raise HTTPException(status_code=403, detail="公开注册已关闭 (设 VEYA_PUBLIC_SIGNUP=1 开启)")
     try:
         user = auth_mod.create_user(req.username, req.password)
     except ValueError as exc:
@@ -87,5 +99,10 @@ async def logout(authorization: str | None = Header(None)) -> dict:
 
 
 @router.get("/me")
-async def me(user: dict = Depends(auth_mod.get_current_user)) -> dict:
-    return {"user_id": user["user_id"], "username": user["username"]}
+async def me(user: dict = Depends(auth_mod.require_user)) -> dict:
+    """当前用户 (SEC H1: 强制认证, 不再回落 anonymous)。"""
+    return {
+        "user_id": user["user_id"],
+        "username": user["username"],
+        "is_owner": auth_mod.is_owner(user),
+    }

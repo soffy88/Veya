@@ -32,13 +32,6 @@ class Generate3DGraphRequest(BaseModel):
     output_format: str = "json"  # json, image, html
 
 
-class DebugExpressionRequest(BaseModel):
-    """调试表达式请求"""
-
-    expression: str
-    context: dict[str, Any]
-
-
 class StepDebugRequest(BaseModel):
     """步进调试请求"""
 
@@ -72,16 +65,6 @@ async def generate_3d_graph(request: Generate3DGraphRequest) -> dict[str, Any]:
         return {"status": "success", "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"3D graph generation failed: {e!s}")
-
-
-@router.post("/debug/expression", dependencies=[Depends(require_nonproduction_debug)])
-async def debug_expression(request: DebugExpressionRequest) -> dict[str, Any]:
-    """在调试上下文中评估表达式"""
-    try:
-        result = interactive_debugger.evaluate_expression(request.expression, request.context)
-        return {"status": "success", "expression": request.expression, "result": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Expression evaluation failed: {e!s}")
 
 
 @router.post("/debug/step", dependencies=[Depends(require_nonproduction_debug)])

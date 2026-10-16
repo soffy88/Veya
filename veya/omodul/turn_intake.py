@@ -131,7 +131,9 @@ def compute_fingerprint_for(config: Any, input_data: Any) -> str:
     return envelope_fingerprint(envelope, tuple(sorted(fields)))
 
 
-def _record(config: TurnIntakeConfig, trail: list[dict[str, Any]], event: str, **fields: Any) -> None:
+def _record(
+    config: TurnIntakeConfig, trail: list[dict[str, Any]], event: str, **fields: Any
+) -> None:
     """Append one trail step; a failing sink never breaks the transaction."""
 
     entry = {"event": event, **fields}

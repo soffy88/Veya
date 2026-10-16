@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import json
 import logging
 import os
 import re
 import shlex
 import shutil
+import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -43,6 +46,54 @@ _DANGEROUS_SUBSTRINGS: tuple[str, ...] = (
     "clean -fd",
     "filter-branch",
 )
+
+# SEC H5: 子进程环境变量白名单。绝不 ``os.environ.copy()`` —— 那会把服务端
+# 所有 provider key / VEYA_* 配置送进 (可能被提示注入驱动的) 子进程。
+_SANDBOX_ENV_ALLOWLIST: tuple[str, ...] = (
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "PWD",
+    "TERM",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "HOSTNAME",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+)
+_SANDBOX_ENV_ALLOWLIST_PREFIXES: tuple[str, ...] = ("LC_", "LANG", "TZ")
+
+_bwrap_probe: bool | None = None
+
+
+def _bwrap_available() -> bool:
+    """Whether bubblewrap can actually create a namespace here (cached probe).
+
+    Presence on PATH is not enough (the kernel may disallow unprivileged user
+    namespaces); probe once so the sandbox silently falls back to the
+    proxy-scrub path instead of failing every command.
+    """
+    global _bwrap_probe
+    if _bwrap_probe is not None:
+        return _bwrap_probe
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        _bwrap_probe = False
+        return False
+    try:
+        probe = subprocess.run(
+            [bwrap, "--unshare-net", "--bind", "/", "/", "--", "true"],
+            capture_output=True,
+            timeout=5,
+        )
+        _bwrap_probe = probe.returncode == 0
+    except Exception:
+        _bwrap_probe = False
+    return _bwrap_probe
 
 
 def is_dangerous_command(command: str) -> bool:
@@ -363,6 +414,25 @@ class Sandbox(ABC):
             parts.append(f"ulimit -t {max(1, int(self.config.cpu_limit))} 2>/dev/null;")
         return " ".join(parts)
 
+    def _isolation_argv(self) -> list[str]:
+        """bubblewrap wrapper implementing real network isolation (SEC H5).
+
+        ``network_blocked`` used to be only proxy-env scrubbing, which a direct
+        socket bypasses. When ``bwrap`` is present and ``network_blocked`` is set,
+        wrap the child in ``bwrap --unshare-net`` so it has no network namespace
+        at all. Returns the argv prefix (empty when unavailable/disabled). Set
+        ``VEYA_SANDBOX_BWRAP=0`` to disable.
+        """
+        if not self.config.network_blocked:
+            return []
+        if str(os.environ.get("VEYA_SANDBOX_BWRAP", "1")).strip().lower() in {"0", "false", "no"}:
+            return []
+        if not _bwrap_available():
+            return []
+        # --bind / / keeps the filesystem view identical (write semantics
+        # unchanged); the isolation this adds is the network namespace.
+        return ["bwrap", "--die-with-parent", "--unshare-net", "--bind", "/", "/", "--"]
+
     def _restore_resource_limits(self) -> None:
         """No-op: host rlimits are never lowered (see _apply_resource_limits)."""
         self._saved_rlimits.clear()
@@ -499,32 +569,39 @@ class ProcessSandbox(Sandbox):
 
             # 资源限制只作用于子进程（POSIX ulimit 前缀/固定 wrapper），宿主不受影响
             prefix = self._limit_prefix()
+            # SEC H5: 真网络隔离 (bwrap --unshare-net)。network_blocked 不再是
+            # 仅清代理 env 的"软阻断"。
+            isolation = self._isolation_argv()
             if use_shell:
                 assert isinstance(command, str)
                 full_command = f"{prefix} {command}" if prefix else command
-                process: asyncio.subprocess.Process = await asyncio.create_subprocess_shell(
-                    full_command,
+                argv: list[str] = [*isolation, "bash", "-c", full_command]
+                process: asyncio.subprocess.Process = await asyncio.create_subprocess_exec(
+                    *argv,
                     cwd=self.temp_dir,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env=self._prepare_env(),
+                    start_new_session=True,
                 )
             else:
                 # 固定可信 wrapper：ulimit 前缀 + exec "$@"；用户参数原样传递
-                argv: list[str] = [
+                inner: list[str] = [
                     "bash",
                     "-c",
                     f'{prefix} exec "$@"' if prefix else 'exec "$@"',
                     "veya-sandbox",
                 ]
                 if isinstance(command, list):
-                    argv.extend(command)
+                    inner.extend(command)
                 process = await asyncio.create_subprocess_exec(
-                    *argv,
+                    *isolation,
+                    *inner,
                     cwd=self.temp_dir,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env=self._prepare_env(),
+                    start_new_session=True,
                 )
             self.process = process
 
@@ -602,8 +679,20 @@ class ProcessSandbox(Sandbox):
     async def cancel(self) -> None:
         """Cancel execution."""
         if self.process and self.process.returncode is None:
-            self.process.terminate()
-            await self.process.wait()
+            try:
+                pgid = os.getpgid(self.process.pid)
+                os.killpg(pgid, signal.SIGTERM)
+            except Exception:
+                self.process.terminate()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(self.process.wait(), timeout=2.0)
+            if self.process.returncode is None:
+                with contextlib.suppress(Exception):
+                    pgid = os.getpgid(self.process.pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                with contextlib.suppress(Exception):
+                    self.process.kill()
+                await self.process.wait()
             self.status = SandboxStatus.CANCELLED
             self._audit_log(
                 "execution_cancelled", "User requested cancellation", status="cancelled"
@@ -614,18 +703,36 @@ class ProcessSandbox(Sandbox):
         assert self.config.time_limit is not None
         await asyncio.sleep(self.config.time_limit)
         if self.process and self.process.returncode is None:
-            self.process.terminate()
+            with contextlib.suppress(Exception):
+                pgid = os.getpgid(self.process.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            with contextlib.suppress(Exception):
+                self.process.kill()
             self._audit_log("execution_timeout", "Time limit exceeded", status="failed")
 
     def _prepare_env(self) -> dict[str, str]:
-        """Prepare environment variables."""
-        env = os.environ.copy()
+        """Prepare environment variables — allowlist only (SEC H5).
+
+        旧实现 ``os.environ.copy()`` 把服务端全部环境变量 (含所有 provider
+        API key、VEYA_* 配置) 复制进子进程; 一个被提示注入的 agent 或匿名调用者
+        ``env`` 一下就能拿走密钥 (审计 C2/H5)。改为白名单: 只透传子进程正常运行
+        必需的非敏感变量, 其余 (密钥/配置) 一律不进入子进程。
+        """
+        env: dict[str, str] = {}
+        for name in _SANDBOX_ENV_ALLOWLIST:
+            value = os.environ.get(name)
+            if value is not None:
+                env[name] = value
+        # 前缀式白名单 (LANG/LC_*/TZ 等无害本地化变量)
+        for name, value in os.environ.items():
+            if name.startswith(_SANDBOX_ENV_ALLOWLIST_PREFIXES):
+                env.setdefault(name, value)
         if self.config.env_extra:
             # 注入额外环境(如 OPENBLAS_NUM_THREADS=1 规避 RLIMIT_AS 下 OpenBLAS 启动失败)
             env.update(self.config.env_extra)
         if self.config.network_blocked:
-            # 模拟网络限制
-            env["NO_PROXY"] = "*"  # 阻止所有代理
+            # 代理层软阻断 (纵深防御之一; 真隔离见 _isolation_argv 的 --unshare-net)
+            env["NO_PROXY"] = "*"
             env["http_proxy"] = ""
             env["https_proxy"] = ""
         return env

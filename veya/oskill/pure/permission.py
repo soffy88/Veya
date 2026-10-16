@@ -100,11 +100,11 @@ def evaluate_capability_permission(
 
 
 __all__ = [
-    "evaluate_capability_permission",
-    "scope_match",
-    "HUMAN_ONLY_MARKERS",
     "GATED_MARKERS",
+    "HUMAN_ONLY_MARKERS",
     "VERDICT_ALLOW",
     "VERDICT_ASK",
     "VERDICT_DENY",
+    "evaluate_capability_permission",
+    "scope_match",
 ]

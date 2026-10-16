@@ -37,11 +37,13 @@ router = APIRouter(
 
 public_router = APIRouter(prefix="/api/v1/h", tags=["public-html-pages"])
 
+
 def _pages_dir() -> Path:
     """Skill artifact root (lazy: picks up VEYA_ARTIFACTS_DIR at request time)."""
-    return Path(
-        os.environ.get("VEYA_ARTIFACTS_DIR", str(Path.home() / ".veya" / "artifacts"))
-    ) / "answer-me-html"
+    return (
+        Path(os.environ.get("VEYA_ARTIFACTS_DIR", str(Path.home() / ".veya" / "artifacts")))
+        / "answer-me-html"
+    )
 
 
 _ALLOWED_SUFFIX = (".html", ".htm")

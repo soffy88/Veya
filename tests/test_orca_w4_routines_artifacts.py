@@ -2,12 +2,10 @@
 
 import json
 import os
-import secrets
-import tempfile
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -15,15 +13,12 @@ from httpx import ASGITransport, AsyncClient
 
 from server.bot_team.routine_clock import RoutineClock
 from server.goal_run.models import RoutineSpec
+from server.goal_run.routine_dispatch import run_probe
 from server.goal_run.routine_registry import RoutineRegistry
-from server.goal_run.routine_dispatch import run_probe, dispatch_trigger
-from server.goal_run.models import GoalRunState, RoutineState
-from server.routes.routines import router as routines_router
-from server.routes.artifacts import router as artifacts_router
 from server.routes.artifacts import public_router as public_artifacts_router
+from server.routes.artifacts import router as artifacts_router
+from server.routes.routines import router as routines_router
 from server.routes.settings import router as settings_router
-from server.artifact_model import Artifact
-from server.project_store import ProjectStore
 
 
 @pytest.fixture
@@ -34,8 +29,24 @@ def test_app(tmp_path, monkeypatch):
     monkeypatch.setenv("VEYA_SETTINGS_PATH", str(tmp_path / "settings.json"))
     monkeypatch.setenv("VEYA_AUTH_DB_PATH", str(tmp_path / "auth.db"))
     app = FastAPI()
-    # W11 D2: routine routes check bot ownership; these tests cover routine logic.
+    from server import auth as auth_mod
     from server.routes import routines as _routines_mod
+
+    app.dependency_overrides[auth_mod.require_user] = lambda: {
+        "user_id": "artifact-test-owner",
+        "username": "artifact-test-owner",
+        "is_owner": True,
+    }
+    app.dependency_overrides[auth_mod.get_current_user] = lambda: {
+        "user_id": "artifact-test-owner",
+        "username": "artifact-test-owner",
+        "is_owner": True,
+    }
+    app.dependency_overrides[auth_mod.require_owner] = lambda: {
+        "user_id": "artifact-test-owner",
+        "username": "artifact-test-owner",
+        "is_owner": True,
+    }
     app.dependency_overrides[_routines_mod._require_owned_bot] = lambda: None
     app.include_router(routines_router)
     app.include_router(artifacts_router)
@@ -50,7 +61,9 @@ def git_repo(tmp_path):
     repo_path = tmp_path / "test_repo"
     repo_path.mkdir()
     subprocess.run(["git", "init"], cwd=repo_path, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_path, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"], cwd=repo_path, capture_output=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_path, capture_output=True)
     (repo_path / "file.txt").write_text("initial")
     subprocess.run(["git", "add", "."], cwd=repo_path, capture_output=True)
@@ -92,32 +105,56 @@ class TestProbeFunction:
         assert result["kind"] == "git_changes"
         assert "not a git repository" in result["detail"]
 
-    def test_probe_command_success(self):
-        """Test command probe with successful exit code."""
-        result = run_probe({"kind": "command", "command": "echo hello"})
+    def test_probe_command_success_requires_owner_approval_and_argv(self, tmp_path):
+        import sys
+
+        result = run_probe(
+            {"kind": "command", "execute_args": [sys.executable, "-c", "print('hello')"]},
+            str(tmp_path),
+            owner_authorized=True,
+            approved=True,
+        )
         assert result["success"] is True
         assert result["kind"] == "command"
         assert result["data"]["exit_code"] == 0
+        assert result["data"]["stdout"] == "hello"
 
-    def test_probe_command_failure(self):
-        """Test command probe with failed exit code."""
-        result = run_probe({"kind": "command", "command": "exit 1"})
+    def test_probe_command_failure_requires_owner_approval_and_argv(self, tmp_path):
+        import sys
+
+        result = run_probe(
+            {"kind": "command", "execute_args": [sys.executable, "-c", "raise SystemExit(1)"]},
+            str(tmp_path),
+            owner_authorized=True,
+            approved=True,
+        )
         assert result["success"] is False
         assert result["kind"] == "command"
         assert result["data"]["exit_code"] == 1
 
+    def test_probe_command_string_is_never_executed(self, tmp_path):
+        result = run_probe({"kind": "command", "command": "echo hello"}, str(tmp_path))
+        assert result["success"] is False
+        assert "approval" in result["detail"]
+
     def test_probe_command_with_workspace(self, tmp_path):
-        """Test command probe with workspace_path parameter."""
-        # Create a script that writes to a file in the workspace
-        script = tmp_path / "test_script.sh"
-        script.write_text("#!/bin/bash\necho 'test' > output.txt")
-        script.chmod(0o755)
+        import sys
+
         result = run_probe(
-            {"kind": "command", "command": str(script)},
-            workspace_path=str(tmp_path)
+            {
+                "kind": "command",
+                "execute_args": [
+                    sys.executable,
+                    "-c",
+                    "from pathlib import Path; Path('output.txt').write_text('test')",
+                ],
+            },
+            workspace_path=str(tmp_path),
+            owner_authorized=True,
+            approved=True,
         )
         assert result["success"] is True
-        assert (tmp_path / "output.txt").exists()
+        assert (tmp_path / "output.txt").read_text() == "test"
 
     def test_probe_unknown_kind(self):
         """Test probe with unknown kind defaults to failure."""
@@ -145,7 +182,9 @@ class TestRoutineClockProbe:
         )
         registry.register(spec)
 
-        clock = RoutineClock(registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock())
+        clock = RoutineClock(
+            registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock()
+        )
         # Set last fired so it actually ticks
         clock.last_fired["r1"] = datetime(2026, 1, 1, 9, 0, tzinfo=UTC).isoformat()
 
@@ -176,7 +215,9 @@ class TestRoutineClockProbe:
         # Add changes to repo
         (git_repo / "new_file.txt").write_text("new content")
 
-        clock = RoutineClock(registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock())
+        clock = RoutineClock(
+            registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock()
+        )
         clock.last_fired["r1"] = datetime(2026, 1, 1, 9, 0, tzinfo=UTC).isoformat()
 
         with patch("server.bot_team.routine_clock.datetime") as mock_dt:
@@ -204,7 +245,9 @@ class TestRoutineClockProbe:
         )
         registry.register(spec)
 
-        clock = RoutineClock(registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock())
+        clock = RoutineClock(
+            registry, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock()
+        )
         clock.last_fired["r1"] = datetime(2026, 1, 1, 9, 0, tzinfo=UTC).isoformat()
 
         with patch("server.bot_team.routine_clock.datetime") as mock_dt:
@@ -337,8 +380,15 @@ class TestArtifactsSharing:
             # Enable sharing first
             await ac.put("/api/v1/settings/artifacts", json={"enabled": True})
 
-            # Create an artifact first (simulate)
+            # Simulate a published artifact and its account ownership manifest.
             artifact_id = "test-artifact-123"
+            artifacts_dir = Path(os.environ["VEYA_ARTIFACTS_DIR"])
+            artifact_dir = artifacts_dir / artifact_id
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            (artifact_dir / "file.txt").write_text("owned artifact")
+            (artifact_dir / "artifact.json").write_text(
+                json.dumps({"owner_user_id": "artifact-test-owner"})
+            )
             resp = await ac.post(f"/api/v1/artifacts/{artifact_id}/share")
             assert resp.status_code == 200
             data = resp.json()
@@ -360,6 +410,9 @@ class TestArtifactsSharing:
             artifact_dir = artifacts_dir / artifact_id
             artifact_dir.mkdir(parents=True, exist_ok=True)
             (artifact_dir / "file.txt").write_text("test content")
+            (artifact_dir / "artifact.json").write_text(
+                json.dumps({"owner_user_id": "artifact-test-owner"})
+            )
 
             # Share it
             resp = await ac.post(f"/api/v1/artifacts/{artifact_id}/share")
@@ -383,6 +436,9 @@ class TestArtifactsSharing:
             artifact_dir = artifacts_dir / artifact_id
             artifact_dir.mkdir(parents=True, exist_ok=True)
             (artifact_dir / "file.txt").write_text("test content")
+            (artifact_dir / "artifact.json").write_text(
+                json.dumps({"owner_user_id": "artifact-test-owner"})
+            )
 
             # Share it
             resp = await ac.post(f"/api/v1/artifacts/{artifact_id}/share")
@@ -414,6 +470,9 @@ class TestArtifactsSharing:
                 artifact_dir = artifacts_dir / artifact_id
                 artifact_dir.mkdir(parents=True, exist_ok=True)
                 (artifact_dir / "file.txt").write_text(f"content {i}")
+                (artifact_dir / "artifact.json").write_text(
+                    json.dumps({"owner_user_id": "artifact-test-owner"})
+                )
                 await ac.post(f"/api/v1/artifacts/{artifact_id}/share")
 
             # List shares
@@ -524,21 +583,33 @@ class TestRoutineSpecValidation:
 
 
 class TestProbeWorkspacePassthrough:
-    """Test that probe workspace_path is passed through correctly."""
+    """Command probes pass an explicit workspace and fail closed by default."""
 
     def test_run_probe_uses_workspace_path(self, tmp_path):
-        """Test run_probe uses workspace_path for command probes."""
-        # Create a script that writes to a file in the workspace
-        script = tmp_path / "test_script.sh"
-        script.write_text("#!/bin/bash\necho 'test' > output.txt")
-        script.chmod(0o755)
+        import sys
 
         result = run_probe(
-            {"kind": "command", "command": str(script)},
-            workspace_path=str(tmp_path)
+            {
+                "kind": "command",
+                "execute_args": [
+                    sys.executable,
+                    "-c",
+                    "from pathlib import Path; Path('output.txt').write_text('test')",
+                ],
+            },
+            workspace_path=str(tmp_path),
+            owner_authorized=True,
+            approved=True,
         )
         assert result["success"] is True
-        assert (tmp_path / "output.txt").exists()
+        assert (tmp_path / "output.txt").read_text() == "test"
+
+    def test_run_probe_denies_shell_command_string(self, tmp_path):
+        result = run_probe(
+            {"kind": "command", "command": "echo unsafe"},
+            workspace_path=str(tmp_path),
+        )
+        assert result["success"] is False
 
 
 if __name__ == "__main__":

@@ -61,7 +61,9 @@ def env(monkeypatch):
 
 
 def _create(client: TestClient, bot_id: str = "bot-a", **extra: Any):
-    return client.post("/api/v1/bot-runtime", json={"bot_id": bot_id, "runtime_id": "agent_loop", **extra})
+    return client.post(
+        "/api/v1/bot-runtime", json={"bot_id": bot_id, "runtime_id": "agent_loop", **extra}
+    )
 
 
 def test_owner_comes_from_session_not_body(env):

@@ -33,7 +33,11 @@ def registry_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "bots.json"
     monkeypatch.setenv("VEYA_BOT_REGISTRY_PATH", str(path))
     reg = BotRegistry(path)
-    reg.register(BotSpec(bot_id="mine", owner_id="alice", name="Mine", instructions="Always answer in Chinese."))
+    reg.register(
+        BotSpec(
+            bot_id="mine", owner_id="alice", name="Mine", instructions="Always answer in Chinese."
+        )
+    )
     reg.register(BotSpec(bot_id="theirs", owner_id="bob", name="Theirs"))
     return path
 
@@ -58,7 +62,15 @@ def test_roles_load_with_provenance() -> None:
     roles = presets.load_roles()
     assert 20 <= len(roles) <= 30
     cats = {r.category for r in roles}
-    assert {"engineering", "product", "design", "marketing", "operations", "research", "writing"} <= cats
+    assert {
+        "engineering",
+        "product",
+        "design",
+        "marketing",
+        "operations",
+        "research",
+        "writing",
+    } <= cats
     for role in roles:
         assert role.license == "MIT"
         assert role.source.startswith("https://github.com/msitarzewski/agency-agents/blob/")
@@ -71,7 +83,11 @@ def test_skills_load_with_provenance() -> None:
     skills = presets.load_skills()
     assert len(skills) >= 20
     ids = {s.preset_id for s in skills}
-    assert {"test-driven-development", "code-review-and-quality", "planning-and-task-breakdown"} <= ids
+    assert {
+        "test-driven-development",
+        "code-review-and-quality",
+        "planning-and-task-breakdown",
+    } <= ids
     for skill in skills:
         assert skill.license == "MIT"
         assert "Addy Osmani" in skill.copyright
@@ -115,7 +131,9 @@ def test_list_routes_when_on(flag_on: None, client: TestClient) -> None:
 # ── apply ──────────────────────────────────────────────────────────────────
 
 
-def test_apply_refused_when_flag_off(flag_off: None, registry_path: Path, client: TestClient) -> None:
+def test_apply_refused_when_flag_off(
+    flag_off: None, registry_path: Path, client: TestClient
+) -> None:
     resp = client.post("/api/v1/bots/mine/presets/apply", json={"role_id": "sre"})
     assert resp.status_code == 409
     assert BotRegistry(registry_path).get("mine").instructions == "Always answer in Chinese."
@@ -128,7 +146,9 @@ def test_apply_non_owner_is_404(flag_on: None, registry_path: Path, client: Test
     assert BotRegistry(registry_path).get("theirs").instructions == ""
 
 
-def test_apply_writes_role_and_skills(flag_on: None, registry_path: Path, client: TestClient) -> None:
+def test_apply_writes_role_and_skills(
+    flag_on: None, registry_path: Path, client: TestClient
+) -> None:
     resp = client.post(
         "/api/v1/bots/mine/presets/apply",
         json={"role_id": "backend-architect", "skill_ids": ["test-driven-development"]},

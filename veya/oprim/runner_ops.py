@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import contextlib
 import os
 import platform
 import shutil
@@ -317,7 +318,9 @@ def runner_self_update_restart(
         "success": returncode == 0,
         "command": cmd,
         "returncode": returncode,
-        "error": "" if returncode == 0 else str(getattr(completed, "stderr", "") or "restart failed"),
+        "error": ""
+        if returncode == 0
+        else str(getattr(completed, "stderr", "") or "restart failed"),
     }
 
 
@@ -371,12 +374,10 @@ WantedBy=default.target
     if dry_run:
         return {"success": True, "dry_run": True, "unit_path": str(unit_path), "unit": unit}
 
-    try:
+    with contextlib.suppress(OSError):
         # Best effort: the write below is the authoritative answer, and a
         # missing directory is reported there with its own error.
         unit_path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
     try:
         # Idempotent: rewrite the unit so a changed binary path takes effect.
         unit_path.write_text(unit, encoding="utf-8")
@@ -424,10 +425,8 @@ def _launchd_install(
     plist_path = _unit_dir(user) / f"{label}.plist"
     if dry_run:
         return {"success": True, "dry_run": True, "unit_path": str(plist_path), "unit": plist}
-    try:
+    with contextlib.suppress(OSError):
         plist_path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
     try:
         plist_path.write_text(plist, encoding="utf-8")
     except OSError as exc:

@@ -100,7 +100,9 @@ def test_the_phase_commits_form_an_unbroken_chain(ledger: dict[str, Any]) -> Non
     phases = [p for p in ledger["phases"] if p["commit"]]
     assert phases, "no committed phase"
     for earlier, later in itertools.pairwise(phases):
-        assert earlier["commit"] == later["parent"], f"{later['phase']} does not follow {earlier['phase']}"
+        assert earlier["commit"] == later["parent"], (
+            f"{later['phase']} does not follow {earlier['phase']}"
+        )
     assert phases[0]["parent"] == ledger["baseline_sha"][:8]
 
 
@@ -118,9 +120,12 @@ def test_the_head_commit_is_the_last_recorded_phase(ledger: dict[str, Any]) -> N
     assert is_ancestor.returncode == 0, f"{last} is not an ancestor of HEAD"
 
     declared = ledger["generated_at_commit"]
-    assert subprocess.run(
-        ["git", "merge-base", "--is-ancestor", declared, "HEAD"], cwd=ROOT, check=False
-    ).returncode == 0, f"generated_at_commit {declared} is not an ancestor of HEAD"
+    assert (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", declared, "HEAD"], cwd=ROOT, check=False
+        ).returncode
+        == 0
+    ), f"generated_at_commit {declared} is not an ancestor of HEAD"
 
 
 # ── statuses must be honest, not uniformly PASS ────────────────────────
@@ -156,7 +161,11 @@ def test_the_findings_are_carried_not_buried(ledger: dict[str, Any]) -> None:
     # because the P0-Q follow-up fixed it. The guard's real purpose is that an
     # opened finding cannot quietly vanish, so a closed one must stay visible.
     assert set(findings) == {
-        "P0-H-F1", "P0-J-F1", "P0-P-F1", "P0-J-G3", "P0-L-F1",
+        "P0-H-F1",
+        "P0-J-F1",
+        "P0-P-F1",
+        "P0-J-G3",
+        "P0-L-F1",
     }, sorted(findings)
     assert findings["P0-L-F1"]["status"] == "CLOSED"
     assert findings["P0-H-F1"]["status"] == "OPEN"
@@ -212,9 +221,7 @@ def test_a_blocked_phase_names_its_blocker_and_claims_nothing(
         if phase["tests_added"] or phase["production_changed"]:
             # Anything it did change must be listed, and it must still say which
             # steps did not pass.
-            assert phase.get("changed_paths") or phase.get(
-                "production_note"
-            ), phase["phase"]
+            assert phase.get("changed_paths") or phase.get("production_note"), phase["phase"]
             assert phase.get("lifecycle_evidence"), phase["phase"]
             assert blocker["owner"]
         # Evidence is still required: a blocked phase reports what it did learn.
@@ -256,14 +263,27 @@ def test_the_recorded_test_counts_match_the_test_files(ledger: dict[str, Any]) -
         counted = 0
         for rel in test_files:
             out = subprocess.run(
-                ["venv/bin/python", "-m", "pytest", "-p", "no:cacheprovider",
-                 "--collect-only", "-q", rel],
-                capture_output=True, text=True, cwd=ROOT, check=False,
+                [
+                    "venv/bin/python",
+                    "-m",
+                    "pytest",
+                    "-p",
+                    "no:cacheprovider",
+                    "--collect-only",
+                    "-q",
+                    rel,
+                ],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+                check=False,
             ).stdout
             match = re.search(r"(\d+) tests? collected", out)
             assert match, f"could not read a collection count for {rel}: {out[-200:]}"
             counted += int(match.group(1))
-        assert counted == tests_added, f"{phase['phase']}: ledger says {tests_added}, collection has {counted}"
+        assert counted == tests_added, (
+            f"{phase['phase']}: ledger says {tests_added}, collection has {counted}"
+        )
 
 
 def test_the_recorded_production_change_flag_is_true_where_files_were_touched(
@@ -271,8 +291,7 @@ def test_the_recorded_production_change_flag_is_true_where_files_were_touched(
 ) -> None:
     for phase in [p for p in ledger["phases"] if p["commit"]]:
         touches_production = any(
-            not p.startswith("tests/") and not p.startswith("docs/")
-            for p in phase["changed_paths"]
+            not p.startswith("tests/") and not p.startswith("docs/") for p in phase["changed_paths"]
         )
         assert phase["production_changed"] is touches_production, phase["phase"]
 
@@ -362,15 +381,16 @@ def test_the_ledger_does_not_claim_integration(ledger: dict[str, Any]) -> None:
     # Whenever the gate is PASS, it must be because a P0-L rerun said so.
     if gate["status"] == "PASS":
         p0l = [
-            phase for phase in ledger["phases"]
+            phase
+            for phase in ledger["phases"]
             if phase["phase"] == "P0-L" and phase["status"] == "PASS"
         ]
         assert p0l, "a PASS closure gate requires a P0-L phase recorded as PASS"
         # The recorded chain is linear only through P0-J, so the deciding P0-L
         # names its commit explicitly rather than holding a chain slot.
-        assert (
-            p0l[-1]["commit"] or p0l[-1].get("deciding_commit")
-        ), "the deciding P0-L must name its commit"
+        assert p0l[-1]["commit"] or p0l[-1].get("deciding_commit"), (
+            "the deciding P0-L must name its commit"
+        )
         assert p0l[-1]["lifecycle_evidence"], "the deciding P0-L must record the chain"
         # And the gate must still say Integration is deferred.
         assert "deferred" in gate["reason"].lower()

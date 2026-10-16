@@ -565,7 +565,10 @@ class WorktreeManager:
         #    exists elsewhere is not promotable here.
         probe = subprocess.run(
             ["git", "-C", str(target), "cat-file", "-e", f"{commit_sha}^{{commit}}"],
-            capture_output=True, text=True, check=False, timeout=30,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
         )
         if probe.returncode != 0:
             raise WorktreeError(f"candidate commit not found in this repository: {commit_sha}")
@@ -574,9 +577,7 @@ class WorktreeManager:
         # 2. Verification must exist, must have passed, and must describe *this*
         #    candidate. No receipt means no promotion.
         if not isinstance(verification, dict):
-            raise WorktreeError(
-                "promotion requires verification evidence produced by verify()"
-            )
+            raise WorktreeError("promotion requires verification evidence produced by verify()")
         if verification.get("verified") is not True:
             raise WorktreeError("promotion requires a verified candidate")
         verified_sha = str(verification.get("commit_sha") or "")
@@ -587,14 +588,10 @@ class WorktreeManager:
             )
         verified_repo = str(Path(str(verification.get("repo_root") or "")).resolve() or "")
         if verified_repo != str(self.repo_root.resolve()):
-            raise WorktreeError(
-                "verification was produced for a different repository"
-            )
+            raise WorktreeError("verification was produced for a different repository")
         verified_worktree = str(Path(str(verification.get("path") or "")).resolve() or "")
         if verified_worktree != str(target.resolve()):
-            raise WorktreeError(
-                "verification was produced for a different worktree"
-            )
+            raise WorktreeError("verification was produced for a different worktree")
 
         # 3. The candidate's own changed paths, from git. Trusting the worktree's
         #    dirty state here would find nothing after a commit and report a
@@ -614,24 +611,18 @@ class WorktreeManager:
                 f"candidate={candidate_paths} declared={sorted(declared)}"
             )
         if sorted(verification.get("changed_paths") or []) != candidate_paths:
-            raise WorktreeError(
-                "verification path set does not match the candidate commit"
-            )
+            raise WorktreeError("verification path set does not match the candidate commit")
 
         # 4. Deliver through the existing substrate, which owns the merge,
         #    conflict classification and scoped rollback.
         from veya.remote.git_promotion import apply_promotion, preflight_promotion
 
-        preflight = preflight_promotion(
-            target, self.repo_root, files=candidate_paths
-        )
+        preflight = preflight_promotion(target, self.repo_root, files=candidate_paths)
         result = apply_promotion(preflight)
 
         # 5. Observe the resulting Git state rather than reporting the method's
         #    own return value as success.
-        canonical_before = _git_command(
-            self.repo_root, ["rev-parse", "HEAD"]
-        ).strip()
+        canonical_before = _git_command(self.repo_root, ["rev-parse", "HEAD"]).strip()
         # ``git diff`` alone is blind to a new (untracked) file, so a commit
         # that only adds files reported landed_files=[] and verified=False.
         # ``status --porcelain`` sees modified, added, deleted and untracked.
@@ -642,11 +633,7 @@ class WorktreeManager:
             )
             for path in result.promoted_files
         }
-        landed = sorted(
-            path
-            for path, diff in promoted_content.items()
-            if diff.strip()
-        )
+        landed = sorted(path for path, diff in promoted_content.items() if diff.strip())
         return {
             "status": result.status,
             "promoted_files": sorted(result.promoted_files),

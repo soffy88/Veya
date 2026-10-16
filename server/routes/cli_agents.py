@@ -5,14 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from runtime.coding.cli_agents import (
-    CLIAgentRegistry,
-    get_cli_agent_registry,
     _validate_command_template,
+    get_cli_agent_registry,
 )
+from server import auth as auth_mod
 
 router = APIRouter(tags=["cli-agents"])
 
@@ -37,7 +37,9 @@ def _get_repo_root() -> Path:
 
 
 @router.get("/api/v1/agents/cli")
-async def list_cli_agents() -> dict[str, list[dict[str, Any]]]:
+async def list_cli_agents(
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, list[dict[str, Any]]]:
     """List all CLI agent profiles (built-in + custom)."""
     repo_root = _get_repo_root()
     registry = get_cli_agent_registry(repo_root)
@@ -46,7 +48,10 @@ async def list_cli_agents() -> dict[str, list[dict[str, Any]]]:
 
 
 @router.post("/api/v1/agents/cli/custom", response_model=CustomProfileResponse)
-async def register_custom_cli_agent(req: CustomProfileRequest) -> dict[str, Any]:
+async def register_custom_cli_agent(
+    req: CustomProfileRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_owner),
+) -> dict[str, Any]:
     """Register a custom CLI agent profile."""
     repo_root = _get_repo_root()
     registry = get_cli_agent_registry(repo_root)

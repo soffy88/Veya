@@ -18,7 +18,10 @@ def test_mutating_tools_without_declaration_get_one():
     reg.register("write_file", "d", schema, noop)
     reg.register("team_delete", "d", schema, noop)
     reg.register("some_read_tool", "d", schema, noop)
-    assert reg.side_effect_policy_for("wayfind_gh_add_ticket")["side_effect"] == SideEffect.EXTERNAL_MUTATION.value
+    assert (
+        reg.side_effect_policy_for("wayfind_gh_add_ticket")["side_effect"]
+        == SideEffect.EXTERNAL_MUTATION.value
+    )
     assert reg.side_effect_policy_for("write_file")["side_effect"] == SideEffect.LOCAL_WRITE.value
     assert reg.side_effect_policy_for("team_delete")["side_effect"] == SideEffect.PRIVILEGED.value
     assert reg.side_effect_policy_for("some_read_tool")["side_effect"] is None
@@ -30,9 +33,17 @@ def test_github_mutation_now_needs_approval():
     from veya.remote.permission_engine import PermissionEngine
     from veya.remote.policy_resolver import PolicyRequest, PolicyResolver
 
-    eff = _effect_for("wayfind_gh_add_ticket", SideEffect.EXTERNAL_MUTATION, classify=lambda n: "unknown")
+    eff = _effect_for(
+        "wayfind_gh_add_ticket", SideEffect.EXTERNAL_MUTATION, classify=lambda n: "unknown"
+    )
     decision = PolicyResolver(engine=PermissionEngine()).resolve(
-        PolicyRequest(actor="t", tool="wayfind_gh_add_ticket", workspace=os.getcwd(), cwd=os.getcwd(), effect=eff),
+        PolicyRequest(
+            actor="t",
+            tool="wayfind_gh_add_ticket",
+            workspace=os.getcwd(),
+            cwd=os.getcwd(),
+            effect=eff,
+        ),
         consume_approval=False,
     )
     assert decision.decision.value != "ALLOW"

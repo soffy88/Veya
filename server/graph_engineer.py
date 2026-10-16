@@ -25,6 +25,7 @@ import re
 from server import engine_runner
 from server.plan_todo import _load as _load_plan
 from server.plan_todo import _save as _save_plan
+from veya.remote.verify_command_policy import select_server_verify_command
 
 _ITER_CAP = 3
 _GATE_CAP = 3  # QUALITY GATE 每激活失败上限
@@ -464,6 +465,7 @@ async def graph_cycle(
     workdir: str | None = None,
     quality_gate: str | None = None,
     verify_command: str | None = None,
+    owner_authorized: bool = False,
     preflight: bool = True,
     mode: str = "full",
     elevated: bool | None = None,
@@ -481,6 +483,10 @@ async def graph_cycle(
       elevated: None=auto (高风险任务自动开), True=强制, False=关。
         开启后: 3 个 fresh 独立 lens 审查 + fan-in 规范化 + 终局 challenger。
     """
+    verify_command = select_server_verify_command(
+        verify_command,
+        owner_authorized=owner_authorized,
+    )
     max_iterations = max(1, min(int(max_iterations), 5))
     try:
         plan = _load_plan(plan_id)

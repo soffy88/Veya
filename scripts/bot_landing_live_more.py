@@ -87,7 +87,9 @@ class LiveHarness:
         remote_ok = False
         for probe_path in ("/api/v1/auth/register", "/api/auth/register"):
             try:
-                resp = self._raw_http_request("POST", probe_path, {"username": user_to_use, "password": password}, auth=False)
+                resp = self._raw_http_request(
+                    "POST", probe_path, {"username": user_to_use, "password": password}, auth=False
+                )
                 if resp.get("token"):
                     self.token = resp["token"]
                     self.user_id = resp.get("user_id", "")
@@ -99,7 +101,12 @@ class LiveHarness:
         if not remote_ok:
             for login_path in ("/api/v1/auth/login", "/api/auth/login"):
                 try:
-                    data = self._raw_http_request("POST", login_path, {"username": user_to_use, "password": password}, auth=False)
+                    data = self._raw_http_request(
+                        "POST",
+                        login_path,
+                        {"username": user_to_use, "password": password},
+                        auth=False,
+                    )
                     self.token = data.get("access_token") or data.get("token") or ""
                     self.user_id = str(data.get("user_id") or "")
                     if self.token:
@@ -112,7 +119,9 @@ class LiveHarness:
         if remote_ok:
             try:
                 # Probe a W10 flag on remote
-                self._raw_http_request("PATCH", "/api/v1/nano-w10-c/groups/probe/roles", {"reply_mode": "everyone"})
+                self._raw_http_request(
+                    "PATCH", "/api/v1/nano-w10-c/groups/probe/roles", {"reply_mode": "everyone"}
+                )
             except RuntimeError as exc:
                 if "is disabled" in str(exc) or "404" in str(exc):
                     remote_ok = False
@@ -219,6 +228,7 @@ def s5(h: Any) -> bool:
 
     # 1. Ask bot to remember
     from server.bot_team.memory_layers import LayeredMemoryStore
+
     store = LayeredMemoryStore(bot_id)
     store.append_entry("我喜欢黑咖啡", caller_bot_id=bot_id)
 
@@ -322,8 +332,12 @@ def s7(h: Any) -> bool:
 
     # Post round and finish checkpoint cards
     store = ConversationStore()
-    gate = FinishCheckpointGate(post_to_chat=lambda bid, txt, meta: store.append(bid, role="bot", text=txt, meta=meta))
-    policy = LoopRunPolicy(post_card=lambda rid, card: gate.publish(bot_id, rid, card, flag="VEYA_LOOP_MODE"))
+    gate = FinishCheckpointGate(
+        post_to_chat=lambda bid, txt, meta: store.append(bid, role="bot", text=txt, meta=meta)
+    )
+    policy = LoopRunPolicy(
+        post_card=lambda rid, card: gate.publish(bot_id, rid, card, flag="VEYA_LOOP_MODE")
+    )
 
     # Round 1
     d1 = policy.decide(goal_run_id, mode=MODE_LOOP, round_index=1, rounds_done=1, turn_budget=2)
@@ -339,6 +353,7 @@ def s7(h: Any) -> bool:
 
     # Wire gate singleton
     from server.nano_w10 import loop_mode as lm_mod
+
     lm_mod._GATE = gate
 
     verdict_res = h._request(
@@ -457,7 +472,9 @@ def s9(h: Any) -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Veya Bot Landing Live Acceptance (Group A2: S5..S9)")
+    parser = argparse.ArgumentParser(
+        description="Veya Bot Landing Live Acceptance (Group A2: S5..S9)"
+    )
     parser.add_argument("--base", default="http://127.0.0.1:8767", help="Base URL of Veya backend")
     parser.add_argument("--user", default="e2e_tester_a2", help="Test username prefix")
     args = parser.parse_args()

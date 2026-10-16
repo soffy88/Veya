@@ -24,12 +24,17 @@ def test_replay_cursor_and_live_subscription_have_no_duplicate_boundary(tmp_path
     subscriber = store.subscribe_live()
     third = store.append(ExecutionEventType.OUTPUT, payload={"n": 3})
 
-    assert [event.sequence for event in store.replay_after(first.sequence)] == [second.sequence, third.sequence]
+    assert [event.sequence for event in store.replay_after(first.sequence)] == [
+        second.sequence,
+        third.sequence,
+    ]
     assert subscriber.get_nowait().sequence == third.sequence
     store.unsubscribe_live(subscriber)
 
     reconnected = ExecutionEventStore(tmp_path, "exec-replay")
-    assert [event.sequence for event in reconnected.replay_after(second.sequence)] == [third.sequence]
+    assert [event.sequence for event in reconnected.replay_after(second.sequence)] == [
+        third.sequence
+    ]
 
 
 def test_sse_generator_replays_durable_events_and_terminalizes(tmp_path, monkeypatch) -> None:
@@ -45,7 +50,12 @@ def test_sse_generator_replays_durable_events_and_terminalizes(tmp_path, monkeyp
     fake_store = SimpleNamespace(get=lambda value: record if value == execution_id else None)
 
     from veya.remote import execution as execution_module
-    monkeypatch.setattr(execution_module.ExecutionStore, "from_env", classmethod(lambda cls, default_persistent: fake_store))
+
+    monkeypatch.setattr(
+        execution_module.ExecutionStore,
+        "from_env",
+        classmethod(lambda cls, default_persistent: fake_store),
+    )
 
     async def collect() -> list[str]:
         return [item async for item in execution_events_generator(execution_id, None, 0)]

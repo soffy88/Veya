@@ -92,8 +92,12 @@ class L1TaskContract:
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | None) -> L1TaskContract:
         source = dict(payload or {})
-        known = {field_name for field_name in cls.__dataclass_fields__ if field_name != "raw_contract"}
-        return cls(**{key: value for key, value in source.items() if key in known}, raw_contract=source)
+        known = {
+            field_name for field_name in cls.__dataclass_fields__ if field_name != "raw_contract"
+        }
+        return cls(
+            **{key: value for key, value in source.items() if key in known}, raw_contract=source
+        )
 
 
 @dataclass

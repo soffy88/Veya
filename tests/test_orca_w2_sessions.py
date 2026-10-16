@@ -32,6 +32,7 @@ def history_store(temp_db):
     store = SqliteHistoryStore(temp_db)
     # Set user provider for testing
     from veya.oservi.history_store import set_user_id_provider
+
     set_user_id_provider(lambda: {"user_id": "test_user"})
     yield store
     set_user_id_provider(None)
@@ -192,7 +193,9 @@ class TestHistoryStoreFTS:
 
     def test_rebuild_fts(self, history_store):
         # Add some data
-        history_store.save_sync("rebuild_test", [{"role": "user", "content": "Test rebuild"}], user_id="test_user")
+        history_store.save_sync(
+            "rebuild_test", [{"role": "user", "content": "Test rebuild"}], user_id="test_user"
+        )
 
         # Rebuild
         result = history_store.rebuild_fts_sync(user_id="test_user")
@@ -213,18 +216,17 @@ class TestFederatedSearch:
         # Mock a failing runner
         runners = [
             {"id": "runner1", "url": "http://localhost:9999"},  # Will fail (connection refused)
-            {"id": "runner2", "url": "http://invalid-host"},   # Will fail (DNS)
+            {"id": "runner2", "url": "http://invalid-host"},  # Will fail (DNS)
         ]
 
         # Patch get_runners
         import server.routes.session_search as search_mod
+
         original_get_runners = search_mod._get_runners
         search_mod._get_runners = lambda: runners
 
         try:
-            results = await _federated_search(
-                "test query", "user1", None, None, None, 10
-            )
+            results = await _federated_search("test query", "user1", None, None, None, 10)
             # Should return results for both runners with errors, not crash
             assert len(results) == 2
             for r in results:

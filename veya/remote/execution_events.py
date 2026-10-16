@@ -1,4 +1,5 @@
 """Durable execution-scoped output/event log."""
+
 from __future__ import annotations
 
 import json
@@ -16,8 +17,10 @@ from typing import Any, ClassVar
 class ExecutionEventError(ValueError):
     pass
 
+
 class EventSequenceError(ExecutionEventError):
     pass
+
 
 class ExecutionEventType:
     PROVIDER_STARTED = "PROVIDER_STARTED"
@@ -36,6 +39,7 @@ class ExecutionEventType:
     GSK_EVIDENCE_RECORDED = "GSK_EVIDENCE_RECORDED"
     GSK_EGRESS_RECEIPT_RECORDED = "GSK_EGRESS_RECEIPT_RECORDED"
 
+
 @dataclass(frozen=True)
 class ExecutionEvent:
     execution_id: str
@@ -53,6 +57,7 @@ class ExecutionEvent:
     def from_dict(cls, data: dict[str, Any]) -> ExecutionEvent:
         return cls(**data)
 
+
 class ExecutionEventStore:
     """Append-only durable stream with bounded hot-buffer and replay."""
 
@@ -60,7 +65,9 @@ class ExecutionEventStore:
     _shared: ClassVar[dict[tuple[str, str], ExecutionEventStore]] = {}
 
     @classmethod
-    def shared(cls, root: str | Path, execution_id: str, *, max_buffer_events: int = 256) -> ExecutionEventStore:
+    def shared(
+        cls, root: str | Path, execution_id: str, *, max_buffer_events: int = 256
+    ) -> ExecutionEventStore:
         key = (str(Path(root).resolve()), execution_id)
         with cls._shared_lock:
             store = cls._shared.get(key)
@@ -99,14 +106,22 @@ class ExecutionEventStore:
         with self._lock:
             return len(self._events)
 
-    def append(self, event_type: str, *, sequence: int | None = None,
-               event_id: str | None = None, payload: dict[str, Any] | None = None,
-               payload_ref: str | None = None) -> ExecutionEvent:
+    def append(
+        self,
+        event_type: str,
+        *,
+        sequence: int | None = None,
+        event_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+        payload_ref: str | None = None,
+    ) -> ExecutionEvent:
         with self._lock:
             event_id = event_id or str(uuid.uuid4())
             if event_id in self._event_ids:
                 existing = self._find_event_id(event_id)
-                if existing is not None and self._same_event(existing, event_type, payload, payload_ref, sequence):
+                if existing is not None and self._same_event(
+                    existing, event_type, payload, payload_ref, sequence
+                ):
                     return existing
                 raise EventSequenceError(f"event_id collision: {event_id}")
             expected = self._last_sequence + 1
@@ -137,9 +152,13 @@ class ExecutionEventStore:
             return event
 
     def append_output(self, text: str, *, payload_ref: str | None = None) -> ExecutionEvent:
-        return self.append(ExecutionEventType.OUTPUT, payload={"text": text}, payload_ref=payload_ref)
+        return self.append(
+            ExecutionEventType.OUTPUT, payload={"text": text}, payload_ref=payload_ref
+        )
 
-    def replay_after(self, last_seen_sequence: int = 0, *, limit: int | None = None) -> list[ExecutionEvent]:
+    def replay_after(
+        self, last_seen_sequence: int = 0, *, limit: int | None = None
+    ) -> list[ExecutionEvent]:
         if last_seen_sequence < 0:
             raise ValueError("last_seen_sequence must be >= 0")
         with self._lock:
@@ -178,7 +197,10 @@ class ExecutionEventStore:
                 if not line.strip():
                     continue
                 event = ExecutionEvent.from_dict(json.loads(line))
-                if event.execution_id != self.execution_id or event.sequence != self._last_sequence + 1:
+                if (
+                    event.execution_id != self.execution_id
+                    or event.sequence != self._last_sequence + 1
+                ):
                     raise EventSequenceError(f"corrupt execution event log: {self._path}")
                 self._events.append(event)
                 self._event_ids.add(event.event_id)
@@ -208,10 +230,16 @@ class ExecutionEventStore:
         return None
 
     @staticmethod
-    def _same_event(existing: ExecutionEvent, event_type: str,
-                    payload: dict[str, Any] | None, payload_ref: str | None,
-                    sequence: int | None) -> bool:
-        return (existing.event_type == event_type
-                and existing.payload == dict(payload or {})
-                and existing.payload_ref == payload_ref
-                and (sequence is None or existing.sequence == sequence))
+    def _same_event(
+        existing: ExecutionEvent,
+        event_type: str,
+        payload: dict[str, Any] | None,
+        payload_ref: str | None,
+        sequence: int | None,
+    ) -> bool:
+        return (
+            existing.event_type == event_type
+            and existing.payload == dict(payload or {})
+            and existing.payload_ref == payload_ref
+            and (sequence is None or existing.sequence == sequence)
+        )

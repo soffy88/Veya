@@ -20,7 +20,14 @@ def test_supervise_without_workspace_uses_write_root(tmp_path, monkeypatch):
             pass
 
     bot = SimpleNamespace(bot_id="b1")
-    asyncio.run(turns._supervise_from_phrase(bot=bot, text="每 5 分钟告诉我进度：统计 README.md 有多少行",
-                                             user={}, workspace_id=None, conversations=_Store()))
+    asyncio.run(
+        turns._supervise_from_phrase(
+            bot=bot,
+            text="每 5 分钟告诉我进度：统计 README.md 有多少行",
+            user={},
+            workspace_id=None,
+            conversations=_Store(),
+        )
+    )
     assert seen["project_root"] == str(tmp_path / "supervised" / "b1")
     assert (tmp_path / "supervised" / "b1").is_dir()

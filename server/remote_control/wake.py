@@ -66,7 +66,7 @@ class WakePolicy:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "WakePolicy":
+    def from_dict(cls, value: dict[str, Any]) -> WakePolicy:
         return cls(
             sender=str(value.get("sender") or ""),
             agent_label=str(value.get("agent_label") or ""),
@@ -188,9 +188,8 @@ def decide(
     # Quiet hours: `urgent` bypasses, matching veya.oskill.pure.wake_policy.
     # A held `now` is downgraded one step to `batch` (never to `none`): the
     # request is deferred, not dropped.
-    if not urgent and quiet_hours_active(stamp, quiet_settings):
-        if effective == "now":
-            effective = "batch"
+    if not urgent and quiet_hours_active(stamp, quiet_settings) and effective == "now":
+        effective = "batch"
 
     if policy.rate_limit > 0:
         window_start = stamp - policy.rate_window_s

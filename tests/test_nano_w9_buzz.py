@@ -1151,7 +1151,6 @@ class TestThreeOLayerContract:
         assert "audit_chain" not in source
 
 
-
 def test_w9_routes_reject_paths_outside_allowed_roots(tmp_path, monkeypatch):
     """Client-supplied repo/output paths must stay under the configured roots."""
     import pytest

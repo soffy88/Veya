@@ -90,7 +90,7 @@ def parse_loop_brief(text: str) -> dict[str, Any]:
     directive = re.search(r"\bloop\b\s*(until|\bfor\b|\d|$)", lowered)
     if directive is None:
         return _goal_brief("no loop directive in the brief")
-    lowered = lowered[directive.start():]
+    lowered = lowered[directive.start() :]
     if "until" in lowered:
         # "loop until done" — runs on the Goal criterion, budget is the cap.
         return {
@@ -174,7 +174,9 @@ def loop_decision(
             return _decision(MODE_GOAL, True, STOP_USER_STOP, "the user asked the run to stop")
         if finish_condition_met:
             return _decision(MODE_GOAL, True, STOP_COMPLETED, "the finish condition is met")
-        return _decision(MODE_GOAL, False, STOP_CONTINUE, "goal mode: keep going until the finish condition")
+        return _decision(
+            MODE_GOAL, False, STOP_CONTINUE, "goal mode: keep going until the finish condition"
+        )
 
     if user_stop:
         return _decision(MODE_LOOP, True, STOP_USER_STOP, "the user asked the loop to stop")

@@ -108,10 +108,10 @@ def _parse(path: Path, kind: str) -> Preset:
     if head is None:
         raise PresetError(f"{path.name}: missing provenance header")
     meta = _kv(head.group("body"))
-    rest = text[head.end():]
+    rest = text[head.end() :]
     front = _FRONT_RE.match(rest)
     fm = _kv(front.group("body")) if front else {}
-    body = rest[front.end():] if front else rest
+    body = rest[front.end() :] if front else rest
     preset_id = meta.get("id", "")
     if not _ID_RE.match(preset_id):
         raise PresetError(f"{path.name}: bad id {preset_id!r}")
@@ -250,11 +250,11 @@ __all__ = [
     "FLAG_NAME",
     "INSTRUCTIONS_MAX",
     "PRESET_ROOT",
-    "Preset",
-    "PresetError",
     "ROLE_BLOCK_END",
     "ROLE_BLOCK_START",
     "SKILL_ID_PREFIX",
+    "Preset",
+    "PresetError",
     "apply_to_spec",
     "flag_enabled",
     "get_role",

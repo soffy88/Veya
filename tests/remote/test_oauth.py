@@ -68,7 +68,12 @@ def test_oauth_authorization_code_pkce_and_replay(tmp_path, monkeypatch) -> None
         secret="static-secret",
     )
     monkeypatch.setattr(oauth.RemoteAuth, "from_env", classmethod(lambda cls, environ=None: auth))
-    monkeypatch.setattr(oauth, "authenticate", lambda username, password: {"user_id": 1})
+    monkeypatch.setattr(
+        oauth,
+        "authenticate",
+        lambda username, password: {"user_id": "1", "username": username, "is_owner": True},
+    )
+    monkeypatch.delenv("VEYA_REMOTE_OAUTH_TOKEN_ID", raising=False)
 
     client = _app()
     redirect_uri = "http://127.0.0.1:43111/oauth/callback"
@@ -264,7 +269,12 @@ def test_consent_works_with_a_real_uuid_user_id(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(oauth.RemoteAuth, "from_env", classmethod(lambda cls, environ=None: auth))
     real_user_id = uuid4().hex
     assert not real_user_id.isdigit()  # the case that used to 500
-    monkeypatch.setattr(oauth, "authenticate", lambda username, password: {"user_id": real_user_id})
+    monkeypatch.setattr(
+        oauth,
+        "authenticate",
+        lambda username, password: {"user_id": real_user_id, "username": username, "is_owner": True},
+    )
+    monkeypatch.delenv("VEYA_REMOTE_OAUTH_TOKEN_ID", raising=False)
 
     client = _app()
     redirect_uri = "http://127.0.0.1:43111/oauth/callback"
@@ -347,6 +357,45 @@ def test_existing_integer_store_is_migrated(tmp_path, monkeypatch) -> None:
     assert clients == 1  # the migration did not discard registered clients
 
 
+def test_oauth_consent_rejects_owner_without_remote_token_grant(tmp_path, monkeypatch) -> None:
+    """An authenticated owner cannot complete OAuth without an existing grant."""
+
+    monkeypatch.setenv("VEYA_REMOTE_OAUTH_STORE_FILE", str(tmp_path / "oauth.db"))
+    monkeypatch.delenv("VEYA_REMOTE_OAUTH_TOKEN_ID", raising=False)
+    auth = RemoteAuth()
+    monkeypatch.setattr(oauth.RemoteAuth, "from_env", classmethod(lambda cls, environ=None: auth))
+    monkeypatch.setattr(
+        oauth,
+        "authenticate",
+        lambda username, password: {"user_id": uuid4().hex, "username": username, "is_owner": True},
+    )
+
+    client = _app()
+    redirect_uri = "http://127.0.0.1:43111/oauth/callback"
+    client_id = client.post("/register", json={"redirect_uris": [redirect_uri]}).json()["client_id"]
+    consent = client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "state": "state-no-grant",
+            "code_challenge": _pkce("D" * 64),
+            "code_challenge_method": "S256",
+        },
+    )
+    tx = re.search(r'name="tx_id" value="([^"]+)"', consent.text)
+    assert tx is not None
+
+    decision = client.post(
+        "/authorize/decision",
+        data={"tx_id": tx.group(1), "username": "soffy", "password": "test"},
+        follow_redirects=False,
+    )
+    assert decision.status_code == 403
+    assert "No active RemoteToken grant" in decision.text
+
+
 @pytest.mark.parametrize("encoding", ["form", "json", "basic"])
 def test_token_accepts_form_json_and_basic_encodings(tmp_path, monkeypatch, encoding) -> None:
     """RFC 6749 says form-encoded; real clients also send JSON or Basic.
@@ -364,7 +413,11 @@ def test_token_accepts_form_json_and_basic_encodings(tmp_path, monkeypatch, enco
         secret="static-secret",
     )
     monkeypatch.setattr(oauth.RemoteAuth, "from_env", classmethod(lambda cls, environ=None: auth))
-    monkeypatch.setattr(oauth, "authenticate", lambda u, p: {"user_id": uuid4().hex})
+    monkeypatch.setattr(
+        oauth,
+        "authenticate",
+        lambda username, password: {"user_id": uuid4().hex, "username": username, "is_owner": True},
+    )
     monkeypatch.setenv("VEYA_REMOTE_OAUTH_TOKEN_ID", grant.token_id)
 
     client = _app()

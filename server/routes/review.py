@@ -190,18 +190,22 @@ def _fetch_failing_checks(branch: str, repo_path: str) -> tuple[list[str], str]:
     """Return (failing_check_names, trimmed_log_text). Raises on gh error."""
     # List runs for the branch
     list_cmd = [
-        "gh", "run", "list",
-        "--branch", branch,
-        "--json", "databaseId,name,status,conclusion",
-        "--limit", "5",
+        "gh",
+        "run",
+        "list",
+        "--branch",
+        branch,
+        "--json",
+        "databaseId,name,status,conclusion",
+        "--limit",
+        "5",
     ]
-    r = subprocess.run(
-        list_cmd, capture_output=True, text=True, timeout=_GH_TIMEOUT, cwd=repo_path
-    )
+    r = subprocess.run(list_cmd, capture_output=True, text=True, timeout=_GH_TIMEOUT, cwd=repo_path)
     if r.returncode != 0:
         raise RuntimeError(f"gh run list failed: {r.stderr[:500]}")
 
     import json as _json
+
     runs = _json.loads(r.stdout or "[]")
     failing_names: list[str] = []
     log_parts: list[str] = []
@@ -242,10 +246,14 @@ async def fix_checks(req: FixChecksRequest) -> dict[str, Any]:
         try:
             r = subprocess.run(
                 ["gh", "pr", "view", str(req.pr), "--json", "headRefName"],
-                capture_output=True, text=True, timeout=_GH_TIMEOUT, cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=_GH_TIMEOUT,
+                cwd=root,
             )
             if r.returncode == 0:
                 import json as _json
+
                 data = _json.loads(r.stdout or "{}")
                 branch = data.get("headRefName", "")
         except (subprocess.TimeoutExpired, OSError, ValueError):
@@ -256,7 +264,10 @@ async def fix_checks(req: FixChecksRequest) -> dict[str, Any]:
         try:
             r = subprocess.run(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True, text=True, timeout=10, cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=root,
             )
             branch = r.stdout.strip() if r.returncode == 0 else ""
         except (subprocess.TimeoutExpired, OSError):

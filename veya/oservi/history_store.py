@@ -363,13 +363,15 @@ class SqliteHistoryStore:
                 if text:
                     title = text[:40]
                     break
-            out.append({
-                "sid": sid,
-                "revision": revision,
-                "snippet": snippet,
-                "ts": ts,
-                "title": title or "Untitled",
-            })
+            out.append(
+                {
+                    "sid": sid,
+                    "revision": revision,
+                    "snippet": snippet,
+                    "ts": ts,
+                    "title": title or "Untitled",
+                }
+            )
         return out
 
     def rebuild_fts_sync(self, user_id: str | None = None) -> dict[str, Any]:
@@ -398,7 +400,7 @@ class SqliteHistoryStore:
             cursor = conn.execute(
                 "INSERT INTO turns_fts(rowid, user_id, sid, revision, msg_json) "
                 "SELECT rowid, user_id, sid, revision, msg_json FROM turns WHERE user_id = ?",
-                (uid,)
+                (uid,),
             )
             rows_inserted = cursor.rowcount
 
@@ -459,9 +461,11 @@ class SqliteHistoryStore:
         to_ts: int | None = None,
         limit: int = 20,
     ) -> list[dict[str, Any]]:
-        return list(await run_sync_in_daemon_thread(
-            self.search_sync, query, user_id, backend, from_ts, to_ts, limit
-        ))
+        return list(
+            await run_sync_in_daemon_thread(
+                self.search_sync, query, user_id, backend, from_ts, to_ts, limit
+            )
+        )
 
     async def rebuild_fts(self, user_id: str | None = None) -> dict[str, Any]:
         return await run_sync_in_daemon_thread(self.rebuild_fts_sync, user_id)

@@ -135,8 +135,6 @@ async def test_workspace_path_selects_nested_repo_for_git_and_shell(gateway) -> 
     assert str(repo.resolve()) in shell["result"]["stdout_tail"]
 
 
-
-
 @pytest.mark.asyncio
 async def test_workspace_path_escape_is_blocked(gateway) -> None:
     server, secret, _projects, _repo, _executor = gateway

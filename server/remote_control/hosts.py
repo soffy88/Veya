@@ -83,7 +83,7 @@ class RemoteHost:
         return data
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "RemoteHost":
+    def from_dict(cls, value: dict[str, Any]) -> RemoteHost:
         label = str(value.get("agent_label") or DEFAULT_AGENT_LABEL)
         meta = value.get("metadata")
         return cls(
@@ -209,9 +209,7 @@ def get_host(host_id: str) -> RemoteHost | None:
     return RemoteHost.from_dict(row) if row else None
 
 
-def list_hosts(
-    *, owner_id: str | None = None, enabled_only: bool = False
-) -> list[RemoteHost]:
+def list_hosts(*, owner_id: str | None = None, enabled_only: bool = False) -> list[RemoteHost]:
     """List hosts, newest first, filtered by owner and/or enabled state."""
 
     rows = _ledger.read_map(_hosts_path())
@@ -274,9 +272,9 @@ __all__ = [
     "DEFAULT_AGENT_LABEL",
     "HOST_ID_RE",
     "HOST_KEY_POLICIES",
-    "HostValidationError",
     "OS_FAMILIES",
     "SSH_KEY_REF_RE",
+    "HostValidationError",
     "RemoteHost",
     "delete_host",
     "get_host",

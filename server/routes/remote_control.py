@@ -20,9 +20,11 @@ from server import auth as auth_mod
 from server.remote_control import approval as approval_mod
 from server.remote_control import executor as executor_mod
 from server.remote_control import files as files_mod
-from server.remote_control import flags, hosts as hosts_mod, sessions as sessions_mod
+from server.remote_control import flags
+from server.remote_control import hosts as hosts_mod
 from server.remote_control import notify as notify_mod
 from server.remote_control import service as service_mod
+from server.remote_control import sessions as sessions_mod
 from server.remote_control import wake as wake_mod
 
 router = APIRouter(
@@ -392,7 +394,9 @@ async def require_ssh_hosts() -> None:
     """Dependency: 404 unless both W13 and W17 flags are on (fail-closed)."""
 
     if not flags.ssh_enabled():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VEYA_SSH_HOSTS is not enabled")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="VEYA_SSH_HOSTS is not enabled"
+        )
 
 
 def _owned_ssh_host(host_id: str, user: dict[str, Any]) -> hosts_mod.RemoteHost:
@@ -442,7 +446,9 @@ async def probe_ssh_host(
         service_mod.check_identity(host, "wake")
     except service_mod.RemoteControlRefused as exc:
         raise _http_for(exc) from exc
-    result = await asyncio.to_thread(ssh_mod.probe, host, runner=ssh_tools.RUNNER, key_lookup=ssh_tools.KEY_LOOKUP)
+    result = await asyncio.to_thread(
+        ssh_mod.probe, host, runner=ssh_tools.RUNNER, key_lookup=ssh_tools.KEY_LOOKUP
+    )
     if result.reachable:
         hosts_mod.touch_seen(host.host_id)
     return {"host_id": host.host_id, **result.to_dict()}
@@ -456,8 +462,15 @@ async def update_ssh_host(
     _: None = Depends(require_ssh_hosts),
 ) -> dict[str, Any]:
     host = _owned_ssh_host(host_id, user)
-    for key in ("ssh_user", "ssh_port", "ssh_key_ref", "ssh_host_key_policy", "os_family",
-                "write_root", "default_cwd"):
+    for key in (
+        "ssh_user",
+        "ssh_port",
+        "ssh_key_ref",
+        "ssh_host_key_policy",
+        "os_family",
+        "write_root",
+        "default_cwd",
+    ):
         setattr(host, key, getattr(payload, key))
     if payload.read_approved is not None:
         host.metadata = {**(host.metadata or {}), "read_approved": bool(payload.read_approved)}
@@ -481,7 +494,9 @@ async def list_ssh_host_files(
 
     host = _owned_ssh_host(host_id, user)
     if not bool((host.metadata or {}).get("read_approved")):
-        raise HTTPException(status_code=409, detail="host has not opted in to read without approval")
+        raise HTTPException(
+            status_code=409, detail="host has not opted in to read without approval"
+        )
     backend = _ssh_backend(host)
     try:
         rows = await asyncio.to_thread(backend.list_dir, path)

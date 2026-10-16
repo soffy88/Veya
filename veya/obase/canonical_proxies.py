@@ -27,6 +27,7 @@ import logging
 import os
 import threading
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -272,7 +273,9 @@ def reset_nim_key_pool() -> None:
 def _load_registry() -> dict[str, Any]:
     try:
         if _PROVIDER_REGISTRY.is_file():
-            return json.loads(_PROVIDER_REGISTRY.read_text(encoding="utf-8"))
+            loaded: Any = json.loads(_PROVIDER_REGISTRY.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                return loaded
     except (OSError, ValueError):
         pass
     return {}
@@ -281,7 +284,9 @@ def _load_registry() -> dict[str, Any]:
 def _load_state() -> dict[str, Any]:
     try:
         if _MODEL_STATE.is_file():
-            return json.loads(_MODEL_STATE.read_text(encoding="utf-8"))
+            loaded: Any = json.loads(_MODEL_STATE.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                return loaded
     except (OSError, ValueError):
         pass
     return {}
@@ -678,7 +683,7 @@ async def veya_nim_stream(
     messages: list[dict],
     kwargs: dict,
     resolved: ResolvedProxy | None = None,
-):
+) -> AsyncIterator[dict[str, Any]]:
     """Streaming counterpart of :func:`veya_nim_call`.
 
     The first SSE chunk carries the §6 routing decision so a streaming caller
@@ -883,7 +888,9 @@ async def veya_vl_call(
             if keys.size() == 0:
                 last_err = "NIM key pool empty"
                 continue
-            call = await _nim_attempt(messages, kwargs, model_id, keys, timeout, last_err)
+            call: tuple[dict[str, Any] | None, int | None] = await _nim_attempt(
+                messages, kwargs, model_id, keys, timeout, last_err
+            )
         else:
             call_kwargs: dict[str, Any] = {
                 "config": kwargs.get("config"),
@@ -897,16 +904,16 @@ async def veya_vl_call(
             if endpoint:
                 call_kwargs["endpoint"] = str(endpoint)
             try:
-                resp = await llm_call(messages, **call_kwargs)
+                plain_resp: dict[str, Any] = await llm_call(messages, **call_kwargs)
             except Exception as exc:
                 last_err = f"{provider}/{model_id}: {exc}"
                 continue
-            msg = (resp.get("choices") or [{}])[0].get("message") or {}
+            msg = (plain_resp.get("choices") or [{}])[0].get("message") or {}
             content = (msg.get("content") or "").strip()
             if not content and not msg.get("tool_calls"):
                 last_err = f"{provider}/{model_id} returned empty content"
                 continue
-            call = (resp, None)
+            call = (plain_resp, None)
 
         resp, _key_id = call
         if resp is None:

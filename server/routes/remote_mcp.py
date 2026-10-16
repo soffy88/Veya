@@ -20,6 +20,7 @@ router = APIRouter(prefix="/mcp", tags=["remote-mcp"])
 
 _gateway: Any = None
 
+
 def get_gateway() -> Any:
     """Lazily build the process-wide gateway (credentials read at first use)."""
 

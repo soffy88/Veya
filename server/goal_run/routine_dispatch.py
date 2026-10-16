@@ -10,8 +10,10 @@ passed-in GoalRunState.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 from runtime.execution.models import (
@@ -30,7 +32,13 @@ from server.goal_run.models import (
 HANDOFF_VIA = ("veya-bot", "master-agent", "goal-run")
 
 
-def run_probe(probe: dict[str, Any], workspace_path: str | None = None) -> dict[str, Any]:
+def run_probe(
+    probe: dict[str, Any],
+    workspace_path: str | None = None,
+    *,
+    owner_authorized: bool = False,
+    approved: bool = False,
+) -> dict[str, Any]:
     """Execute a probe and return result dict with success status and details.
 
     Probe kinds:
@@ -48,7 +56,12 @@ def run_probe(probe: dict[str, Any], workspace_path: str | None = None) -> dict[
     if kind == "git_changes":
         path = probe.get("path")
         if not path:
-            return {"success": False, "kind": "git_changes", "detail": "probe.path is required", "data": {}}
+            return {
+                "success": False,
+                "kind": "git_changes",
+                "detail": "probe.path is required",
+                "data": {},
+            }
 
         try:
             # Check if path is a git repository
@@ -81,41 +94,113 @@ def run_probe(probe: dict[str, Any], workspace_path: str | None = None) -> dict[
                 "data": {"path": path, "has_changes": has_changes, "output": result.stdout.strip()},
             }
         except subprocess.TimeoutExpired:
-            return {"success": False, "kind": "git_changes", "detail": "git command timed out", "data": {"path": path}}
+            return {
+                "success": False,
+                "kind": "git_changes",
+                "detail": "git command timed out",
+                "data": {"path": path},
+            }
         except Exception as e:
-            return {"success": False, "kind": "git_changes", "detail": f"git probe error: {e}", "data": {"path": path}}
+            return {
+                "success": False,
+                "kind": "git_changes",
+                "detail": f"git probe error: {e}",
+                "data": {"path": path},
+            }
 
     if kind == "command":
-        command = probe.get("command")
-        if not command:
-            return {"success": False, "kind": "command", "detail": "probe.command is required", "data": {}}
-
-        cwd = workspace_path or probe.get("cwd") or "."
+        # Arbitrary routine commands are opt-in only after platform-owner and
+        # durable human-approval checks in the authenticated route. Never accept
+        # a shell string: `execute_args` is passed to execve with shell disabled.
+        if not owner_authorized or not approved:
+            return {
+                "success": False,
+                "kind": "command",
+                "detail": "command probes require an authenticated owner and explicit approval",
+                "data": {},
+            }
+        argv = probe.get("execute_args")
+        if (
+            not isinstance(argv, list)
+            or not argv
+            or len(argv) > 32
+            or any(
+                not isinstance(arg, str) or not arg or "\x00" in arg or len(arg) > 2048
+                for arg in argv
+            )
+            or probe.get("command") not in (None, "")
+        ):
+            return {
+                "success": False,
+                "kind": "command",
+                "detail": "probe.execute_args must be a bounded list of non-empty strings; shell commands are not accepted",
+                "data": {},
+            }
+        if not workspace_path:
+            return {
+                "success": False,
+                "kind": "command",
+                "detail": "a bound workspace is required",
+                "data": {},
+            }
         try:
+            workspace = Path(workspace_path).expanduser().resolve(strict=True)
+            if not workspace.is_dir():
+                raise ValueError("workspace is not a directory")
+            requested_cwd = probe.get("cwd") or "."
+            requested_path = Path(requested_cwd).expanduser()
+            cwd = (
+                requested_path if requested_path.is_absolute() else workspace / requested_path
+            ).resolve(strict=True)
+            if not cwd.is_relative_to(workspace) or not cwd.is_dir():
+                raise ValueError("command cwd must be a directory inside the bound workspace")
+            timeout = max(1, min(int(probe.get("timeout", 10)), 30))
+            safe_env = {
+                "PATH": os.defpath,
+                "HOME": str(Path.home()),
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+            }
+            if os.environ.get("TMPDIR"):
+                safe_env["TMPDIR"] = os.environ["TMPDIR"]
             result = subprocess.run(
-                command,
-                shell=True,
-                cwd=cwd,
+                argv,
+                shell=False,
+                cwd=str(cwd),
+                env=safe_env,
                 capture_output=True,
                 text=True,
-                timeout=probe.get("timeout", 30),
+                timeout=timeout,
+                close_fds=True,
             )
             return {
                 "success": result.returncode == 0,
                 "kind": "command",
-                "detail": "command succeeded" if result.returncode == 0 else f"command failed with exit code {result.returncode}",
+                "detail": "command succeeded"
+                if result.returncode == 0
+                else f"command failed with exit code {result.returncode}",
                 "data": {
-                    "command": command,
-                    "cwd": cwd,
+                    "execute_args": argv,
+                    "cwd": str(cwd),
                     "exit_code": result.returncode,
-                    "stdout": result.stdout.strip()[-1000:],  # truncate
+                    "stdout": result.stdout.strip()[-1000:],
                     "stderr": result.stderr.strip()[-1000:],
                 },
             }
         except subprocess.TimeoutExpired:
-            return {"success": False, "kind": "command", "detail": "command timed out", "data": {"command": command, "cwd": cwd}}
-        except Exception as e:
-            return {"success": False, "kind": "command", "detail": f"command probe error: {e}", "data": {"command": command, "cwd": cwd}}
+            return {
+                "success": False,
+                "kind": "command",
+                "detail": "command timed out",
+                "data": {"cwd": str(workspace_path)},
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "kind": "command",
+                "detail": f"command probe rejected: {exc}",
+                "data": {},
+            }
 
     return {"success": False, "kind": kind, "detail": f"unknown probe kind: {kind}", "data": {}}
 
@@ -182,8 +267,6 @@ def dispatch_trigger(
         entry.last_trigger_ref = trigger_id
         entry.canonical_goal_run_id = state.goal_id
         entry.trigger_metadata = {"trigger_id": trigger_id, **(payload or {})}
-
-
 
         target: dict[str, Any] = {}
         if spec.target_skill_id:

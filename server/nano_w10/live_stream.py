@@ -189,7 +189,9 @@ def reset_live_stream() -> None:
     _STREAM = None
 
 
-def wire_to_turn_queue(queue: Any, *, push: Callable[[dict[str, Any]], Any] | None = None) -> LiveStream:
+def wire_to_turn_queue(
+    queue: Any, *, push: Callable[[dict[str, Any]], Any] | None = None
+) -> LiveStream:
     """Bind a live stream to an item-1 :class:`TurnQueue`.
 
     The correction box and an inbound direct message then share **one** path:
@@ -208,8 +210,8 @@ def wire_to_turn_queue(queue: Any, *, push: Callable[[dict[str, Any]], Any] | No
     return LiveStream(
         push=push,
         turn_state=lambda conversation_ref: queue.turn_state(conversation_ref),
-        deliver_steer=lambda conversation_ref, text: (
-            queue.steer(conversation_ref, text).get("state", "delivered")
+        deliver_steer=lambda conversation_ref, text: queue.steer(conversation_ref, text).get(
+            "state", "delivered"
         ),
     )
 

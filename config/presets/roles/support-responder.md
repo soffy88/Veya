@@ -151,81 +151,92 @@ import numpy as np
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 
+
 class SupportAnalytics:
     def __init__(self, support_data):
         self.data = support_data
         self.metrics = {}
-        
+
     def calculate_key_metrics(self):
         """
         Calculate comprehensive support performance metrics
         """
         current_month = datetime.now().month
         last_month = current_month - 1 if current_month > 1 else 12
-        
+
         # Response time metrics
-        self.metrics['avg_first_response_time'] = self.data['first_response_time'].mean()
-        self.metrics['avg_resolution_time'] = self.data['resolution_time'].mean()
-        
+        self.metrics["avg_first_response_time"] = self.data["first_response_time"].mean()
+        self.metrics["avg_resolution_time"] = self.data["resolution_time"].mean()
+
         # Quality metrics
-        self.metrics['first_contact_resolution_rate'] = (
-            len(self.data[self.data['contacts_to_resolution'] == 1]) / 
-            len(self.data) * 100 if len(self.data) else None
+        self.metrics["first_contact_resolution_rate"] = (
+            len(self.data[self.data["contacts_to_resolution"] == 1]) / len(self.data) * 100
+            if len(self.data)
+            else None
         )
-        
-        self.metrics['customer_satisfaction_score'] = self.data['csat_score'].mean()
-        
+
+        self.metrics["customer_satisfaction_score"] = self.data["csat_score"].mean()
+
         # Volume metrics
-        self.metrics['total_tickets'] = len(self.data)
-        self.metrics['tickets_by_channel'] = self.data.groupby('channel').size()
-        self.metrics['tickets_by_priority'] = self.data.groupby('priority').size()
-        
+        self.metrics["total_tickets"] = len(self.data)
+        self.metrics["tickets_by_channel"] = self.data.groupby("channel").size()
+        self.metrics["tickets_by_priority"] = self.data.groupby("priority").size()
+
         # Agent performance
-        self.metrics['agent_performance'] = self.data.groupby('agent_id').agg({
-            'csat_score': 'mean',
-            'resolution_time': 'mean',
-            'first_response_time': 'mean',
-            'ticket_id': 'count'
-        }).rename(columns={'ticket_id': 'tickets_handled'})
-        
+        self.metrics["agent_performance"] = (
+            self.data.groupby("agent_id")
+            .agg(
+                {
+                    "csat_score": "mean",
+                    "resolution_time": "mean",
+                    "first_response_time": "mean",
+                    "ticket_id": "count",
+                }
+            )
+            .rename(columns={"ticket_id": "tickets_handled"})
+        )
+
         return self.metrics
-    
+
     def identify_support_trends(self):
         """
         Compare calendar periods, preserving year boundaries and missing evidence.
         """
-        dated = self.data.dropna(subset=['created_date']).set_index('created_date').sort_index()
+        dated = self.data.dropna(subset=["created_date"]).set_index("created_date").sort_index()
 
         def compare_recent_periods(values, lower_is_better=False):
             if len(values) < 2 or values.iloc[-2:].isna().any():
-                return 'insufficient_data'
+                return "insufficient_data"
             previous, current = values.iloc[-2], values.iloc[-1]
             if current == previous:
-                return 'stable'
+                return "stable"
             improving = current < previous if lower_is_better else current > previous
-            return 'improving' if improving else 'declining'
+            return "improving" if improving else "declining"
 
         trends = {}
         # Assumes collection covers each day between the first and last dates.
         # Include zero-ticket calendar days and compare consecutive seven-day
         # windows ending on the latest observed date, not seven active dates.
-        daily_volume = dated.resample('D').size()
-        trends['volume_trend'] = 'insufficient_data'
+        daily_volume = dated.resample("D").size()
+        trends["volume_trend"] = "insufficient_data"
         if len(daily_volume) >= 14:
             previous = daily_volume.iloc[-14:-7].mean()
             current = daily_volume.iloc[-7:].mean()
-            trends['volume_trend'] = (
-                'stable' if current == previous else
-                'increasing' if current > previous else 'decreasing'
+            trends["volume_trend"] = (
+                "stable"
+                if current == previous
+                else "increasing"
+                if current > previous
+                else "decreasing"
             )
 
-        trends['top_issues'] = self.data['issue_category'].value_counts().head(5).to_dict()
+        trends["top_issues"] = self.data["issue_category"].value_counts().head(5).to_dict()
         # Calendar resampling keeps December before January and inserts missing
         # months/weeks as NaN rather than merging different years or guessing a trend.
-        monthly_csat = dated['csat_score'].resample('MS').mean()
-        trends['satisfaction_trend'] = compare_recent_periods(monthly_csat)
-        weekly_response_time = dated['first_response_time'].resample('W').mean()
-        trends['response_time_trend'] = compare_recent_periods(
+        monthly_csat = dated["csat_score"].resample("MS").mean()
+        trends["satisfaction_trend"] = compare_recent_periods(monthly_csat)
+        weekly_response_time = dated["first_response_time"].resample("W").mean()
+        trends["response_time_trend"] = compare_recent_periods(
             weekly_response_time, lower_is_better=True
         )
         return trends
@@ -235,71 +246,80 @@ class SupportAnalytics:
         Generate specific recommendations based on support data analysis
         """
         recommendations = []
-        
+
         # Response time recommendations
-        if self.metrics['avg_first_response_time'] > 2:  # 2 hours SLA
-            recommendations.append({
-                'area': 'Response Time',
-                'issue': f"Average first response time is {self.metrics['avg_first_response_time']:.1f} hours",
-                'recommendation': 'Implement chat routing optimization and increase staffing during peak hours',
-                'priority': 'HIGH',
-                'expected_impact': '30% reduction in response time'
-            })
-        
+        if self.metrics["avg_first_response_time"] > 2:  # 2 hours SLA
+            recommendations.append(
+                {
+                    "area": "Response Time",
+                    "issue": f"Average first response time is {self.metrics['avg_first_response_time']:.1f} hours",
+                    "recommendation": "Implement chat routing optimization and increase staffing during peak hours",
+                    "priority": "HIGH",
+                    "expected_impact": "30% reduction in response time",
+                }
+            )
+
         # First contact resolution recommendations
-        if (self.metrics['first_contact_resolution_rate'] is not None and
-                self.metrics['first_contact_resolution_rate'] < 80):
-            recommendations.append({
-                'area': 'Resolution Efficiency',
-                'issue': f"First contact resolution rate is {self.metrics['first_contact_resolution_rate']:.1f}%",
-                'recommendation': 'Expand agent training and improve knowledge base accessibility',
-                'priority': 'MEDIUM',
-                'expected_impact': '15% improvement in FCR rate'
-            })
-        
+        if (
+            self.metrics["first_contact_resolution_rate"] is not None
+            and self.metrics["first_contact_resolution_rate"] < 80
+        ):
+            recommendations.append(
+                {
+                    "area": "Resolution Efficiency",
+                    "issue": f"First contact resolution rate is {self.metrics['first_contact_resolution_rate']:.1f}%",
+                    "recommendation": "Expand agent training and improve knowledge base accessibility",
+                    "priority": "MEDIUM",
+                    "expected_impact": "15% improvement in FCR rate",
+                }
+            )
+
         # Customer satisfaction recommendations
-        if self.metrics['customer_satisfaction_score'] < 4.5:
-            recommendations.append({
-                'area': 'Customer Satisfaction',
-                'issue': f"CSAT score is {self.metrics['customer_satisfaction_score']:.2f}/5.0",
-                'recommendation': 'Implement empathy training and personalized follow-up procedures',
-                'priority': 'HIGH',
-                'expected_impact': '0.3 point CSAT improvement'
-            })
-        
+        if self.metrics["customer_satisfaction_score"] < 4.5:
+            recommendations.append(
+                {
+                    "area": "Customer Satisfaction",
+                    "issue": f"CSAT score is {self.metrics['customer_satisfaction_score']:.2f}/5.0",
+                    "recommendation": "Implement empathy training and personalized follow-up procedures",
+                    "priority": "HIGH",
+                    "expected_impact": "0.3 point CSAT improvement",
+                }
+            )
+
         return recommendations
-    
+
     def create_proactive_outreach_list(self):
         """
         Identify customers for proactive support outreach
         """
         # Match the report's timestamp timezone; naive reports stay naive.
         # Reuse one instant for all outreach windows.
-        now = datetime.now(tz=self.data['created_date'].dt.tz)
+        now = datetime.now(tz=self.data["created_date"].dt.tz)
 
         # Customers with multiple recent tickets
-        frequent_reporters = self.data[
-            self.data['created_date'] >= now - timedelta(days=30)
-        ].groupby('customer_id').size()
-        
+        frequent_reporters = (
+            self.data[self.data["created_date"] >= now - timedelta(days=30)]
+            .groupby("customer_id")
+            .size()
+        )
+
         high_volume_customers = frequent_reporters[frequent_reporters >= 3].index.tolist()
-        
+
         # Customers with low satisfaction scores
         low_satisfaction = self.data[
-            (self.data['csat_score'] <= 3) & 
-            (self.data['created_date'] >= now - timedelta(days=7))
-        ]['customer_id'].unique()
-        
+            (self.data["csat_score"] <= 3) & (self.data["created_date"] >= now - timedelta(days=7))
+        ]["customer_id"].unique()
+
         # Customers with unresolved tickets over SLA
         overdue_tickets = self.data[
-            (self.data['status'] != 'resolved') & 
-            (self.data['created_date'] <= now - timedelta(hours=48))
-        ]['customer_id'].unique()
-        
+            (self.data["status"] != "resolved")
+            & (self.data["created_date"] <= now - timedelta(hours=48))
+        ]["customer_id"].unique()
+
         return {
-            'high_volume_customers': high_volume_customers,
-            'low_satisfaction_customers': low_satisfaction.tolist(),
-            'overdue_customers': overdue_tickets.tolist()
+            "high_volume_customers": high_volume_customers,
+            "low_satisfaction_customers": low_satisfaction.tolist(),
+            "overdue_customers": overdue_tickets.tolist(),
         }
 ```
 
@@ -310,137 +330,143 @@ class KnowledgeBaseManager:
         self.articles = []
         self.categories = {}
         self.search_analytics = {}
-        
+
     def create_article(self, title, content, category, tags, difficulty_level):
         """
         Create comprehensive knowledge base article
         """
         article = {
-            'id': self.generate_article_id(),
-            'title': title,
-            'content': content,
-            'category': category,
-            'tags': tags,
-            'difficulty_level': difficulty_level,
-            'created_date': datetime.now(),
-            'last_updated': datetime.now(),
-            'view_count': 0,
-            'helpful_votes': 0,
-            'unhelpful_votes': 0,
-            'customer_feedback': [],
-            'related_tickets': []
+            "id": self.generate_article_id(),
+            "title": title,
+            "content": content,
+            "category": category,
+            "tags": tags,
+            "difficulty_level": difficulty_level,
+            "created_date": datetime.now(),
+            "last_updated": datetime.now(),
+            "view_count": 0,
+            "helpful_votes": 0,
+            "unhelpful_votes": 0,
+            "customer_feedback": [],
+            "related_tickets": [],
         }
-        
+
         # Add step-by-step instructions
-        article['steps'] = self.extract_steps(content)
-        
+        article["steps"] = self.extract_steps(content)
+
         # Add troubleshooting section
-        article['troubleshooting'] = self.generate_troubleshooting_section(category)
-        
+        article["troubleshooting"] = self.generate_troubleshooting_section(category)
+
         # Add related articles
-        article['related_articles'] = self.find_related_articles(tags, category)
-        
+        article["related_articles"] = self.find_related_articles(tags, category)
+
         self.articles.append(article)
         return article
-    
+
     def generate_article_template(self, issue_type):
         """
         Generate standardized article template based on issue type
         """
         templates = {
-            'technical_troubleshooting': {
-                'structure': [
-                    'Problem Description',
-                    'Common Causes',
-                    'Step-by-Step Solution',
-                    'Advanced Troubleshooting',
-                    'When to Contact Support',
-                    'Related Articles'
+            "technical_troubleshooting": {
+                "structure": [
+                    "Problem Description",
+                    "Common Causes",
+                    "Step-by-Step Solution",
+                    "Advanced Troubleshooting",
+                    "When to Contact Support",
+                    "Related Articles",
                 ],
-                'tone': 'Technical but accessible',
-                'include_screenshots': True,
-                'include_video': False
+                "tone": "Technical but accessible",
+                "include_screenshots": True,
+                "include_video": False,
             },
-            'account_management': {
-                'structure': [
-                    'Overview',
-                    'Prerequisites', 
-                    'Step-by-Step Instructions',
-                    'Important Notes',
-                    'Frequently Asked Questions',
-                    'Related Articles'
+            "account_management": {
+                "structure": [
+                    "Overview",
+                    "Prerequisites",
+                    "Step-by-Step Instructions",
+                    "Important Notes",
+                    "Frequently Asked Questions",
+                    "Related Articles",
                 ],
-                'tone': 'Friendly and straightforward',
-                'include_screenshots': True,
-                'include_video': True
+                "tone": "Friendly and straightforward",
+                "include_screenshots": True,
+                "include_video": True,
             },
-            'billing_information': {
-                'structure': [
-                    'Quick Summary',
-                    'Detailed Explanation',
-                    'Action Steps',
-                    'Important Dates and Deadlines',
-                    'Contact Information',
-                    'Policy References'
+            "billing_information": {
+                "structure": [
+                    "Quick Summary",
+                    "Detailed Explanation",
+                    "Action Steps",
+                    "Important Dates and Deadlines",
+                    "Contact Information",
+                    "Policy References",
                 ],
-                'tone': 'Clear and authoritative',
-                'include_screenshots': False,
-                'include_video': False
-            }
+                "tone": "Clear and authoritative",
+                "include_screenshots": False,
+                "include_video": False,
+            },
         }
-        
-        return templates.get(issue_type, templates['technical_troubleshooting'])
-    
+
+        return templates.get(issue_type, templates["technical_troubleshooting"])
+
     def optimize_article_content(self, article_id, usage_data):
         """
         Optimize article content based on usage analytics and customer feedback
         """
         article = self.get_article(article_id)
         optimization_suggestions = []
-        
+
         # Analyze search patterns
-        if usage_data['bounce_rate'] > 60:
-            optimization_suggestions.append({
-                'issue': 'High bounce rate',
-                'recommendation': 'Add clearer introduction and improve content organization',
-                'priority': 'HIGH'
-            })
-        
+        if usage_data["bounce_rate"] > 60:
+            optimization_suggestions.append(
+                {
+                    "issue": "High bounce rate",
+                    "recommendation": "Add clearer introduction and improve content organization",
+                    "priority": "HIGH",
+                }
+            )
+
         # Analyze customer feedback
-        negative_feedback = [f for f in article['customer_feedback'] if f['rating'] <= 2]
+        negative_feedback = [f for f in article["customer_feedback"] if f["rating"] <= 2]
         if len(negative_feedback) > 5:
             common_complaints = self.analyze_feedback_themes(negative_feedback)
-            optimization_suggestions.append({
-                'issue': 'Recurring negative feedback',
-                'recommendation': f"Address common complaints: {', '.join(common_complaints)}",
-                'priority': 'MEDIUM'
-            })
-        
+            optimization_suggestions.append(
+                {
+                    "issue": "Recurring negative feedback",
+                    "recommendation": f"Address common complaints: {', '.join(common_complaints)}",
+                    "priority": "MEDIUM",
+                }
+            )
+
         # Analyze related ticket patterns
-        if len(article['related_tickets']) > 20:
-            optimization_suggestions.append({
-                'issue': 'High related ticket volume',
-                'recommendation': 'Article may not be solving the problem completely - review and expand',
-                'priority': 'HIGH'
-            })
-        
+        if len(article["related_tickets"]) > 20:
+            optimization_suggestions.append(
+                {
+                    "issue": "High related ticket volume",
+                    "recommendation": "Article may not be solving the problem completely - review and expand",
+                    "priority": "HIGH",
+                }
+            )
+
         return optimization_suggestions
-    
+
     def create_interactive_troubleshooter(self, issue_category):
         """
         Create interactive troubleshooting flow
         """
         troubleshooter = {
-            'category': issue_category,
-            'decision_tree': self.build_decision_tree(issue_category),
-            'dynamic_content': True,
-            'personalization': {
-                'user_tier': 'customize_based_on_subscription',
-                'previous_issues': 'show_relevant_history',
-                'device_type': 'optimize_for_platform'
-            }
+            "category": issue_category,
+            "decision_tree": self.build_decision_tree(issue_category),
+            "dynamic_content": True,
+            "personalization": {
+                "user_tier": "customize_based_on_subscription",
+                "previous_issues": "show_relevant_history",
+                "device_type": "optimize_for_platform",
+            },
         }
-        
+
         return troubleshooter
 ```
 

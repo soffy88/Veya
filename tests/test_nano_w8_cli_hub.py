@@ -25,8 +25,10 @@ class TestCLIHubOprims:
     @pytest.fixture(autouse=True)
     def _mock_http(self):
         """Mock HTTP calls."""
-        with patch("httpx.AsyncClient.get") as mock_get, \
-             patch("httpx.AsyncClient.post") as mock_post:
+        with (
+            patch("httpx.AsyncClient.get") as mock_get,
+            patch("httpx.AsyncClient.post") as mock_post,
+        ):
             mock_get.return_value = MagicMock(
                 status_code=200,
                 json=lambda: {"tools": [], "skills": []},
@@ -44,7 +46,9 @@ class TestCLIHubOprims:
         from veya.oprim.cli_hub import search_cli
 
         http_get = MagicMock()
-        http_get.return_value.json = lambda: {"results": [{"name": "test-tool", "description": "A test tool"}]}
+        http_get.return_value.json = lambda: {
+            "results": [{"name": "test-tool", "description": "A test tool"}]
+        }
         result = search_cli(query="test", http_get=http_get)
         assert "results" in result
 
@@ -281,10 +285,13 @@ class TestCLIHubRoutes:
 
     def test_install_endpoint_requires_approval(self, client):
         """Test install requires ActionGateway approval."""
-        response = client.post("/api/v1/cli-hub/install", json={
-            "package": "test-package",
-            "version": "1.0.0",
-        })
+        response = client.post(
+            "/api/v1/cli-hub/install",
+            json={
+                "package": "test-package",
+                "version": "1.0.0",
+            },
+        )
         # Should require approval (403 or 202 with approval pending)
         assert response.status_code in (202, 403)
 
@@ -295,9 +302,8 @@ class TestCLIHubRoutes:
         from veya.oprim.cli_hub import CLIHubUnsupportedError, search_cli
 
         # Remove flag and expect error
-        with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(CLIHubUnsupportedError):
-                search_cli(query="test")
+        with patch.dict("os.environ", {}, clear=True), pytest.raises(CLIHubUnsupportedError):
+            search_cli(query="test")
 
         app = FastAPI()
         app.include_router(cli_hub_router)
