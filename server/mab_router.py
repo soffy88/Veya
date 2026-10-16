@@ -34,23 +34,8 @@ def verify_mab_flag() -> None:
 
 def verify_owner(request: Request) -> dict[str, Any]:
     """Use canonical require_owner from server.auth."""
-    from server.auth import require_owner, get_current_user, is_owner
+    from server.auth import require_owner
     auth_header = request.headers.get("Authorization")
-    if not auth_header and "X-Veya-User" in request.headers:
-        user_id = request.headers.get("X-Veya-User")
-        user = {"user_id": user_id}
-        if not is_owner(user):
-            from fastapi import HTTPException
-            raise HTTPException(status_code=403, detail="Forbidden: owner-only route")
-        return user
-    # If no auth header at all, check if VEYA_OWNER_USER_ID is unset (open/local test mode)
-    owner_id = (os.environ.get("VEYA_TAILNET_OWNER_USER_ID") or os.environ.get("VEYA_OWNER_USER_ID") or "").strip()
-    if not owner_id and not auth_header:
-        # In tests where owner is not configured, treat TestClient request as default mock owner or test user
-        user = get_current_user(auth_header, request)
-        if user is not None:
-            return user
-        return {"user_id": "test_owner", "role": "owner"}
     return require_owner(authorization=auth_header, request=request)
 
 class ProfileCreateRequest(BaseModel):
@@ -63,9 +48,6 @@ class ProfileUpdateRequest(BaseModel):
     site: str | None = None
     account_label: str | None = None
     status: str | None = None
-
-class ProfileDeleteRequest(BaseModel):
-    confirm: bool = False
 
 def verify_mab_flag_check() -> None:
     if not is_mab_enabled():
@@ -124,6 +106,22 @@ def enable_profile(profile_id: str, request: Request):
     return {"ok": True, "profile": vars(p)}
 
 
+@router.post("/profiles/{profile_id}/stream-ticket", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+def create_stream_ticket(profile_id: str, request: Request, current_user: dict[str, Any] = Depends(require_owner)):
+    p = mab_manager.get_profile(profile_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if p.status != "active":
+        raise HTTPException(status_code=403, detail="Profile not active")
+    token = secrets.token_urlsafe(32)
+    user_id = current_user.get("user_id") or current_user.get("sub") or "owner"
+    with _WS_TICKETS_LOCK:
+        _WS_TICKETS[token] = {
+            "profile_id": profile_id,
+            "user_id": user_id,
+            "expires": time.monotonic() + _WS_TICKET_TTL
+        }
+    return {"ok": True, "ticket": token, "expires_in": _WS_TICKET_TTL}
 @router.websocket("/profiles/{profile_id}/stream")
 async def profile_stream_websocket(websocket: WebSocket, profile_id: str):
     if not is_mab_enabled():
@@ -138,17 +136,58 @@ async def profile_stream_websocket(websocket: WebSocket, profile_id: str):
         await websocket.close(code=4403, reason="Profile not active")
         return
     await websocket.accept()
+
+    session = None
+    cdp = None
+    screencast_task = None
     try:
+        session = await mab_manager.ensure_browser(profile_id)
+        page = session.get("page")
+        context = session.get("context")
+        if page and context:
+            cdp = await context.new_cdp_session(page)
+            await cdp.send("Page.startScreencast", {"format": "jpeg", "quality": 80, "everyNthFrame": 1})
+
+            async def screencast_loop():
+                try:
+                    while True:
+                        event = await cdp.wait_for_event("Page.screencastFrame", timeout=30.0)
+                        if not event:
+                            break
+                        await _forward_cdp_frame(websocket, cdp, event)
+                except Exception:
+                    pass
+
+            screencast_task = asyncio.create_task(screencast_loop())
+
         while True:
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
             except Exception:
                 continue
-            if msg.get("type") == "ping":
+            msg_type = msg.get("type")
+            if msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
+            elif msg_type in {"mouse", "keyboard", "text"} and cdp:
+                try:
+                    await _dispatch_cdp_input(cdp, msg)
+                except Exception as exc:
+                    await websocket.send_json({"type": "error", "message": str(exc)})
     except WebSocketDisconnect:
         pass
+    finally:
+        if screencast_task and not screencast_task.done():
+            screencast_task.cancel()
+        if cdp:
+            try:
+                await cdp.send("Page.stopScreencast")
+            except Exception:
+                pass
+            try:
+                await cdp.detach()
+            except Exception:
+                pass
 
 
 
@@ -161,7 +200,9 @@ def _take_ws_ticket(websocket: WebSocket, profile_id: str) -> tuple[str | None, 
     if not item or item["expires"] <= time.monotonic():
         return None, 4401
     owner_id = (os.environ.get("VEYA_TAILNET_OWNER_USER_ID") or os.environ.get("VEYA_OWNER_USER_ID") or "").strip()
-    if not owner_id or item["user_id"] != owner_id or item["profile_id"] != profile_id:
+    if owner_id and item["user_id"] != owner_id:
+        return None, 4403
+    if item["profile_id"] != profile_id:
         return None, 4403
     return item["user_id"], 0
 
@@ -244,17 +285,22 @@ def register_mab_tools() -> list[dict[str, Any]]:
         except Exception as exc:
             raise RuntimeError("MAB audit event sink unavailable; refusing browser action") from exc
 
-        # Execute simulated or real playwright action safely
-        if action == "navigate":
-            return {"success": True, "profile": profile, "url": url, "title": "Mock page", "text": "Page content summary"}
-        elif action == "click":
-            return {"success": True, "profile": profile, "action": "click", "selector": selector}
-        elif action == "type":
-            return {"success": True, "profile": profile, "action": "type", "selector": selector}
-        elif action == "snapshot":
-            return {"success": True, "profile": profile, "url": p.site, "title": f"Snapshot of {p.name}", "text": "Safe text content only"}
-        else:
-            return {"success": False, "error": f"Unknown action {action}"}
+        # Execute actual mab_manager.perform_action via event loop bridge
+        try:
+            loop = mab_manager._loop
+            if loop is not None and loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    mab_manager.perform_action(profile, action, url=url, selector=selector, text=text),
+                    loop
+                )
+                res = future.result(timeout=25)
+            else:
+                res = asyncio.run(
+                    mab_manager.perform_action(profile, action, url=url, selector=selector, text=text)
+                )
+            return {"success": True, **res}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     return [{
         "name": "browser_profile_session",

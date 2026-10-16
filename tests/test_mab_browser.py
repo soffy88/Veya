@@ -132,6 +132,30 @@ def test_3_tool_revocation_and_audit(monkeypatch, tmp_path, owner_headers):
     monkeypatch.setattr(mab_manager, "profiles_dir", tmp_path / "mab" / "profiles")
     mab_manager._ensure_storage()
 
+    class MockLocator:
+        async def click(self, **kwargs):
+            pass
+        async def fill(self, text, **kwargs):
+            pass
+        async def inner_text(self, **kwargs):
+            return "Mock Body Content"
+
+    class MockPage:
+        url = "https://example.com"
+        async def title(self):
+            return "Mock Title"
+        async def goto(self, url, **kwargs):
+            self.url = url
+        def locator(self, sel):
+            return MockLocator()
+        async def inner_text(self, **kwargs):
+            return "Mock Body Content"
+
+    async def mock_factory(profile):
+        return {"page": MockPage(), "context": None, "playwright": None}
+
+    monkeypatch.setattr(mab_manager, "_session_factory", mock_factory)
+
     p = mab_manager.create_profile("Audit Test", "https://example.com", "aud_user")
     tools = register_mab_tools()
     assert len(tools) == 1
@@ -166,6 +190,30 @@ def test_4_security_no_credentials_in_audit(monkeypatch, tmp_path):
     monkeypatch.setattr(mab_manager, "profiles_dir", tmp_path / "mab" / "profiles")
     mab_manager._ensure_storage()
 
+    class MockLocator:
+        async def click(self, **kwargs):
+            pass
+        async def fill(self, text, **kwargs):
+            pass
+        async def inner_text(self, **kwargs):
+            return "Mock Body Content"
+
+    class MockPage:
+        url = "https://example.com"
+        async def title(self):
+            return "Mock Title"
+        async def goto(self, url, **kwargs):
+            self.url = url
+        def locator(self, sel):
+            return MockLocator()
+        async def inner_text(self, **kwargs):
+            return "Mock Body Content"
+
+    async def mock_factory(profile):
+        return {"page": MockPage(), "context": None, "playwright": None}
+
+    monkeypatch.setattr(mab_manager, "_session_factory", mock_factory)
+
     p = mab_manager.create_profile("Secure Test", "https://example.com", "sec_user")
     tools = register_mab_tools()
     handler = tools[0]["handler"]
@@ -180,22 +228,143 @@ def test_4_security_no_credentials_in_audit(monkeypatch, tmp_path):
         assert "password" not in str(r).lower()
         assert "session" not in str(r).lower()
 
-def test_5_ws_ticket_auth_and_flag(monkeypatch, tmp_path, owner_headers, nonowner_headers):
+def test_5_comprehensive_routes_and_auth(monkeypatch, tmp_path, owner_headers, nonowner_headers):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
     monkeypatch.setattr(mab_manager, "base_dir", tmp_path / "mab")
     monkeypatch.setattr(mab_manager, "profiles_dir", tmp_path / "mab" / "profiles")
     mab_manager._ensure_storage()
 
-    p = mab_manager.create_profile("WS Test", "https://example.com", "ws_user")
+    p = mab_manager.create_profile("Compr Test", "https://example.com", "comp_user")
 
-    # 1. Unauthenticated ws-ticket request -> 401
-    res_401 = client.post(f"/api/v1/mab/profiles/{p.id}/ws-ticket")
-    assert res_401.status_code == 401
+    routes = [
+        ("GET", "/api/v1/mab/profiles"),
+        ("POST", "/api/v1/mab/profiles"),
+        ("GET", f"/api/v1/mab/profiles/{p.id}"),
+        ("PUT", f"/api/v1/mab/profiles/{p.id}"),
+        ("DELETE", f"/api/v1/mab/profiles/{p.id}"),
+        ("POST", f"/api/v1/mab/profiles/{p.id}/revoke"),
+        ("POST", f"/api/v1/mab/profiles/{p.id}/enable"),
+        ("POST", f"/api/v1/mab/profiles/{p.id}/stream-ticket"),
+    ]
 
-    # 2. Owner ws-ticket request when flag is OFF -> 404
-    monkeypatch.setenv("VEYA_MAB_BROWSER", "OFF")
-    res_404 = client.post(f"/api/v1/mab/profiles/{p.id}/ws-ticket", headers=owner_headers)
-    assert res_404.status_code == 404
+    for method, path in routes:
+        # 1. Unauthenticated -> 401
+        if method == "GET":
+            res = client.get(path)
+        elif method == "POST":
+            res = client.post(path, json={"name": "test", "site": "https://example.com", "account_label": "lbl"})
+        elif method == "PUT":
+            res = client.put(path, json={"name": "test"})
+        elif method == "DELETE":
+            res = client.delete(path, params={"confirm": "true"})
+        assert res.status_code == 401, f"{method} {path} expected 401 got {res.status_code}"
+
+        # 2. Non-owner -> 403
+        if method == "GET":
+            res = client.get(path, headers=nonowner_headers)
+        elif method == "POST":
+            res = client.post(path, json={"name": "test", "site": "https://example.com", "account_label": "lbl"}, headers=nonowner_headers)
+        elif method == "PUT":
+            res = client.put(path, json={"name": "test"}, headers=nonowner_headers)
+        elif method == "DELETE":
+            res = client.delete(path, params={"confirm": "true"}, headers=nonowner_headers)
+        assert res.status_code == 403, f"{method} {path} expected 403 got {res.status_code}"
+
+        # 3. Flag OFF -> 404
+        monkeypatch.setenv("VEYA_MAB_BROWSER", "OFF")
+        if method == "GET":
+            res = client.get(path, headers=owner_headers)
+        elif method == "POST":
+            res = client.post(path, json={"name": "test", "site": "https://example.com", "account_label": "lbl"}, headers=owner_headers)
+        elif method == "PUT":
+            res = client.put(path, json={"name": "test"}, headers=owner_headers)
+        elif method == "DELETE":
+            res = client.delete(path, params={"confirm": "true"}, headers=owner_headers)
+        assert res.status_code == 404, f"{method} {path} expected 404 when flag off got {res.status_code}"
+        monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
+
+def test_6_stream_ticket_once_and_cross(monkeypatch, tmp_path, owner_headers):
+    monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
+    monkeypatch.setattr(mab_manager, "base_dir", tmp_path / "mab")
+    monkeypatch.setattr(mab_manager, "profiles_dir", tmp_path / "mab" / "profiles")
+    mab_manager._ensure_storage()
+
+    p1 = mab_manager.create_profile("Profile 1", "https://example.com", "u1")
+    p2 = mab_manager.create_profile("Profile 2", "https://example.org", "u2")
+
+    res = client.post(f"/api/v1/mab/profiles/{p1.id}/stream-ticket", headers=owner_headers)
+    assert res.status_code == 200
+    ticket = res.json()["ticket"]
+
+    # Ticket is one-time use: second usage via websocket or internal take should fail
+    from server.mab_router import _take_ws_ticket
+    from fastapi import WebSocket
+    class MockWS:
+        def __init__(self, subprotos):
+            self.scope = {"subprotocols": subprotos}
+    
+    ws1 = MockWS([f"ticket.{ticket}"])
+    uid, err = _take_ws_ticket(ws1, p1.id)
+    assert err == 0
+
+    ws2 = MockWS([f"ticket.{ticket}"])
+    uid2, err2 = _take_ws_ticket(ws2, p1.id)
+    assert err2 == 4401 # already used / expired
+
+    # Cross-profile ticket test
+    res2 = client.post(f"/api/v1/mab/profiles/{p1.id}/stream-ticket", headers=owner_headers)
+    t2 = res2.json()["ticket"]
+    ws3 = MockWS([f"ticket.{t2}"])
+    uid3, err3 = _take_ws_ticket(ws3, p2.id) # requesting p2 with p1 ticket
+    assert err3 == 4403
+
+def test_7_tool_execution_integration(monkeypatch, tmp_path):
+    monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
+    monkeypatch.setattr(mab_manager, "base_dir", tmp_path / "mab")
+    monkeypatch.setattr(mab_manager, "profiles_dir", tmp_path / "mab" / "profiles")
+    mab_manager._ensure_storage()
+
+    p = mab_manager.create_profile("Tool Exec", "https://example.com", "tool_user")
+    tools = register_mab_tools()
+    handler = tools[0]["handler"]
+
+    # Test disabled profile tool refusal
+    p.status = "disabled"
+    mab_manager._write(p)
+    res_disabled = handler(profile=p.id, action="navigate", url="https://example.com")
+    assert res_disabled["success"] is False
+
+    # Test active profile with session factory mock
+    p.status = "active"
+    mab_manager._write(p)
+
+    class MockLocator:
+        async def click(self, **kwargs):
+            pass
+        async def fill(self, text, **kwargs):
+            pass
+        async def inner_text(self, **kwargs):
+            return "Mock Body Content"
+
+    class MockPage:
+        url = "https://example.com"
+        async def title(self):
+            return "Mock Title"
+        async def goto(self, url, **kwargs):
+            self.url = url
+        def locator(self, sel):
+            return MockLocator()
+        async def inner_text(self, **kwargs):
+            return "Mock Body Content"
+
+    async def mock_factory(profile):
+        return {"page": MockPage(), "context": None, "playwright": None}
+
+    monkeypatch.setattr(mab_manager, "_session_factory", mock_factory)
+    res_nav = handler(profile=p.id, action="navigate", url="https://example.com/test")
+    assert res_nav["success"] is True
+    assert res_nav["url"] == "https://example.com/test"
+
 
 
 

@@ -102,9 +102,31 @@
 		}
 	}
 
-	onMount(() => {
-		loadProfiles();
-	});
+	async function requestStreamTicket(profile: Profile) {
+		try {
+			const res = await api("gateway", `api/v1/mab/profiles/${profile.id}/stream-ticket`, {
+				method: "POST"
+			});
+			if (res.ok && res.data) {
+				const ticket = (res.data as any).ticket;
+				const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+				const host = window.location.host;
+				const wsUrl = `${proto}//${host}/api/v1/mab/profiles/${profile.id}/stream`;
+				const ws = new WebSocket(wsUrl, [`ticket.${ticket}`]);
+				ws.onopen = () => console.log("MAB WS connected with ticket subprotocol");
+				ws.onmessage = (event) => {
+					try {
+						const msg = JSON.parse(event.data);
+						if (msg.type === "frame") {
+							// screencast frame data
+						}
+					} catch {}
+				};
+			}
+		} catch (err: any) {
+			error = err.message || "Failed to obtain stream ticket";
+		}
+	}
 </script>
 
 <div class="flex h-full w-full flex-col bg-slate-950 text-slate-100 p-6">
@@ -257,11 +279,17 @@
 							This profile has an isolated user data directory. All tool requests targeting profile <code class="text-indigo-300 font-mono">{selectedProfile.name}</code> run within this encrypted boundary without leaking raw credentials.
 						</p>
 						<div class="flex items-center gap-3 pt-2">
+							<button
+								onclick={() => requestStreamTicket(selectedProfile!)}
+								class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition shadow-lg shadow-indigo-600/20"
+							>
+								Connect Live Stream
+							</button>
 							<a
 								href={selectedProfile.site}
 								target="_blank"
 								rel="noreferrer"
-								class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition shadow-lg shadow-indigo-600/20"
+								class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition"
 							>
 								Open External Target
 							</a>

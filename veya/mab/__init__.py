@@ -141,7 +141,7 @@ class MABManager:
         try:
             context=await pw.chromium.launch_persistent_context(user_data_dir=str(data_dir),
                 headless=os.environ.get('VEYA_MAB_HEADLESS','1').lower() not in {'0','false','no'},
-                viewport={'width':1280,'height':800},args=['--remote-debugging-address=127.0.0.1'])
+                viewport={'width':1280,'height':800})
             page=context.pages[0] if context.pages else await context.new_page()
             if not page.url or page.url=='about:blank': await page.goto(p.site,wait_until='domcontentloaded',timeout=20000)
             return {'playwright':pw,'context':context,'page':page,'last_activity':time.monotonic()}
