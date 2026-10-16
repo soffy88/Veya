@@ -28,6 +28,7 @@
 		error = "";
 		try {
 			const res = await api("gateway", "api/v1/mab/profiles");
+			if (res.status === 404) { window.location.replace("/"); return; }
 			if (res.ok && res.data) {
 				profiles = (res.data as any).profiles || [];
 				if (profiles.length > 0 && !selectedProfile) {
@@ -88,7 +89,7 @@
 		try {
 			const res = await api("gateway", `api/v1/mab/profiles/${profile.id}`, {
 				method: "DELETE",
-				body: { confirm: true }
+				query: { confirm: true }
 			});
 			if (res.ok) {
 				if (selectedProfile?.id === profile.id) {

@@ -25,17 +25,14 @@ def verify_mab_flag() -> None:
         raise HTTPException(status_code=404, detail="MAB browser is disabled (VEYA_MAB_BROWSER is OFF)")
 
 def verify_owner(request: Request) -> None:
-    # 复用现有 owner 鉴权 / tailnet owner check
-    # 如果请求头带有 X-Veya-Owner 或通过 auth 检查
-    owner_id = os.environ.get("VEYA_OWNER_USER_ID", "")
-    auth_header = request.headers.get("Authorization", "")
-    user_header = request.headers.get("X-Veya-User", "")
-    
-    # 允许测试或配置的 owner 校验
-    if owner_id and user_header and user_header != owner_id:
+    """Fail closed; only the authenticated, configured owner may manage profiles."""
+    from server import auth as auth_mod
+    user = auth_mod.require_user(request.headers.get("Authorization"))
+    owner_id = (os.environ.get("VEYA_TAILNET_OWNER_USER_ID") or os.environ.get("VEYA_OWNER_USER_ID") or "").strip()
+    if not owner_id:
+        raise HTTPException(status_code=403, detail="MAB owner is not configured")
+    if str(user.get("user_id") or "") != owner_id:
         raise HTTPException(status_code=403, detail="Forbidden: owner-only route")
-    # 基础开发/测试通行或检查 cookie/token
-    pass
 
 class ProfileCreateRequest(BaseModel):
     name: str
