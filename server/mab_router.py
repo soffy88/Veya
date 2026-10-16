@@ -67,36 +67,39 @@ class ProfileUpdateRequest(BaseModel):
 class ProfileDeleteRequest(BaseModel):
     confirm: bool = False
 
-def verify_mab_flag(request: Request) -> None:
+def verify_mab_flag_check() -> None:
     if not is_mab_enabled():
         raise HTTPException(status_code=404, detail="MAB browser is disabled (VEYA_MAB_BROWSER is OFF)")
 
-@router.get("/profiles", dependencies=[Depends(require_owner)])
-def list_profiles(request: Request, _flag: None = Depends(verify_mab_flag)):
+def verify_mab_flag(_flag: None = Depends(verify_mab_flag_check)) -> None:
+    pass
+
+@router.get("/profiles", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+def list_profiles(request: Request):
     profiles = mab_manager.list_profiles()
     return {"ok": True, "profiles": [vars(p) for p in profiles]}
 
-@router.post("/profiles", dependencies=[Depends(require_owner)])
-def create_profile(payload: ProfileCreateRequest, request: Request, _flag: None = Depends(verify_mab_flag)):
+@router.post("/profiles", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+def create_profile(payload: ProfileCreateRequest, request: Request):
     p = mab_manager.create_profile(payload.name, payload.site, payload.account_label)
     return {"ok": True, "profile": vars(p)}
 
-@router.get("/profiles/{profile_id}", dependencies=[Depends(require_owner)])
-def get_profile(profile_id: str, request: Request, _flag: None = Depends(verify_mab_flag)):
+@router.get("/profiles/{profile_id}", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+def get_profile(profile_id: str, request: Request):
     p = mab_manager.get_profile(profile_id)
     if not p:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"ok": True, "profile": vars(p)}
 
-@router.put("/profiles/{profile_id}", dependencies=[Depends(require_owner)])
-def update_profile(profile_id: str, payload: ProfileUpdateRequest, request: Request, _flag: None = Depends(verify_mab_flag)):
+@router.put("/profiles/{profile_id}", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+def update_profile(profile_id: str, payload: ProfileUpdateRequest, request: Request):
     p = mab_manager.update_profile(profile_id, name=payload.name, site=payload.site, account_label=payload.account_label, status=payload.status)
     if not p:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"ok": True, "profile": vars(p)}
 
-@router.delete("/profiles/{profile_id}", dependencies=[Depends(require_owner)])
-def delete_profile(profile_id: str, request: Request, confirm: bool = False, _flag: None = Depends(verify_mab_flag)):
+@router.delete("/profiles/{profile_id}", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+def delete_profile(profile_id: str, request: Request, confirm: bool = False):
     try:
         success = mab_manager.delete_profile(profile_id, confirm=confirm)
         if not success:
@@ -105,24 +108,24 @@ def delete_profile(profile_id: str, request: Request, confirm: bool = False, _fl
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "deleted": profile_id}
 
-@router.post("/profiles/{profile_id}/revoke", dependencies=[Depends(require_owner)])
-def revoke_profile(profile_id: str, request: Request, _flag: None = Depends(verify_mab_flag)):
+@router.post("/profiles/{profile_id}/revoke", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+def revoke_profile(profile_id: str, request: Request):
     """一键撤销授权（登出/禁用）"""
     p = mab_manager.update_profile(profile_id, status="disabled")
     if not p:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"ok": True, "profile": vars(p)}
 
-@router.post("/profiles/{profile_id}/enable", dependencies=[Depends(require_owner)])
-def enable_profile(profile_id: str, request: Request, _flag: None = Depends(verify_mab_flag)):
+@router.post("/profiles/{profile_id}/enable", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+def enable_profile(profile_id: str, request: Request):
     p = mab_manager.update_profile(profile_id, status="active")
     if not p:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"ok": True, "profile": vars(p)}
 
 
-@router.post("/profiles/{profile_id}/ws-ticket", dependencies=[Depends(require_owner)])
-def create_ws_ticket(profile_id: str, request: Request, user: dict[str, Any] = Depends(require_owner), _flag: None = Depends(verify_mab_flag)):
+@router.post("/profiles/{profile_id}/ws-ticket", dependencies=[Depends(require_owner), Depends(verify_mab_flag_check)])
+def create_ws_ticket(profile_id: str, request: Request, user: dict[str, Any] = Depends(require_owner)):
     profile = mab_manager.get_profile(profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
