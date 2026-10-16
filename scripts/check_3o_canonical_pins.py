@@ -77,7 +77,7 @@ def default_extract_runner(repo_dir: Path, sha: str, dest: Path) -> tuple[bool, 
         return False, f"git archive failed (rc={proc.returncode})"
     try:
         with tarfile.open(fileobj=BytesIO(proc.stdout)) as tar:
-            tar.extractall(path=str(dest))
+            tar.extractall(path=str(dest), filter="data")
     except (tarfile.TarError, OSError) as exc:
         return False, f"archive extraction failed: {exc}"
     return True, ""

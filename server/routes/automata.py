@@ -9,10 +9,14 @@ Agent OS 的对外接口:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import logging
+import os
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from server.automata import get_automata
@@ -62,9 +66,32 @@ async def run_now(req: RunNowRequest) -> dict[str, Any]:
     return {"status": "ok", "message": "后台任务已执行"}
 
 
+def _verified_webhook_payload(request: Request, body: bytes) -> dict[str, Any]:
+    secret = os.environ.get("VEYA_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(status_code=401, detail="Webhook authentication is not configured")
+    supplied = (
+        request.headers.get("X-Veya-Signature") or request.headers.get("X-Hub-Signature-256") or ""
+    ).strip()
+    if not supplied:
+        raise HTTPException(status_code=401, detail="Missing webhook signature")
+    expected = "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Webhook body must be valid JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Webhook JSON must be an object")
+    return payload
+
+
 @router.post("/webhooks/{source}")
-async def webhook_event(source: str, payload: dict) -> dict[str, Any]:
-    """外部系统 (Webhook, Github, CI) 的事件入口 → 立即后台异步处理。"""
+async def webhook_event(source: str, request: Request) -> dict[str, Any]:
+    """Process an external event only after raw-body HMAC-SHA256 verification."""
+    body = await request.body()
+    payload = _verified_webhook_payload(request, body)
     automata = get_automata()
     automata.trigger_event(event_name=source, payload=payload)
     return {"status": "Event received, Veya is investigating in the background."}
@@ -75,5 +102,5 @@ webhook_router = APIRouter(tags=["webhooks"])
 
 
 @webhook_router.post("/api/v1/webhooks/{source}")
-async def webhook_event_compat(source: str, payload: dict) -> dict[str, Any]:
-    return await webhook_event(source, payload)
+async def webhook_event_compat(source: str, request: Request) -> dict[str, Any]:
+    return await webhook_event(source, request)

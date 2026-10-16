@@ -15,6 +15,13 @@ async function forward(event: Parameters<RequestHandler>[0]): Promise<Response> 
   const path = event.params.path ?? "";
   const target = `${BASE}/${path}${event.url.search}`;
   const init: RequestInit = { method: event.request.method, headers: {} };
+  // Forward the caller's credentials: the legacy gateway is now default-deny
+  // (SEC H1) and per-user (SEC item 15), so dropping Authorization/cookie would
+  // silently turn every logged-in request into a 401.
+  const authz = event.request.headers.get("authorization");
+  if (authz) (init.headers as Record<string, string>)["authorization"] = authz;
+  const cookie = event.request.headers.get("cookie");
+  if (cookie) (init.headers as Record<string, string>)["cookie"] = cookie;
   if (event.request.method !== "GET" && event.request.method !== "HEAD") {
     init.body = await event.request.text();
     const ct = event.request.headers.get("content-type");

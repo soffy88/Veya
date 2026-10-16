@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from config.loader import load_config
 from server.approvals import router as approvals_router
@@ -32,6 +33,7 @@ from server.routes.bot_team import router as bots_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
 from server.routes.cli_agents import router as cli_agents_router
+from server.routes.xrt import router as xrt_router
 from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
@@ -50,6 +52,9 @@ from server.routes.mcp import router as mcp_router
 
 # W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
 from server.routes.mcp_presets import router as mcp_presets_router
+from veya.tdx import router as tdx_router
+
+# W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
 from server.routes.models import router as models_router
 from server.routes.multimodal import router as multimodal_router
 from server.routes.nano_w9 import router as nano_w9_router
@@ -93,6 +98,7 @@ from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
 from server.routes.workbench import router as workbench_router
 from server.routes.workspace import router as workspace_router
+from server.routes.gsk import router as gsk_router
 from server.sse import router as sse_router
 
 
@@ -479,24 +485,54 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="veya", version="0.6.0", lifespan=lifespan)
 
+# SEC H1: 全局默认拒绝。任何不在显式公开白名单内的路由都要求有效 token,
+# 否则 401 —— 不再依赖各路由自己记得加 require_user。用纯 ASGI 中间件以
+# 避免缓冲 SSE。VEYA_LOCAL_SINGLE_USER=1 + loopback 时放行 (veya start)。
+from server.auth import AuthGateMiddleware as _AuthGateMiddleware  # noqa: E402
+
+app.add_middleware(_AuthGateMiddleware)
+
+# Exact CORS origins only. Additional deployments must opt in explicitly.
+_allowed_cors_origins = {
+    "http://localhost:3000",
+    "http://localhost:3006",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+}
+_allowed_cors_origins.update(
+    origin.strip()
+    for origin in os.environ.get("VEYA_CORS_ORIGINS", "").split(",")
+    if origin.strip()
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3006",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://172.23.229.195:3000",
-        # Tauri 桌面版 WebView origin (Linux/macOS/Windows)
-        "http://tauri.localhost",
-        "https://tauri.localhost",
-        "tauri://localhost",
-    ],
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origins=sorted(_allowed_cors_origins),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
+
+# Host header protection blocks DNS-rebinding hosts; add public hostnames explicitly.
+from urllib.parse import urlsplit  # noqa: E402
+
+_allowed_hosts = {"localhost", "127.0.0.1"}
+_allowed_hosts.update(
+    host.strip().lower()
+    for host in os.environ.get("VEYA_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+)
+_public_issuer = os.environ.get("VEYA_PUBLIC_ISSUER", "").strip()
+if _public_issuer:
+    try:
+        _issuer_host = urlsplit(_public_issuer).hostname
+        if _issuer_host:
+            _allowed_hosts.add(_issuer_host.lower())
+    except ValueError:
+        pass
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(_allowed_hosts))
 
 app.include_router(prompt_router)
 app.include_router(chat_router)
@@ -577,7 +613,9 @@ app.include_router(tasks_router)
 app.include_router(workbench_router)
 app.include_router(workspace_router)
 app.include_router(cli_agents_router)
+app.include_router(xrt_router)
 app.include_router(providers_router)
+app.include_router(gsk_router)
 app.include_router(bot_models_router)
 app.include_router(usage_router)
 app.include_router(telemetry_router)
@@ -630,6 +668,7 @@ app.include_router(nano_w10_c_router)
 # W14: MCP preset pack — GET /api/v1/mcp-presets, POST /api/v1/mcp-presets/{name}/attach
 app.include_router(mcp_presets_router)
 app.include_router(role_skill_presets_router)
+app.include_router(tdx_router)
 
 
 @app.get("/health")

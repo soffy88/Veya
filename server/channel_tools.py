@@ -16,6 +16,7 @@ from veya.obase.channel_probes import (
     probe_channel,
 )
 from veya.oskill.pure.html_to_markdown import PROVENANCE_HEADER, read_html
+from veya.gsk.envelope import sanitize_and_wrap
 
 
 async def tool_read_channel(
@@ -58,7 +59,8 @@ async def tool_read_channel(
         if backend in ("jina", "dom_reader", "http_fetch"):
             content = await fetch_url_text(tgt, timeout=10.0, user_agent="Veya-ChannelReader/1.0")
             doc = read_html(content, url=tgt)
-            return f"[Channel: {ch} | Backend: {backend}]\n" + doc.markdown
+            output = f"[Channel: {ch} | Backend: {backend}]\n" + doc.markdown
+            return sanitize_and_wrap(output, source_type=f"read_channel_{ch}")
 
         if ch == "github":
             # If target is owner/repo or url
@@ -68,13 +70,15 @@ async def tool_read_channel(
             else:
                 repo = tgt
             decoded = await fetch_github_readme(repo, timeout=10.0)
-            return (
+            output = (
                 f"[Channel: {ch} | Backend: {backend}]\n"
                 f"{PROVENANCE_HEADER}# GitHub Repository README: {repo}\n\n{decoded}"
             )
+            return sanitize_and_wrap(output, source_type=f"read_channel_{ch}")
 
         # Fallback generic readout
-        return f"[Channel: {ch} | Backend: {backend}]\n{PROVENANCE_HEADER}Target: {tgt}\n(Readout complete)"
+        output = f"[Channel: {ch} | Backend: {backend}]\n{PROVENANCE_HEADER}Target: {tgt}\n(Readout complete)"
+        return sanitize_and_wrap(output, source_type=f"read_channel_{ch}")
     except Exception as exc:
         return f"Failed reading from channel '{ch}' via '{backend}': {type(exc).__name__}: {exc}"
 

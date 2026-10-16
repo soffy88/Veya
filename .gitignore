@@ -98,3 +98,8 @@ deploy/hevi_deps/
 
 # MAB profile data contains persistent authenticated browser state and must never be tracked.
 .veya/mab/profiles/
+
+# Environment files are private by default; retain the approved public flags file.
+*.env
+!deploy/bot_landing_flags.env
+.hicode.env

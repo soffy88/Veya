@@ -8,6 +8,7 @@ introduced: this module only *routes* into ``run_bot_turn`` /
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -75,21 +76,16 @@ async def dispatch_inbound(
     target_id = str(binding.get("target_id") or "")
     bound_ext_user = binding.get("external_user_id")
 
-    # FastClaw borrow: distinguish owner vs non-owner IM chatter
+    # Ownership must be anchored to the platform user captured during the
+    # explicit binding handshake. Legacy rows without that identity are not
+    # owner grants, even when they contain an account owner_ref.
     is_owner = False
-    if message.platform != "tailnet":
-        if bound_ext_user is not None and str(bound_ext_user).strip():
-            if str(message.external_user_id) == str(bound_ext_user) or (
-                owner_ref
-                and (
-                    str(message.external_user_id) == owner_ref
-                    or anonymous_ref(message.platform, message.external_user_id) == owner_ref
-                )
-            ):
-                is_owner = True
-        elif owner_ref:
-            # Legacy/mock binding without explicit external_user_id: treat as owner
-            is_owner = True
+    if message.platform != "tailnet" and bound_ext_user is not None:
+        bound_identity = str(bound_ext_user).strip()
+        incoming_identity = str(message.external_user_id or "").strip()
+        is_owner = bool(
+            bound_identity and incoming_identity and incoming_identity == bound_identity
+        )
 
     if is_owner:
         user_ref = owner_ref or anonymous_ref(message.platform, message.external_user_id)
@@ -206,17 +202,64 @@ async def _run_group(group_id: str, text: str, user: dict[str, Any]) -> str:
 
 async def _deliver(adapter: ChannelAdapter, external_chat_id: str, reply: str) -> None:
     """Post the reply back through the platform client (chunking long ones)."""
-    from .clients import client_for
+    from . import clients
 
     try:
-        client = await client_for(adapter.platform)
+        client = await clients.client_for(adapter.platform)
     except Exception:
-        _log.warning("No client configured for platform %s", adapter.platform, exc_info=True)
+        _log.warning(
+            "No client configured for platform %s", adapter.platform, exc_info=True
+        )
         return
+    from veya.gsk import is_enabled
+
+    ledger = None
+    body = reply.encode("utf-8")
+    body_hash = hashlib.sha256(body).hexdigest()
+    destination = f"channel:{adapter.platform}"
+    if is_enabled("VEYA_GSK_EGRESS_RECEIPTS"):
+        try:
+            from veya.gsk.receipts import EgressReceiptLedger
+
+            ledger = EgressReceiptLedger()
+            ledger.log_egress(
+                destination=destination,
+                payload_type="channel_reply_attempt",
+                payload_size=len(body),
+                metadata={"phase": "attempt"},
+                payload_hash=body_hash,
+            )
+        except Exception:
+            _log.warning("Unable to record outbound GSK receipt", exc_info=True)
+
     try:
         await adapter.send_reply(client, external_chat_id=external_chat_id, text=reply)
     except Exception:
         _log.warning("Failed to post reply to %s", adapter.platform, exc_info=True)
+        if ledger is not None:
+            try:
+                ledger.log_egress(
+                    destination=destination,
+                    payload_type="channel_reply_failed",
+                    payload_size=len(body),
+                    metadata={"phase": "failed"},
+                    payload_hash=body_hash,
+                )
+            except Exception:
+                _log.warning("Unable to record failed outbound GSK receipt", exc_info=True)
+        return
+
+    if ledger is not None:
+        try:
+            ledger.log_egress(
+                destination=destination,
+                payload_type="channel_reply_delivered",
+                payload_size=len(body),
+                metadata={"phase": "delivered"},
+                payload_hash=body_hash,
+            )
+        except Exception:
+            _log.warning("Unable to record delivered outbound GSK receipt", exc_info=True)
 
 
 __all__ = ["DispatchOutcome", "anonymous_ref", "dispatch_inbound"]

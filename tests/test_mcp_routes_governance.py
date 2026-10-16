@@ -14,6 +14,25 @@ from server import events as events_module
 from server.events import EventStore
 from server.routes import mcp
 
+_AUTH_OWNER = {"user_id": "mcp-test-owner"}
+
+
+@pytest.fixture(autouse=True)
+def _inject_test_owner_for_direct_route_calls(monkeypatch):
+    """Direct unit calls bypass FastAPI dependencies, so explicitly inject the test owner."""
+    for name in ("mcp_connect_route", "mcp_call_route", "list_mcp_servers"):
+        original = getattr(mcp, name)
+        if name == "mcp_connect_route" or name == "mcp_call_route":
+
+            async def wrapped(req, user=_AUTH_OWNER, _original=original):
+                return await _original(req, user=user)
+        else:
+
+            async def wrapped(user=_AUTH_OWNER, _original=original):
+                return await _original(user=user)
+
+        monkeypatch.setattr(mcp, name, wrapped)
+
 
 class _RouteMcpClient:
     def __init__(self, *, failure: bool = False) -> None:
@@ -140,48 +159,45 @@ async def test_mcp_rest_deny_and_missing_grant_have_zero_transport_effect(
         )
     assert getattr(denied.value, "status_code", None) == 403
 
-    with pytest.raises(Exception) as missing:
-        await mcp.mcp_call_route(mcp.MCPCallRequest(server="fixture", tool="search"))
-    assert getattr(missing.value, "status_code", None) == 403
-    assert client.calls == []
+    read_result = await mcp.mcp_call_route(mcp.MCPCallRequest(server="fixture", tool="search"))
+    assert read_result["status"] == "success"
+    assert client.calls == [("search", {})]
     assert client.connect_calls == 1
 
 
 @pytest.mark.asyncio
-async def test_mcp_rest_approval_and_stale_grant_fail_closed(
+async def test_mcp_rest_ignores_caller_grant_claims_and_uses_policy_gate(
     route_fixture: tuple[_RouteMcpClient, EventStore],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, _audit_store = route_fixture
     await _connect(client)
-
     approval_requests: list[str] = []
 
-    async def approve(action: str, _args: dict[str, Any]) -> bool:
+    async def deny(action: str, _args: dict[str, Any]) -> bool:
         approval_requests.append(action)
-        return True
+        return False
 
-    monkeypatch.setattr("server.user_control.request_approval", approve)
-    result = await mcp.mcp_call_route(
-        mcp.MCPCallRequest(
-            server="fixture",
-            tool="publish",
-            grant=_grant("mcp/fixture/publish@1", "remote"),
-        )
-    )
-    assert result["status"] == "success"
-    assert approval_requests == ["publish"]
-
+    monkeypatch.setattr("server.user_control.request_approval", deny)
     before = list(client.calls)
-    with pytest.raises(Exception) as stale:
+    with pytest.raises(Exception) as denied:
         await mcp.mcp_call_route(
             mcp.MCPCallRequest(
                 server="fixture",
                 tool="publish",
-                grant=_grant("mcp/fixture/publish@1", "remote", revoked=True),
+                grant={
+                    "tool": "mcp/fixture/publish@1",
+                    "subject": "system",
+                    "allowed_effects": ["read", "destructive"],
+                    "resource": "*",
+                    "revoked": False,
+                },
             )
         )
-    assert getattr(stale.value, "status_code", None) == 403
+    assert getattr(denied.value, "status_code", None) == 403
+    # The canonical policy denies this external mutation before it reaches
+    # the approval callback; the forged request grant cannot change that.
+    assert approval_requests == []
     assert client.calls == before
 
 
@@ -250,17 +266,19 @@ async def test_mcp_rest_missing_credential_fails_before_transport(
 
 
 @pytest.mark.asyncio
-async def test_mcp_rest_connect_missing_grant_has_zero_external_effect(
+async def test_mcp_rest_connect_uses_server_governance_not_caller_grant(
     route_fixture: tuple[_RouteMcpClient, EventStore],
 ) -> None:
-    client, _audit_store = route_fixture
-    with pytest.raises(Exception) as denied:
-        await mcp.mcp_connect_route(
-            mcp.MCPConnectRequest(name="not-authorized", url="https://fixture.invalid/mcp")
-        )
-    assert getattr(denied.value, "status_code", None) == 403
-    assert client.calls == []
-    assert client.connect_calls == 0
+    client, audit_store = route_fixture
+    result = await mcp.mcp_connect_route(
+        mcp.MCPConnectRequest(name="server-authorized", url="https://fixture.invalid/mcp")
+    )
+    assert result == {"status": "connected", "name": "server-authorized"}
+    assert client.connect_calls == 1
+    audits = audit_store.read_all(topics={"action_gateway.audit"})
+    assert audits
+    # The authenticated owner invoked the endpoint; no user-supplied grant
+    # was needed or trusted to establish the server-side execution contract.
 
 
 @pytest.mark.asyncio
@@ -296,6 +314,34 @@ async def test_mcp_call_unknown_server_stays_404(
     with pytest.raises(HTTPException) as missing:
         await mcp.mcp_call_route(mcp.MCPCallRequest(server="ghost", tool="search"))
     assert getattr(missing.value, "status_code", None) == 404
+
+
+@pytest.mark.asyncio
+async def test_mcp_rest_registration_cannot_be_called_or_overwritten_by_another_owner(
+    route_fixture: tuple[_RouteMcpClient, EventStore],
+) -> None:
+    from fastapi import HTTPException
+
+    client, _audit_store = route_fixture
+    await _connect(client)
+    with pytest.raises(HTTPException) as denied:
+        await mcp.mcp_call_route(
+            mcp.MCPCallRequest(server="fixture", tool="search"),
+            user={"user_id": "other-owner"},
+        )
+    assert denied.value.status_code == 404
+    assert client.calls == []
+    with pytest.raises(HTTPException) as overwrite:
+        await mcp.mcp_connect_route(
+            mcp.MCPConnectRequest(
+                name="fixture",
+                url="https://fixture.invalid/other",
+                grant=_grant("native/mcp_connect@1", "network"),
+            ),
+            user={"user_id": "other-owner"},
+        )
+    assert overwrite.value.status_code == 409
+    assert client.connect_calls == 1
 
 
 @pytest.mark.asyncio()

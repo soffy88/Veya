@@ -21,9 +21,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from server import auth as auth_mod
 from server.tool_governance_adapter import default_veya_output_root
 from veya.platform import load
 
@@ -49,6 +50,8 @@ class MCPConnectRequest(BaseModel):
     # conservatively treated as network effects; no name-based inference.
     tools: list[dict[str, Any]] = Field(default_factory=list)
     credential_ref: dict[str, Any] | None = None
+    # Deprecated compatibility fields. They are ignored for authorization;
+    # only the server-side governance engine issues the execution grant.
     grant: dict[str, Any] | None = None
     grants: list[dict[str, Any]] = Field(default_factory=list)
     request_id: str | None = None
@@ -60,6 +63,7 @@ class MCPCallRequest(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
     version: str = "1"
     actor: str = "master"
+    # Deprecated compatibility field. Caller-asserted grants are never trusted.
     grant: dict[str, Any] | None = None
     request_id: str | None = None
 
@@ -72,6 +76,7 @@ class _MCPRegistration:
     adapter: Any
     context: Any
     grants: dict[str, Any]
+    owner_id: str
 
 
 def _safe_id(value: str) -> str:
@@ -126,42 +131,6 @@ def _safe_ref(raw: Mapping[str, Any] | None) -> Any:
     if str(raw.get("type") or "credential_ref") == "secret_ref":
         return obase.SecretRef(**common)
     return obase.CredentialRef(provider=raw.get("provider"), **common)
-
-
-def _grant(raw: Mapping[str, Any] | None, *, missing_tool: str) -> Any:
-    """Parse a caller-supplied grant without creating an authorization."""
-    obase = load("obase")
-    if raw is None:
-        # Pass an invalid value through the canonical grant check so missing
-        # grants receive the normal governance audit and never reach transport.
-        return obase.Grant(tool=missing_tool, revoked=True)
-    allowed = raw.get("allowed_effects", ())
-    if isinstance(allowed, str):
-        allowed = (allowed,)
-    if not isinstance(allowed, (list, tuple, set, frozenset)):
-        allowed = ()
-    return obase.Grant(
-        tool=str(raw.get("tool") or ""),
-        subject=str(raw.get("subject") or "*"),
-        grant_id=str(raw.get("grant_id") or uuid.uuid4().hex),
-        allowed_effects=frozenset(str(item) for item in allowed),
-        tool_version=(str(raw["tool_version"]) if raw.get("tool_version") is not None else None),
-        resource=str(raw.get("resource") or "*"),
-        expires_at=(str(raw["expires_at"]) if raw.get("expires_at") is not None else None),
-        revoked=bool(raw.get("revoked", False)),
-        issued_at=str(raw.get("issued_at") or ""),
-    )
-
-
-def _connect_grant(req: MCPConnectRequest) -> Any:
-    return _grant(req.grant, missing_tool="__missing_mcp_connect_grant__")
-
-
-def _call_grant(req: MCPCallRequest, entry: _MCPRegistration) -> Any:
-    raw = req.grant
-    if raw is None:
-        raw = entry.grants.get(f"mcp/{req.server}/{req.tool}@{req.version}")
-    return _grant(raw, missing_tool="__missing_mcp_call_grant__")
 
 
 def _tool_effect(
@@ -223,7 +192,7 @@ def _result_error(result: Mapping[str, Any]) -> tuple[int, str]:
     return 500, "MCP governance failed"
 
 
-async def _connect(req: MCPConnectRequest) -> _MCPRegistration:
+async def _connect(req: MCPConnectRequest, *, authenticated_subject: str) -> _MCPRegistration:
     """Authorize connect + discovery, then register the canonical contract."""
     load("obase")
     context = _task_context(req.name)
@@ -260,8 +229,10 @@ async def _connect(req: MCPConnectRequest) -> _MCPRegistration:
     result = await adapter.execute(
         "mcp_connect",
         {"server": req.name, "timeout": req.timeout},
-        actor=req.actor,
-        grant=_connect_grant(req),
+        actor="master",
+        # Always let ToolGovernanceAdapter create its own grant from the
+        # registered contract. req.grant/req.grants are untrusted legacy fields.
+        grant=None,
         request_id=request_id,
         operation_key=f"mcp-connect:{_safe_id(req.name)}:{url_fingerprint}:{request_id}",
         target_ref=f"mcp-server/{req.name}@{req.version}",
@@ -292,11 +263,9 @@ async def _connect(req: MCPConnectRequest) -> _MCPRegistration:
         credential_ref=server_ref,
     )
     adapter.register_mcp(spec, session)
+    # Legacy req.grants cannot mint authority. Call-time grants are generated
+    # by the canonical ToolGovernanceAdapter from the versioned server contract.
     grants: dict[str, Any] = {}
-    for raw in req.grants:
-        parsed = _grant(raw, missing_tool="__invalid_mcp_grant__")
-        if parsed.tool:
-            grants[parsed.tool] = parsed
     return _MCPRegistration(
         url=req.url,
         session=session,
@@ -304,19 +273,37 @@ async def _connect(req: MCPConnectRequest) -> _MCPRegistration:
         adapter=adapter,
         context=context,
         grants=grants,
+        owner_id=authenticated_subject,
     )
 
 
 @router.post("/connect")
-async def mcp_connect_route(req: MCPConnectRequest) -> dict[str, Any]:
-    registration = await _connect(req)
+async def mcp_connect_route(
+    req: MCPConnectRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_owner),
+) -> dict[str, Any]:
+    authenticated_subject = str(user.get("user_id") or "")
+    if not authenticated_subject:
+        raise HTTPException(status_code=401, detail="authenticated owner identity is missing")
+    existing = _registered.get(req.name)
+    if existing is not None and existing.owner_id != authenticated_subject:
+        raise HTTPException(status_code=409, detail="MCP server name is already registered")
+    registration = await _connect(req, authenticated_subject=authenticated_subject)
     _registered[req.name] = registration
     return {"status": "connected", "name": req.name}
 
 
 @router.post("/call")
-async def mcp_call_route(req: MCPCallRequest) -> dict[str, Any]:
+async def mcp_call_route(
+    req: MCPCallRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_owner),
+) -> dict[str, Any]:
+    authenticated_subject = str(user.get("user_id") or "")
+    if not authenticated_subject:
+        raise HTTPException(status_code=401, detail="authenticated owner identity is missing")
     entry = _registered.get(req.server)
+    if entry is not None and entry.owner_id != authenticated_subject:
+        raise HTTPException(status_code=404, detail="MCP server not registered")
     if entry is None:
         # The route map is a live-handle cache, not the registration truth:
         # a canonically known server without a live handle is a reconnect
@@ -340,8 +327,10 @@ async def mcp_call_route(req: MCPCallRequest) -> dict[str, Any]:
         kind="mcp",
         server=req.server,
         version=req.version,
-        actor=req.actor,
-        grant=_call_grant(req, entry),
+        actor="master",
+        # Ignore req.grant; the adapter constructs a grant from the server-owned
+        # ToolSpec and the authenticated actor for every invocation.
+        grant=None,
         request_id=req.request_id or uuid.uuid4().hex,
         operation_key=(
             req.request_id
@@ -359,7 +348,7 @@ async def mcp_call_route(req: MCPCallRequest) -> dict[str, Any]:
 
 
 @router.get("")
-async def list_mcp_servers() -> dict[str, Any]:
+async def list_mcp_servers(user: dict[str, Any] = Depends(auth_mod.require_user)) -> dict[str, Any]:
     return {
         "servers": list(_registered.keys()),
         "note": "Use POST /mcp/connect to add a governed MCP server.",

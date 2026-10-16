@@ -25,6 +25,7 @@
 		type FeedConfigView,
 	} from "$lib/channels/api";
 	import { actionClass, cardClass, inputClass, primaryClass } from "$lib/team/ui";
+	import { api } from "$lib/api";
 
 	let status = $state<ChannelsStatus | null>(null);
 	let bindings = $state<ChannelBindingView[]>([]);
@@ -33,6 +34,7 @@
 	let busy = $state(false);
 	let error = $state("");
 	let notice = $state("");
+	let publishPermsEnabled = $state(false);
 
 	// Bind form
 	let showBind = $state(false);
@@ -122,7 +124,19 @@
 			: [...feed.push_channels, name];
 	}
 
-	onMount(load);
+	async function loadPublishPermsFlag(): Promise<void> {
+		try {
+			const response = await api("gateway", "api/v1/tdx/publish-perms", { method: "GET" });
+			publishPermsEnabled = response.ok && (response.data as { enabled?: boolean }).enabled === true;
+		} catch {
+			publishPermsEnabled = false;
+		}
+	}
+
+	onMount(() => {
+		void load();
+		void loadPublishPermsFlag();
+	});
 </script>
 
 <div class="mx-auto w-full max-w-3xl p-4 pb-24">
@@ -130,6 +144,9 @@
 		<div class="min-w-0">
 			<h1 class="text-xl font-semibold tracking-tight">聊天渠道与晨间简报</h1>
 			<p class="text-xs opacity-60">把外部群聊接到 bot / 群组，每天早上收到一份简报。</p>
+			{#if publishPermsEnabled}
+				<a href="/settings/agent-publish-perms" class="mt-2 inline-flex text-xs underline underline-offset-4 opacity-80 hover:opacity-100">Agent 发布权限 / Agent publish permissions</a>
+			{/if}
 		</div>
 		<button class={actionClass} onclick={() => void load()} disabled={loading}>
 			<RefreshCw size={16} class={loading ? "animate-spin" : ""} /> 刷新

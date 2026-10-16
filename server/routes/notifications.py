@@ -23,8 +23,13 @@ class ApproveRequest(BaseModel):
 
 @router.get("/stream")
 async def notifications_stream(
-    user: dict = Depends(auth_mod.get_current_user),
+    user: dict = Depends(auth_mod.require_user),
 ) -> StreamingResponse:
+    """当前用户的通知流 (SEC item 15: 强制认证)。
+
+    经 /legacy/notifications/stream 转发时同样受全局默认拒绝保护 —— 匿名不再
+    能订阅 (前端带 Bearer / ?token= / cookie 保持可用)。
+    """
     return StreamingResponse(
         global_notifier.stream(user["user_id"]),
         media_type="text/event-stream",
