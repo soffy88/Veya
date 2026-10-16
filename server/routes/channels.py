@@ -198,7 +198,7 @@ async def _json_body(request: Request) -> dict[str, Any]:
 
         parsed = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
-        import xml.etree.ElementTree as ET
+        from veya.obase.channels.safe_xml import ET
 
         try:
             root = ET.fromstring(raw.decode("utf-8", "replace"))
@@ -280,7 +280,7 @@ def _require_owned_target(target_type: str, target_id: str, user: dict[str, Any]
 @router.post("/bind/code")
 async def create_link_code(
     payload: LinkCodeRequest,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
     _: None = Depends(require_channels),
 ) -> dict[str, Any]:
     """Issue a one-time code the owner pastes into the external chat."""
@@ -306,9 +306,9 @@ async def create_link_code(
     return {**issued, "binding_id": binding["binding_id"]}
 
 
-@router.get("/bindings")
+@router.get("/bindings", dependencies=[Depends(require_channels)])
 async def list_bindings(
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
     _: None = Depends(require_channels),
 ) -> dict[str, Any]:
     """All bindings owned by the caller."""
@@ -318,7 +318,7 @@ async def list_bindings(
 @router.post("/unbind")
 async def unbind(
     payload: UnbindRequest,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
     _: None = Depends(require_channels),
 ) -> dict[str, Any]:
     """Remove one of the caller's bindings."""
@@ -331,7 +331,7 @@ async def unbind(
 @router.get("/status")
 async def channels_status(
     _: None = Depends(require_channels),
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Which channels are enabled and configured, plus web-reading channel ladder probe status."""
     from server.channels import adapter_for as _adapter_for
@@ -372,7 +372,7 @@ async def channels_status(
 
 @router.get("/morning-feed/config", dependencies=[Depends(require_morning_feed)])
 async def get_feed_config(
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """The caller's morning-feed configuration."""
     return get_config(owner_ref(user)).to_dict()
@@ -381,7 +381,7 @@ async def get_feed_config(
 @router.post("/morning-feed/config", dependencies=[Depends(require_morning_feed)])
 async def set_feed_config(
     payload: FeedConfigRequest,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Persist the caller's morning-feed configuration."""
     return save_config(MorningFeedConfig(owner_ref=owner_ref(user), **payload.model_dump()))

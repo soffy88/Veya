@@ -25,7 +25,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from server.auth import authenticate
+from server.auth import authenticate, is_owner
 
 from .auth import RemoteAuth
 
@@ -383,18 +383,24 @@ def _login_html(tx_id: str, error: str | None = None) -> str:
 </body></html>"""
 
 
-def _choose_remote_token(auth: RemoteAuth, username: str) -> str | None:
+def _choose_remote_token(
+    auth: RemoteAuth, username: str, user: dict[str, Any] | None = None
+) -> str | None:
+    """Resolve an OAuth grant only for the authenticated owner identity."""
+    if not username or not user or str(user.get("username") or "") != username:
+        return None
+    if not is_owner(user):
+        return None
+
     configured_id = os.environ.get("VEYA_REMOTE_OAUTH_TOKEN_ID", "").strip()
     if configured_id:
         record = auth.get(configured_id)
-        return record.token_id if record and record.is_active() else None
+        if record and record.is_active() and record.principal == username:
+            return record.token_id
+        return None
+
     candidates = [t for t in auth.tokens() if t.principal == username and t.is_active()]
-    if len(candidates) == 1:
-        return candidates[0].token_id
-    all_active = [t for t in auth.tokens() if t.is_active()]
-    if len(all_active) == 1:
-        return all_active[0].token_id
-    return None
+    return candidates[0].token_id if len(candidates) == 1 else None
 
 
 @router.get("/.well-known/oauth-protected-resource")
@@ -524,7 +530,7 @@ async def authorize_decision(request: Request) -> HTMLResponse | RedirectRespons
     if user is None:
         return HTMLResponse(_login_html(tx_id, "Invalid Veya credentials."), status_code=401)
     auth = RemoteAuth.from_env()
-    remote_token_id = _choose_remote_token(auth, username)
+    remote_token_id = _choose_remote_token(auth, username, user)
     if remote_token_id is None:
         return HTMLResponse(
             _login_html(tx_id, "No active RemoteToken grant is available for this Veya account."),

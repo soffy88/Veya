@@ -456,7 +456,10 @@ class MasterCoordinator:
         self.api_key = user_api_key or ""
         self.model = model
         self.provider = provider
-        self.endpoint = endpoint
+        # SEC C4: 请求级 endpoint 只在调用方自带 key 时接受。否则 llm_call 的
+        # get_api_key 会回落到服务端环境变量里的 key, 把服务端 key 发往攻击者
+        # 指定的 endpoint (审计 C4)。无自有 key → 忽略 endpoint, 走服务端配置。
+        self.endpoint = endpoint if self.api_key else None
         self.tools = tools if tools is not None else master_tools
         self.skill_hub = skill_hub if skill_hub is not None else _default_skill_hub
         self.memory_bank = memory_bank if memory_bank is not None else _default_memory_bank
@@ -517,9 +520,9 @@ class MasterCoordinator:
         if self.api_key:
             resolved_provider = provider or get_provider_config(None, provider=provider)[0]
             self._llm_config["providers"] = {resolved_provider: {"api_key": self.api_key}}
-        if endpoint:
+        if self.endpoint:
             resolved_provider = provider or get_provider_config(None, provider=provider)[0]
-            self._llm_config["endpoints"] = {resolved_provider: endpoint}
+            self._llm_config["endpoints"] = {resolved_provider: self.endpoint}
 
         # 主库引擎装配(§1.4)
         self._agent = _oservi.MasterAgent(

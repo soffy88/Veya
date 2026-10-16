@@ -807,8 +807,20 @@ async def test_canonical_git_promotion_three_way_merge_and_conflict(tmp_path: Pa
 
 # ── 16. Post-Promotion Verification & Scoped Rollback (P0-J, P0-K) ──────
 @pytest.mark.asyncio
-async def test_canonical_git_promotion_rollback_on_verify_failure(tmp_path: Path):
+async def test_canonical_git_promotion_rollback_on_verify_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Verify that failed post-verification triggers scoped rollback preserving unrelated dirty."""
+    # Configure one fixed server-side command for this isolated test. The client
+    # request must not be allowed to supply its own verification command.
+    monkeypatch.setenv("VEYA_VERIFY_COMMAND_ALLOWLIST", '["exit 1"]')
+    # The server only uses verification commands for a principal resolved to an
+    # owner in the canonical Veya account store; create that owner in a temp DB.
+    from server import auth as auth_mod
+
+    monkeypatch.setattr(auth_mod, "_DB_PATH", tmp_path / "auth.db")
+    auth_mod._init_db()
+    auth_mod.create_user("local2-tester", "a-very-long-password", is_owner=True)
     from runtime.coding.worktree import WorktreeManager
 
     subprocess.run(["git", "init", "-b", "main", str(tmp_path)], check=True, capture_output=True)
@@ -844,7 +856,6 @@ async def test_canonical_git_promotion_rollback_on_verify_failure(tmp_path: Path
             "source_worktree": str(wt_path),
             "target_canonical": str(tmp_path),
             "verify_after": True,
-            "verify_command": "exit 1",  # simulate test failure
             "rollback_on_failure": True,
         },
     )

@@ -10,7 +10,7 @@ from fastapi import HTTPException
 def require_nonproduction_debug() -> None:
     """Disable interactive debugging when the service is in production mode."""
 
-    production = os.environ.get("VEYA_EXECUTION_PRODUCTION", "0").strip().lower()
+    production = os.environ.get("VEYA_EXECUTION_PRODUCTION", "1").strip().lower()
     if production not in {"", "0", "false", "off", "no"}:
         raise HTTPException(status_code=404, detail="debug endpoints are disabled")
 
