@@ -507,6 +507,7 @@ async def _wait_approval_legacy(tool: str, kwargs: dict[str, Any]) -> str | None
 
     if existing and existing.status == "pending":
         rid = existing.request_id
+        record = existing
     else:
         rid = uuid.uuid4().hex[:12]
         record = ApprovalRecord(
@@ -770,3 +771,5 @@ def install_user_control_policy(guard: Any | None = None) -> None:
     if guard.has_policy(_POLICY):
         return
     guard.register_policy(_POLICY, user_control_policy, enforce=True)
+
+_pending = _pending_waiters

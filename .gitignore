@@ -103,3 +103,7 @@ deploy/hevi_deps/
 *.env
 !deploy/bot_landing_flags.env
 .hicode.env
+
+# Added by P2-1b drift fix
+.env.*
+.env.bak*

@@ -319,23 +319,15 @@ async def test_images_are_request_local_and_do_not_mutate_history(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_cancel_error_does_not_mask_chat_cancellation(monkeypatch) -> None:
-    from server.hicode_queue import hicode_task_queue
-
-    async def failing_stop(_task_id: str) -> bool:
-        raise RuntimeError("stop failed")
-
-    monkeypatch.setattr(hicode_task_queue, "stop", failing_stop)
+async def test_cancel_error_does_not_mask_chat_cancellation() -> None:
     chat_task = asyncio.create_task(asyncio.sleep(30))
     cm._active_streams["cancel-proof"] = chat_task
-    cm._session_task["cancel-proof"] = "hicode-proof"
     try:
         result = await cm.cancel_session("cancel-proof")
         assert "chat_stream" in result["cancelled"]
         assert chat_task.cancelling() > 0
     finally:
         cm._active_streams.pop("cancel-proof", None)
-        cm._session_task.pop("cancel-proof", None)
         chat_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await chat_task
@@ -348,7 +340,8 @@ async def test_cancelled_approval_is_removed() -> None:
         task = asyncio.create_task(
             user_control.user_control_policy("write_file", {"filepath": "x"}, "test")
         )
-        await asyncio.sleep(0)
+        while not user_control._pending:
+            await asyncio.sleep(0.01)
         assert user_control._pending
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):

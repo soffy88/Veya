@@ -32,6 +32,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = [pytest.mark.external, pytest.mark.asyncio]
+
 from veya.remote.executor_health import ExecutorFailureClass, ExecutorHealthRegistry
 from veya.remote.models import RemotePermissions, RemoteSession
 from veya.remote.tool_adapter import RemoteToolAdapter

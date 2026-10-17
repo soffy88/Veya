@@ -129,8 +129,10 @@ async def test_approval_events_preserve_same_action_on_resume(tmp_path, monkeypa
     try:
         waiting = asyncio.create_task(uc._wait_approval("coding_task_run", {"x": 1}))
         await asyncio.sleep(0)
+        while not uc._pending:
+            await asyncio.sleep(0.01)
         request_id = next(iter(uc._pending))
-        assert uc.resolve_approval(request_id, True)
+        assert await uc.resolve_approval(request_id, True)
         assert await waiting is None
     finally:
         uc.deactivate(control_tokens)

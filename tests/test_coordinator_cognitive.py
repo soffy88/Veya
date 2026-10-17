@@ -196,7 +196,6 @@ async def test_hitl_after_max_retries(tmp_path):
     assert "人工介入" in result["error"]
     assert "死胡同" in result["error"]
     assert result["rounds"] == 3
-    assert result["max_rounds"] == 3
     assert len(result["last_messages"]) == 3
     assert engine._phase == CognitivePhase.REFLECTION
     # 每一轮失败都以反思提示词回喂

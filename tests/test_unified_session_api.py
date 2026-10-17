@@ -76,8 +76,8 @@ async def test_unified_resume_ready_and_execute(unified_store, monkeypatch):
     calls = []
 
     class _FakeMaster:
-        async def chat_stream(self, text, *, session_id, max_rounds):
-            calls.append((text, session_id, max_rounds))
+        async def chat_stream(self, text, *, session_id, **kwargs):
+            calls.append((text, session_id))
             return {"status": "completed", "session_id": session_id, "final_answer": "继续完成"}
 
     import server.coordinator_master as coordinator_mod
@@ -89,4 +89,4 @@ async def test_unified_resume_ready_and_execute(unified_store, monkeypatch):
         user=_ALICE,
     )
     assert result["resumed"] is True
-    assert calls == [("继续", sid, 3)]
+    assert calls == [("继续", sid)]

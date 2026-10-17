@@ -443,18 +443,15 @@ async def test_lightweight_chat_injects_system_prompt():
 
 @pytest.mark.asyncio
 async def test_chat_stream_hitl_after_max_rounds():
-    """模型循环调工具 → 超过最大轮次 → HITL。"""
+    """模型循环调相同工具无进展 → 状态机终止为 no_progress_detected。"""
 
     async def looping_llm(messages, **kwargs):
         return _tool_response("list_files", {"path": "."})
 
     coord = MasterCoordinator(llm_fn=looping_llm, max_rounds=2)
     result = await coord.chat_stream("循环任务", session_id="m4")
-    # 行为变更 (oservi a90e91d): 轮次用尽但有工具执行 → 摘要 success (不静默 failed)
-    assert result["status"] == "success"
-    assert "已执行" in result["final_answer"]
-    assert "list_files" in result["final_answer"]
-    assert result["rounds"] == 2
+    assert result["status"] == "no_progress_detected"
+    assert "repeated" in (result.get("error") or "") or "list_files" in result.get("final_answer", "")
 
 
 @pytest.mark.asyncio

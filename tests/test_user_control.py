@@ -44,10 +44,11 @@ def test_resolve_approval_unblocks(isolated_guard):
         task = asyncio.create_task(
             isolated_guard.acheck("hicode_run", {"task": "x"}, source="test")
         )
-        await asyncio.sleep(0.05)
+        while not uc._pending:
+            await asyncio.sleep(0.01)
         assert uc._pending, "should have parked an approval"
         rid = next(iter(uc._pending))
-        assert uc.resolve_approval(rid, True) is True
+        assert await uc.resolve_approval(rid, True) is True
         await task
 
     try:
