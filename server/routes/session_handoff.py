@@ -31,12 +31,65 @@ class ForkPolishRequest(BaseModel):
     summary: str | None = None
 
 
+def _durable_session(session_id: str, user: dict[str, Any]) -> dict[str, Any] | None:
+    """Look a session up in the durable history store (the canonical authority).
+
+    Sessions created through ``POST /api/v1/sessions`` live only in the durable
+    store; the in-memory ``_sessions`` dict is a legacy fast path.  Returning
+    ``None`` means "not found **or** not owned by this user" so callers keep the
+    no-existence-leak behaviour.
+    """
+    from veya.history_store import default_history_store
+
+    store = default_history_store()
+    user_id = str(user.get("user_id") or "")
+    if not user_id:
+        return None
+    try:
+        entries = _run_sync(store.list_sessions(user_id=user_id, limit=5000))
+    except Exception:
+        return None
+    for entry in entries or []:
+        if entry.get("sid") == session_id:
+            return {
+                "id": session_id,
+                "user_id": user_id,
+                "project": "default",
+                "persona": "build",
+                "config": {},
+                "messages": [],
+                "cost_usd": 0.0,
+                "created_at": entry.get("updated_at"),
+                "updated_at": entry.get("updated_at"),
+            }
+    return None
+
+
+def _run_sync(coro: Any) -> Any:
+    """Run a coroutine from sync code, even when a loop is already running."""
+    import asyncio
+    import concurrent.futures
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    if loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            return pool.submit(asyncio.run, coro).result()
+    return loop.run_until_complete(coro)
+
+
 def _owned_session(session_id: str, user: dict[str, Any]) -> dict[str, Any]:
     s = _sessions.get(session_id)
     owner = (s or {}).get("user_id", "anonymous")
-    if not s or owner != user["user_id"]:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return s
+    if s and owner == user["user_id"]:
+        return s
+    # Legacy in-memory miss → consult the durable store (canonical authority).
+    durable = _durable_session(session_id, user)
+    if durable is not None:
+        return durable
+    raise HTTPException(status_code=404, detail="Session not found")
 
 
 def _get_session_messages(session_id: str, user: dict[str, Any]) -> list[dict[str, Any]]:

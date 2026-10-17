@@ -146,3 +146,39 @@ def test_routine_webhook_signature_auth_without_user_token(monkeypatch):
     assert resp.status_code == 200, f"Webhook rejected: {resp.status_code} {resp.text}"
     assert resp.json()["status"] == "ok"
 
+
+
+def test_handoff_preview_works_for_durable_session(auth_client):
+    """A session created through the unified (durable) API must be usable by
+    handoff/fork.  Before the fix, ``_owned_session`` only consulted the
+    in-memory ``_sessions`` dict, so every durable session answered 404 even
+    though the frontend created it moments earlier."""
+    client, user, token = auth_client
+
+    created = client.post("/api/v1/sessions", json={})
+    assert created.status_code == 200, created.text
+    sid = created.json()["session_id"]
+
+    preview = client.get(f"/api/v1/sessions/{sid}/handoff/preview?mode=focused")
+    assert preview.status_code == 200, f"durable session not found by handoff: {preview.text}"
+    assert "brief" in preview.json()
+
+    fork = client.get(f"/api/v1/sessions/{sid}/fork/preview")
+    assert fork.status_code == 200, f"durable session not found by fork: {fork.text}"
+
+
+def test_handoff_still_hides_other_users_durable_session(auth_client):
+    """Ownership must not regress: another user's durable session stays 404."""
+    client, user, token = auth_client
+
+    other = auth_mod.create_user(f"aud3_other_{uuid.uuid4().hex[:8]}", "Password123!")
+    other_token = auth_mod.issue_token(other["user_id"])
+    other_client = TestClient(app)
+    other_client.headers.update({"Authorization": f"Bearer {other_token}"})
+
+    created = other_client.post("/api/v1/sessions", json={})
+    assert created.status_code == 200, created.text
+    sid = created.json()["session_id"]
+
+    resp = client.get(f"/api/v1/sessions/{sid}/handoff/preview?mode=focused")
+    assert resp.status_code == 404, "must not leak another user's session"
