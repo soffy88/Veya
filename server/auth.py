@@ -473,6 +473,8 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/automata/webhooks",
     "/api/v1/automata/webhooks",
     "/omni/webhook",
+    # CAD 销转 S2S 接口 (受 VEYA_CAD_SALES_BOT 门禁控制)
+    "/api/v1/cad-sales",
     # 公开分享 (token 即凭据)
     "/api/v1/a/",  # 公开 artifact 分享
     "/api/v1/h/",  # 公开渲染 HTML 页面

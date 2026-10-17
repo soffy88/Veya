@@ -78,6 +78,7 @@ from server.routes.research import router as research_router
 from server.routes.resilient import router as resilient_router
 from server.routes.review import router as review_router
 from server.routes.role_skill_presets import router as role_skill_presets_router
+from server.routes.cad_sales import router as cad_sales_router
 from server.routes.runners import router as runners_router
 from server.routes.security import router as security_router
 from server.routes.semantic_search import router as semantic_search_router
@@ -682,6 +683,7 @@ app.include_router(nano_w10_c_router)
 # W14: MCP preset pack — GET /api/v1/mcp-presets, POST /api/v1/mcp-presets/{name}/attach
 app.include_router(mcp_presets_router)
 app.include_router(role_skill_presets_router)
+app.include_router(cad_sales_router)
 from server.routes.skill_teach import router as skill_teach_router
 app.include_router(skill_teach_router)
 app.include_router(tdx_router)

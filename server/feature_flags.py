@@ -102,6 +102,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_EVO_ONTOLOGY", False, "runtime", "2027-01-01"),
     # GBP6: Skill paired evaluation gate (default OFF)
     FeatureFlag("VEYA_SKILL_EVAL_GATE", False, "learning", "2027-01-01"),
+    # CAD-Sales Bot for Xianyu marketplace conversion (default OFF)
+    FeatureFlag("VEYA_CAD_SALES_BOT", False, "runtime", "2027-01-01"),
 )
 
 
