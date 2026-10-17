@@ -499,7 +499,16 @@ _APP_VERSION = "0.6.0"
 _BUILD_SHA = os.environ.get("VEYA_BUILD_SHA", "").strip()
 _HEALTH_VERSION = f"{_APP_VERSION}-{_BUILD_SHA}" if _BUILD_SHA else _APP_VERSION
 
-app = FastAPI(title="veya", version=_APP_VERSION, lifespan=lifespan)
+# Check if production docs should be disabled or owner-only
+_is_prod = os.environ.get("VEYA_ENV") == "production" or os.environ.get("ENV") == "production" or os.environ.get("VEYA_LOCAL_SINGLE_USER") != "1"
+app = FastAPI(
+    title="veya",
+    version=_APP_VERSION,
+    lifespan=lifespan,
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
+)
 
 # SEC H1: 全局默认拒绝。任何不在显式公开白名单内的路由都要求有效 token,
 # 否则 401 —— 不再依赖各路由自己记得加 require_user。用纯 ASGI 中间件以
