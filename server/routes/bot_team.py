@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -330,6 +331,22 @@ async def post_group_message(
     """
 
     group = _require_group(group_id, user["user_id"])
+    from server.nano_w9.flags import flag_enabled
+    if flag_enabled("VEYA_EVENT_TRIGGERS") or flag_enabled("VEYA_ROUTINE_TRIGGERS"):
+        try:
+            from server.routes.nano_w9 import _routine_router
+            signal = {
+                "kind": "message",
+                "text": req.text,
+                "source": "group",
+                "group_id": group_id,
+                "author": str(user.get("user_id") or ""),
+                "verified": True,
+                "id": uuid.uuid4().hex,
+            }
+            await _routine_router().handle(signal)
+        except Exception:
+            pass
     if async_mode:
         ref = await start_group_turn_async(
             group=group,
@@ -898,6 +915,22 @@ async def post_bot_message(
     """
 
     spec = _require_bot(bot_registry(), bot_id, owner_id=user["user_id"])
+    from server.nano_w9.flags import flag_enabled
+    if flag_enabled("VEYA_EVENT_TRIGGERS") or flag_enabled("VEYA_ROUTINE_TRIGGERS"):
+        try:
+            from server.routes.nano_w9 import _routine_router
+            signal = {
+                "kind": "message",
+                "text": req.text,
+                "source": "bot",
+                "bot_id": bot_id,
+                "author": str(user.get("user_id") or ""),
+                "verified": True,
+                "id": req.message_id or uuid.uuid4().hex,
+            }
+            await _routine_router().handle(signal)
+        except Exception:
+            pass
     queued = _intake_through_turn_queue(spec.bot_id, req, user)
     if queued is not None:
         return queued

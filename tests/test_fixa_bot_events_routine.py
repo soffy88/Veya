@@ -62,6 +62,8 @@ def test_app(fixa_env):
     app.include_router(bot_team_router)
     app.include_router(routines_router)
     app.include_router(nano_w9_router)
+    from server.routes.nano_w9 import signals_compat_router
+    app.include_router(signals_compat_router)
 
     from server.routes import routines as _routines_mod
     app.dependency_overrides[_routines_mod._require_owned_bot] = lambda: None
@@ -155,6 +157,14 @@ def test_signal_endpoint_message_pattern_matching_and_dispatch(client, fixa_env)
     assert len(records) >= 1
     assert records[0]["status"] == "dispatched"
 
+    # Also test the /api/v1/signals alias endpoint
+    resp_alias = client.post(
+        "/api/v1/signals",
+        json={"kind": "message", "source": "group", "pattern": "deploy to prod now"},
+    )
+    assert resp_alias.status_code == 200, resp_alias.text
+    assert resp_alias.json()["status"] == "ok"
+
 
 def test_group_and_bot_messages_match_rules_and_dispatch_routine(client, fixa_env, monkeypatch):
     """Group chat messages and bot messages must match message rules and trigger routines."""
@@ -205,6 +215,18 @@ def test_group_and_bot_messages_match_rules_and_dispatch_routine(client, fixa_en
     records = history_store.get_history(routine_id)
     assert len(records) >= 1
     assert records[0]["status"] == "dispatched"
+
+    # Post 1:1 private bot message containing INCIDENT-42
+    bot_msg_resp = client.post(
+        "/api/v1/bots/fixa-bot/messages",
+        json={"text": "Alert: INCIDENT-42 occurred"},
+    )
+    assert bot_msg_resp.status_code == 200, bot_msg_resp.text
+
+    # Verify private message also triggered routine
+    records_after = history_store.get_history(routine_id)
+    assert len(records_after) >= 2
+    assert records_after[1]["status"] == "dispatched"
 
 
 # ── Issue 3: routine 创建默认 enabled=True，且显式传 False 时尊重 ────────────

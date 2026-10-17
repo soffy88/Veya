@@ -57,7 +57,7 @@ from veya.tdx import router as tdx_router
 # W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
 from server.routes.models import router as models_router
 from server.routes.multimodal import router as multimodal_router
-from server.routes.nano_w9 import router as nano_w9_router
+from server.routes.nano_w9 import router as nano_w9_router, signals_compat_router
 from server.routes.nano_w10_c import router as nano_w10_c_router
 from server.routes.neuro_symbolic import router as neuro_symbolic_router
 from server.routes.notifications import router as notifications_router
@@ -676,6 +676,7 @@ app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-chec
 # search-with-receipts, trajectory replay, agent-native CLI template.
 # Every gated surface is flag-gated inside the router (default OFF).
 app.include_router(nano_w9_router)
+app.include_router(signals_compat_router)
 # NANO-W10 Group C: group roles, bot secrets, failure -> eval flywheel export
 app.include_router(nano_w10_c_router)
 # W14: MCP preset pack — GET /api/v1/mcp-presets, POST /api/v1/mcp-presets/{name}/attach

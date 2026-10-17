@@ -95,19 +95,28 @@ def match_message_trigger(signal: dict[str, Any], trigger: dict[str, Any]) -> bo
         ...                       {"kind": "message", "regex": r"^release v\\d+$"})
         True
     """
-    text = str(signal.get("text") or "")
+    text = str(signal.get("text") or signal.get("pattern") or signal.get("content") or "")
     if not text:
         return False
     matched = False
     mentions = _as_list(trigger.get("mentions"))
     if mentions:
         matched = any(m in text for m in mentions)
-    pattern = trigger.get("regex")
+    pattern = trigger.get("regex") or trigger.get("pattern")
     if not matched and isinstance(pattern, str) and pattern:
         try:
             matched = re.search(pattern, text) is not None
         except re.error:
             matched = False
+
+    sources = _as_list(trigger.get("sources") or trigger.get("source"))
+    if sources:
+        sig_source = str(signal.get("source") or "")
+        if sig_source not in sources:
+            return False
+        if not mentions and not pattern:
+            matched = True
+
     return matched
 
 

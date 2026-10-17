@@ -351,12 +351,25 @@ class RoutineSignalRouter:
         """Feed the existing routine dispatch (GoalRun authority) — never a 2nd scheduler."""
         if self.dispatch is None:
             return {"status": "skipped", "reason": "no dispatcher injected"}
-        topic = str(hit["trigger"].get("dispatch_topic") or "event.arrive")
+        topic = str(
+            hit["trigger"].get("dispatch_topic")
+            or getattr(hit.get("routine"), "trigger_topic", None)
+            or "event.arrive"
+        )
         trigger_id = str(signal.get("id") or signal.get("event") or "signal")
         try:
-            out = self.dispatch(topic=topic, trigger_id=trigger_id, payload=dict(signal))
+            out = self.dispatch(
+                topic=topic,
+                trigger_id=trigger_id,
+                payload=dict(signal),
+                routine_id=hit["routine_id"],
+                routine=hit.get("routine"),
+            )
         except TypeError:
-            out = self.dispatch(topic, trigger_id, dict(signal))
+            try:
+                out = self.dispatch(topic=topic, trigger_id=trigger_id, payload=dict(signal))
+            except TypeError:
+                out = self.dispatch(topic, trigger_id, dict(signal))
         except Exception as exc:
             return {"status": "error", "reason": str(exc)}
         return {"status": "ok", "routine_id": hit["routine_id"], "result": out}
