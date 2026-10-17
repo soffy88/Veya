@@ -4892,6 +4892,7 @@ if not master_tools.has("skill_teach"):
         },
         _tool_skill_teach,
         side_effect=SideEffect.LOCAL_WRITE,
+        max_result_chars=64000,
     )
 if not master_tools.has("skill_confirm"):
     master_tools.register(

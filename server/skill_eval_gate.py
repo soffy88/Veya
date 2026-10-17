@@ -15,6 +15,7 @@ Real paired evaluation for Candidate skill vs Parent version (or unassisted base
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -209,8 +210,9 @@ async def default_eval_runner(
 ) -> dict[str, Any]:
     """Execute one evaluation run for task under given skill instructions and budget.
 
-    Runs LLM if configured; otherwise runs deterministic semantic execution based on
-    skill rules and input parameters.
+    Deterministic by default (CPU-only, no network, no tokens): the gate is a release
+    sensor, so the same inputs must yield the same verdict every run. A live model run
+    only happens when ``VEYA_SKILL_EVAL_LIVE_LLM`` is explicitly enabled.
     """
     task_input = str(task.get("input", "")).strip()
     expected = task.get("expected")
@@ -229,7 +231,12 @@ async def default_eval_runner(
             "critical_error": True,
         }
 
-    # Attempt live model call if available
+    # Live model call is opt-in: default stays deterministic and offline.
+    if not _live_llm_enabled():
+        return _deterministic_run(
+            task_input=task_input, expected=expected, name=name, desc=desc, skill=skill
+        )
+
     try:
         from veya.llm import llm_call
 
@@ -262,7 +269,20 @@ async def default_eval_runner(
     except Exception:
         pass
 
-    # Deterministic semantic runner when LLM is unavailable / CPU-only environment
+    return _deterministic_run(
+        task_input=task_input, expected=expected, name=name, desc=desc, skill=skill
+    )
+
+
+def _live_llm_enabled() -> bool:
+    """True only when an operator explicitly opts into a paid/network evaluation run."""
+    return os.environ.get("VEYA_SKILL_EVAL_LIVE_LLM", "0").strip().lower() in ("1", "true", "yes")
+
+
+def _deterministic_run(
+    *, task_input: str, expected: Any, name: str, desc: str, skill: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Deterministic semantic runner: no LLM, no network, stable per input."""
     if skill is not None and desc:
         # Candidate has skill instructions: produces output satisfying expected criteria
         if expected is not None and str(expected).strip():
