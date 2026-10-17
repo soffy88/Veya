@@ -358,11 +358,35 @@ async def list_sessions(
 async def get_goal(
     bot_id: str, goal_id: str, user: dict[str, Any] = Depends(auth_mod.require_user)
 ) -> dict[str, Any]:
-    """Get a goal's status."""
+    """Get a goal's status from the durable GoalRun store.
+
+    GoalRun is the durable execution authority: every run writes
+    ``<root>/.veya-project/goal-runs/<goal_id>/taskgraph.json``.  This route used
+    to answer a hard-coded ``"status": "unknown"`` stub, so callers (and the
+    frontend) could never observe whether a triggered routine actually ran.
+    """
     _, bot_registry = _manager()
     _require_owned_bot(bot_registry, bot_id, user)
-    # In a full implementation, this would query the GoalRunStore
-    return {"bot_id": bot_id, "goal_id": goal_id, "status": "unknown"}
+
+    from server.goal_run.paths import resolve_goal_run_root
+    from server.goal_run.store import load_goal_run
+
+    root = resolve_goal_run_root(None, bot_id=bot_id)
+    state = load_goal_run(root, goal_id, bot_id=bot_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"goal {goal_id!r} not found")
+
+    status = getattr(state, "status", None)
+    status = getattr(status, "value", status) or "unknown"
+    return {
+        "bot_id": bot_id,
+        "goal_id": goal_id,
+        "status": str(status),
+        "goal_text": str(getattr(state, "goal_text", "") or ""),
+        "created_at": getattr(state, "created_at", None),
+        "started_at": getattr(state, "started_at", None),
+        "finished_at": getattr(state, "finished_at", None),
+    }
 
 
 __all__ = ["router"]

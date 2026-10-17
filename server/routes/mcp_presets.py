@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from server import auth as auth_mod
@@ -27,21 +27,27 @@ class AttachRequest(BaseModel):
     bot_id: str | None = None
 
 
-def _require_user() -> dict[str, Any]:
+def _require_user(
+    authorization: str | None = Header(None),
+    request: Request = None,
+) -> dict[str, Any]:
     """Auth dependency indirection for test monkeypatching.
 
     FastAPI binds ``Depends(fn)`` at import time, so monkeypatching
     ``auth_mod.require_user`` after import would not take effect on an
     already-resolved dependency. This wrapper looks the attribute up at
     call time so tests can override the auth dependency through
-    ``auth_mod.require_user``. Tries the real 1-arg signature first
-    (explicit ``None`` so the Header default isn't passed through),
-    falling back to 0 args for zero-arg test mocks.
+    ``auth_mod.require_user``. Accepts authorization and request so real
+    bearer tokens are forwarded to auth_mod.require_user.
     """
+    fn = getattr(auth_mod, "require_user")
     try:
-        return auth_mod.require_user(None)
+        return fn(authorization, request)
     except TypeError:
-        return auth_mod.require_user()
+        try:
+            return fn(authorization)
+        except TypeError:
+            return fn()
 
 
 @router.get("")

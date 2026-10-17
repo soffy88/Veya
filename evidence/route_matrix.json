@@ -1,0 +1,6595 @@
+[
+  {
+    "method": "POST",
+    "path": "/advanced-visualization/3d-graph",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "generate_3d_graph",
+    "spec_path": "/advanced-visualization/3d-graph",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/advanced-visualization/data-flow-diagram",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "generate_data_flow_diagram",
+    "spec_path": "/advanced-visualization/data-flow-diagram",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/advanced-visualization/debug/edit-variable",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_nonproduction_debug"
+    ],
+    "name": "edit_variable",
+    "spec_path": "/advanced-visualization/debug/edit-variable",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/advanced-visualization/debug/state",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_nonproduction_debug"
+    ],
+    "name": "get_debug_state",
+    "spec_path": "/advanced-visualization/debug/state",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/advanced-visualization/debug/step",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_nonproduction_debug"
+    ],
+    "name": "step_debug",
+    "spec_path": "/advanced-visualization/debug/step",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/advanced-visualization/deployment-topology",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "generate_deployment_topology",
+    "spec_path": "/advanced-visualization/deployment-topology",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/adversarial/review",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "adversarial_review",
+    "spec_path": "/adversarial/review",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/agent-collaboration/agent",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "add_agent",
+    "spec_path": "/agent-collaboration/agent",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/agent-collaboration/agent/{agent_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "remove_agent",
+    "spec_path": "/agent-collaboration/agent/{agent_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/agent-collaboration/graph",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_task_graph",
+    "spec_path": "/agent-collaboration/graph",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/agent-collaboration/summary",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_collaboration_summary",
+    "spec_path": "/agent-collaboration/summary",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/agent-collaboration/task",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "create_task",
+    "spec_path": "/agent-collaboration/task",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/agent-collaboration/task/assign",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "assign_task",
+    "spec_path": "/agent-collaboration/task/assign",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/agent-collaboration/task/complete",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "complete_task",
+    "spec_path": "/agent-collaboration/task/complete",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/agent-collaboration/task/{task_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_task_status",
+    "spec_path": "/agent-collaboration/task/{task_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/agent/invoke",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "invoke_agent",
+    "spec_path": "/agent/invoke",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/agent/personas",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_personas",
+    "spec_path": "/agent/personas",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/analysis/dependencies",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_dependency_graph",
+    "spec_path": "/analysis/dependencies",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/analysis/project",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "analyze_project",
+    "spec_path": "/analysis/project",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/analysis/search",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "search_symbols",
+    "spec_path": "/analysis/search",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/analysis/summary/{file_path:path}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_file_summary",
+    "spec_path": "/analysis/summary/{file_path}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/analysis/symbols",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_symbols",
+    "spec_path": "/analysis/symbols",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/3o/tasks",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "create_task",
+    "spec_path": "/api/v1/3o/tasks",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/3o/tasks/{task_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_task",
+    "spec_path": "/api/v1/3o/tasks/{task_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/3o/tasks/{task_id}/pause",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "pause_task",
+    "spec_path": "/api/v1/3o/tasks/{task_id}/pause",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/3o/tasks/{task_id}/resume",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "resume_task",
+    "spec_path": "/api/v1/3o/tasks/{task_id}/resume",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/3o/tasks/{task_id}/stream",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "stream_task",
+    "spec_path": "/api/v1/3o/tasks/{task_id}/stream",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/a/{token}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_public_artifact",
+    "spec_path": "/api/v1/a/{token}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/agent/answer",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "agent_answer",
+    "spec_path": "/api/v1/agent/answer",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/agent/approval",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "agent_approval",
+    "spec_path": "/api/v1/agent/approval",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/agent/history/{sid}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_session_history",
+    "spec_path": "/api/v1/agent/history/{sid}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/agent/run",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "legacy_agent_run",
+    "spec_path": "/api/v1/agent/run",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/agent/sessions",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_user_sessions",
+    "spec_path": "/api/v1/agent/sessions",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/agent/sessions/{sid}/attach",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "attach_session",
+    "spec_path": "/api/v1/agent/sessions/{sid}/attach",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/agent/skills-inject",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "skills_inject_ep",
+    "spec_path": "/api/v1/agent/skills-inject",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/agent/steer",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "legacy_agent_steer",
+    "spec_path": "/api/v1/agent/steer",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/agent/stop",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "legacy_agent_stop",
+    "spec_path": "/api/v1/agent/stop",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/agent/stream",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "legacy_agent_stream",
+    "spec_path": "/api/v1/agent/stream",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/agent/stream_status",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "legacy_agent_stream_status",
+    "spec_path": "/api/v1/agent/stream_status",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/agents/cli",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "list_cli_agents",
+    "spec_path": "/api/v1/agents/cli",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/agents/cli/custom",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_owner",
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "register_custom_cli_agent",
+    "spec_path": "/api/v1/agents/cli/custom",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/approvals",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_approvals",
+    "spec_path": "/api/v1/approvals",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/approvals/{approval_id}/resolve",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "resolve_approval_endpoint",
+    "spec_path": "/api/v1/approvals/{approval_id}/resolve",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/artifacts/shares",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_shared_artifacts",
+    "spec_path": "/api/v1/artifacts/shares",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/artifacts/{artifact_id}/share",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "unshare_artifact",
+    "spec_path": "/api/v1/artifacts/{artifact_id}/share",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/artifacts/{artifact_id}/share",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "share_artifact",
+    "spec_path": "/api/v1/artifacts/{artifact_id}/share",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/login",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "login",
+    "spec_path": "/api/v1/auth/login",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/logout",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "logout",
+    "spec_path": "/api/v1/auth/logout",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/auth/me",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "me",
+    "spec_path": "/api/v1/auth/me",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/register",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "register",
+    "spec_path": "/api/v1/auth/register",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/automation/issue-decompose",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "issue_decompose",
+    "spec_path": "/api/v1/automation/issue-decompose",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/autonomous/run",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "run_resilient_task",
+    "spec_path": "/api/v1/autonomous/run",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/backends",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_backends",
+    "spec_path": "/api/v1/backends",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/backends/register",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "register_backend",
+    "spec_path": "/api/v1/backends/register",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/backends/run",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "run_backend",
+    "spec_path": "/api/v1/backends/run",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/backends/status",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "backends_status",
+    "spec_path": "/api/v1/backends/status",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/board",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "board_ep",
+    "spec_path": "/api/v1/board",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bot",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_bot",
+    "spec_path": "/api/v1/bot",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bot-runtime",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_bots",
+    "spec_path": "/api/v1/bot-runtime",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bot-runtime",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "create_bot",
+    "spec_path": "/api/v1/bot-runtime",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bot-runtime/{bot_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_bot",
+    "spec_path": "/api/v1/bot-runtime/{bot_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bot-runtime/{bot_id}/deploy",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "deploy_bot",
+    "spec_path": "/api/v1/bot-runtime/{bot_id}/deploy",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bot-runtime/{bot_id}/goals",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "submit_goal",
+    "spec_path": "/api/v1/bot-runtime/{bot_id}/goals",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bot-runtime/{bot_id}/goals/{goal_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_goal",
+    "spec_path": "/api/v1/bot-runtime/{bot_id}/goals/{goal_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bot-runtime/{bot_id}/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "submit_message",
+    "spec_path": "/api/v1/bot-runtime/{bot_id}/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bot-runtime/{bot_id}/pause",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "pause_bot",
+    "spec_path": "/api/v1/bot-runtime/{bot_id}/pause",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bot-runtime/{bot_id}/resume",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "resume_bot",
+    "spec_path": "/api/v1/bot-runtime/{bot_id}/resume",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bot-runtime/{bot_id}/sessions",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_sessions",
+    "spec_path": "/api/v1/bot-runtime/{bot_id}/sessions",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bot-runtime/{bot_id}/start",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "start_bot",
+    "spec_path": "/api/v1/bot-runtime/{bot_id}/start",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bot-runtime/{bot_id}/stop",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "stop_bot",
+    "spec_path": "/api/v1/bot-runtime/{bot_id}/stop",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bot/onboarding",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "complete_onboarding",
+    "spec_path": "/api/v1/bot/onboarding",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bot/tasks",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "create_product_task",
+    "spec_path": "/api/v1/bot/tasks",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_bots",
+    "spec_path": "/api/v1/bots",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "create_bot",
+    "spec_path": "/api/v1/bots",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/groups",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_groups",
+    "spec_path": "/api/v1/bots/groups",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/groups",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "create_group",
+    "spec_path": "/api/v1/bots/groups",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/groups/{group_id}/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_group_messages",
+    "spec_path": "/api/v1/bots/groups/{group_id}/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/groups/{group_id}/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "post_group_message",
+    "spec_path": "/api/v1/bots/groups/{group_id}/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/proposals/{proposal_id}/accept",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "accept_proposal",
+    "spec_path": "/api/v1/bots/proposals/{proposal_id}/accept",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/bots/{bot_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "delete_bot",
+    "spec_path": "/api/v1/bots/{bot_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_bot",
+    "spec_path": "/api/v1/bots/{bot_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/bots/{bot_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "patch_bot",
+    "spec_path": "/api/v1/bots/{bot_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/checkpoints/{card_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "post_checkpoint_verdict",
+    "spec_path": "/api/v1/bots/{bot_id}/checkpoints/{card_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/corrections",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "post_bot_correction",
+    "spec_path": "/api/v1/bots/{bot_id}/corrections",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/fork",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "fork_bot",
+    "spec_path": "/api/v1/bots/{bot_id}/fork",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/memory",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_memory",
+    "spec_path": "/api/v1/bots/{bot_id}/memory",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/memory/entries",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_memory_entries",
+    "spec_path": "/api/v1/bots/{bot_id}/memory/entries",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/memory/journal",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "memory_journal",
+    "spec_path": "/api/v1/bots/{bot_id}/memory/journal",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/memory/retract",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "retract_memory_entry",
+    "spec_path": "/api/v1/bots/{bot_id}/memory/retract",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/memory/search",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "memory_search_route",
+    "spec_path": "/api/v1/bots/{bot_id}/memory/search",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/memory/summary",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "memory_summary",
+    "spec_path": "/api/v1/bots/{bot_id}/memory/summary",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/memory/user-global",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_user_global",
+    "spec_path": "/api/v1/bots/{bot_id}/memory/user-global",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/bots/{bot_id}/memory/user-global",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "put_user_global",
+    "spec_path": "/api/v1/bots/{bot_id}/memory/user-global",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/bots/{bot_id}/memory/{name}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "delete_memory",
+    "spec_path": "/api/v1/bots/{bot_id}/memory/{name}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/memory/{name}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "read_memory",
+    "spec_path": "/api/v1/bots/{bot_id}/memory/{name}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/bots/{bot_id}/memory/{name}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "write_memory",
+    "spec_path": "/api/v1/bots/{bot_id}/memory/{name}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/message_bot",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "post_bot_to_bot_message",
+    "spec_path": "/api/v1/bots/{bot_id}/message_bot",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_bot_messages",
+    "spec_path": "/api/v1/bots/{bot_id}/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "post_bot_message",
+    "spec_path": "/api/v1/bots/{bot_id}/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/presets/apply",
+    "auth": "_require_user(wrapper)",
+    "auth_deps": [
+      "_require_user"
+    ],
+    "name": "apply_presets",
+    "spec_path": "/api/v1/bots/{bot_id}/presets/apply",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/public",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_public_bot",
+    "spec_path": "/api/v1/bots/{bot_id}/public",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/public/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_public_bot_messages",
+    "spec_path": "/api/v1/bots/{bot_id}/public/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/public/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "post_public_bot_message",
+    "spec_path": "/api/v1/bots/{bot_id}/public/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/public_share",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "toggle_public_share",
+    "spec_path": "/api/v1/bots/{bot_id}/public_share",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/routines",
+    "auth": "_require_owned_bot(owner+bot)",
+    "auth_deps": [
+      "_require_owned_bot",
+      "get_current_user"
+    ],
+    "name": "list_routines",
+    "spec_path": "/api/v1/bots/{bot_id}/routines",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/routines",
+    "auth": "_require_owned_bot(owner+bot)",
+    "auth_deps": [
+      "_require_owned_bot",
+      "get_current_user"
+    ],
+    "name": "create_routine",
+    "spec_path": "/api/v1/bots/{bot_id}/routines",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/routines/",
+    "auth": "_require_owned_bot(owner+bot)",
+    "auth_deps": [
+      "_require_owned_bot",
+      "get_current_user"
+    ],
+    "name": "list_routines",
+    "spec_path": "/api/v1/bots/{bot_id}/routines/",
+    "in_openapi": false,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/routines/",
+    "auth": "_require_owned_bot(owner+bot)",
+    "auth_deps": [
+      "_require_owned_bot",
+      "get_current_user"
+    ],
+    "name": "create_routine",
+    "spec_path": "/api/v1/bots/{bot_id}/routines/",
+    "in_openapi": false,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/routines/webhook",
+    "auth": "_require_owned_bot(owner+bot)",
+    "auth_deps": [
+      "_require_owned_bot",
+      "get_current_user"
+    ],
+    "name": "routine_webhook",
+    "spec_path": "/api/v1/bots/{bot_id}/routines/webhook",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/bots/{bot_id}/routines/{routine_id}",
+    "auth": "_require_owned_bot(owner+bot)",
+    "auth_deps": [
+      "_require_owned_bot",
+      "get_current_user"
+    ],
+    "name": "delete_routine",
+    "spec_path": "/api/v1/bots/{bot_id}/routines/{routine_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/bots/{bot_id}/routines/{routine_id}",
+    "auth": "_require_owned_bot(owner+bot)",
+    "auth_deps": [
+      "_require_owned_bot",
+      "get_current_user"
+    ],
+    "name": "patch_routine",
+    "spec_path": "/api/v1/bots/{bot_id}/routines/{routine_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/routines/{routine_id}/history",
+    "auth": "_require_owned_bot(owner+bot)",
+    "auth_deps": [
+      "_require_owned_bot",
+      "get_current_user"
+    ],
+    "name": "get_history",
+    "spec_path": "/api/v1/bots/{bot_id}/routines/{routine_id}/history",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/routines/{routine_id}/run_now",
+    "auth": "_require_owned_bot(owner+bot)",
+    "auth_deps": [
+      "_require_owned_bot",
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "run_now",
+    "spec_path": "/api/v1/bots/{bot_id}/routines/{routine_id}/run_now",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/supervised",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "list_supervised",
+    "spec_path": "/api/v1/bots/{bot_id}/supervised",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/cancel",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "cancel_supervised",
+    "spec_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/cancel",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/interval",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "set_interval",
+    "spec_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/interval",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/max-repairs",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "set_max_repairs",
+    "spec_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/max-repairs",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/pause",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "pause_supervised",
+    "spec_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/pause",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/resume",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "resume_supervised",
+    "spec_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/resume",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/stall",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "set_stall",
+    "spec_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/stall",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/bots/{bot_id}/workers",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "bot_workers",
+    "spec_path": "/api/v1/bots/{bot_id}/workers",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/browser/run",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "browser_run_compat",
+    "spec_path": "/api/v1/browser/run",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/channels/bind/code",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_channels",
+      "require_user"
+    ],
+    "name": "create_link_code",
+    "spec_path": "/api/v1/channels/bind/code",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/channels/bindings",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_channels",
+      "require_user"
+    ],
+    "name": "list_bindings",
+    "spec_path": "/api/v1/channels/bindings",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/channels/dingtalk/webhook",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_channels"
+    ],
+    "name": "dingtalk_webhook",
+    "spec_path": "/api/v1/channels/dingtalk/webhook",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/channels/feishu/webhook",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_channels"
+    ],
+    "name": "feishu_webhook",
+    "spec_path": "/api/v1/channels/feishu/webhook",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/channels/morning-feed/config",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_morning_feed",
+      "require_user"
+    ],
+    "name": "get_feed_config",
+    "spec_path": "/api/v1/channels/morning-feed/config",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/channels/morning-feed/config",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_morning_feed",
+      "require_user"
+    ],
+    "name": "set_feed_config",
+    "spec_path": "/api/v1/channels/morning-feed/config",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/channels/status",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_channels",
+      "require_user"
+    ],
+    "name": "channels_status",
+    "spec_path": "/api/v1/channels/status",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/channels/telegram/webhook",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_channels"
+    ],
+    "name": "telegram_webhook",
+    "spec_path": "/api/v1/channels/telegram/webhook",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/channels/unbind",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_channels",
+      "require_user"
+    ],
+    "name": "unbind",
+    "spec_path": "/api/v1/channels/unbind",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/channels/wecom/verify",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_channels"
+    ],
+    "name": "wecom_verify",
+    "spec_path": "/api/v1/channels/wecom/verify",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/channels/wecom/webhook",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_channels"
+    ],
+    "name": "wecom_webhook",
+    "spec_path": "/api/v1/channels/wecom/webhook",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/continuity",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_continuity",
+    "spec_path": "/api/v1/continuity",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/design/capture",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "capture_design_element",
+    "spec_path": "/api/v1/design/capture",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/engines",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_engines",
+    "spec_path": "/api/v1/engines",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/execution/runtime/list",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "runtime_list",
+    "spec_path": "/api/v1/execution/runtime/list",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/execution/runtime/{runtime_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "runtime_get",
+    "spec_path": "/api/v1/execution/runtime/{runtime_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/execution/{execution_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "execution_get",
+    "spec_path": "/api/v1/execution/{execution_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/execution/{execution_id}/cancel",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "execution_cancel",
+    "spec_path": "/api/v1/execution/{execution_id}/cancel",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/execution/{execution_id}/capabilities",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "execution_capabilities",
+    "spec_path": "/api/v1/execution/{execution_id}/capabilities",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/execution/{execution_id}/recover",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "execution_recover",
+    "spec_path": "/api/v1/execution/{execution_id}/recover",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/execution/{execution_id}/resume",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "execution_resume",
+    "spec_path": "/api/v1/execution/{execution_id}/resume",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/execution/{execution_id}/suspend",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "execution_suspend",
+    "spec_path": "/api/v1/execution/{execution_id}/suspend",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/execution/{execution_id}/terminate",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "execution_terminate",
+    "spec_path": "/api/v1/execution/{execution_id}/terminate",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/fs/read",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "fs_read",
+    "spec_path": "/api/v1/fs/read",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/fs/tree",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "fs_tree",
+    "spec_path": "/api/v1/fs/tree",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/fs/upload",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "fs_upload",
+    "spec_path": "/api/v1/fs/upload",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/git/commit",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "git_commit",
+    "spec_path": "/api/v1/git/commit",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/git/diff",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "git_diff",
+    "spec_path": "/api/v1/git/diff",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/git/status",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "git_status",
+    "spec_path": "/api/v1/git/status",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/goal-driven/run",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "goal_driven_run_ep",
+    "spec_path": "/api/v1/goal-driven/run",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/goal-driven/status",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "goal_driven_status_ep",
+    "spec_path": "/api/v1/goal-driven/status",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/grants",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_grants",
+    "spec_path": "/api/v1/grants",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/grants/{grant_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "revoke_grant_endpoint",
+    "spec_path": "/api/v1/grants/{grant_id}",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/graph/files",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "graph_files",
+    "spec_path": "/api/v1/graph/files",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/graph/schema",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "graph_schema",
+    "spec_path": "/api/v1/graph/schema",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/gsk/evidence",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "_require_evidence_enabled",
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "get_evidence",
+    "spec_path": "/api/v1/gsk/evidence",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/gsk/receipts",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "_require_receipts_enabled",
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "list_receipts",
+    "spec_path": "/api/v1/gsk/receipts",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/h/{filename}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_html_page_public",
+    "spec_path": "/api/v1/h/{filename}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/handoff",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "create_handoff",
+    "spec_path": "/api/v1/handoff",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/handoff/{handoff_id}/cancel",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "handoff_cancel",
+    "spec_path": "/api/v1/handoff/{handoff_id}/cancel",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/handoff/{handoff_id}/done",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "handoff_done",
+    "spec_path": "/api/v1/handoff/{handoff_id}/done",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/html/{filename}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_html_page",
+    "spec_path": "/api/v1/html/{filename}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/knowledge",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "knowledge_ep",
+    "spec_path": "/api/v1/knowledge",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/learning/candidates",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "learning_candidates",
+    "spec_path": "/api/v1/learning/candidates",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/learning/{learning_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "learning_detail",
+    "spec_path": "/api/v1/learning/{learning_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/mab/profiles",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner",
+      "verify_mab_flag"
+    ],
+    "name": "list_profiles",
+    "spec_path": "/api/v1/mab/profiles",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/mab/profiles",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner",
+      "verify_mab_flag"
+    ],
+    "name": "create_profile",
+    "spec_path": "/api/v1/mab/profiles",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/mab/profiles/{profile_id}",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner",
+      "verify_mab_flag"
+    ],
+    "name": "delete_profile",
+    "spec_path": "/api/v1/mab/profiles/{profile_id}",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 400
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/mab/profiles/{profile_id}",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner",
+      "verify_mab_flag"
+    ],
+    "name": "get_profile",
+    "spec_path": "/api/v1/mab/profiles/{profile_id}",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 404
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/mab/profiles/{profile_id}",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner",
+      "verify_mab_flag"
+    ],
+    "name": "update_profile",
+    "spec_path": "/api/v1/mab/profiles/{profile_id}",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 404
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/mab/profiles/{profile_id}/enable",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner",
+      "verify_mab_flag"
+    ],
+    "name": "enable_profile",
+    "spec_path": "/api/v1/mab/profiles/{profile_id}/enable",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/mab/profiles/{profile_id}/revoke",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner",
+      "verify_mab_flag"
+    ],
+    "name": "revoke_profile",
+    "spec_path": "/api/v1/mab/profiles/{profile_id}/revoke",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/mab/profiles/{profile_id}/stream-ticket",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner",
+      "verify_mab_flag"
+    ],
+    "name": "create_stream_ticket",
+    "spec_path": "/api/v1/mab/profiles/{profile_id}/stream-ticket",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/mcp-presets",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_presets",
+    "spec_path": "/api/v1/mcp-presets",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/mcp-presets/{name}/attach",
+    "auth": "_require_user(wrapper)",
+    "auth_deps": [
+      "_require_user"
+    ],
+    "name": "attach_one_preset",
+    "spec_path": "/api/v1/mcp-presets/{name}/attach",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/mcp/categories",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "mcp_categories_ep",
+    "spec_path": "/api/v1/mcp/categories",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/mcp/health",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "mcp_health",
+    "spec_path": "/api/v1/mcp/health",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/memory",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_memory",
+    "spec_path": "/api/v1/memory",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/memory",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "write_memory",
+    "spec_path": "/api/v1/memory",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/memory/candidates/{candidate_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_memory_candidate",
+    "spec_path": "/api/v1/memory/candidates/{candidate_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/memory/candidates/{candidate_id}/commit",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "commit_memory",
+    "spec_path": "/api/v1/memory/candidates/{candidate_id}/commit",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/memory/doctor",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "memory_doctor",
+    "spec_path": "/api/v1/memory/doctor",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/memory/{memory_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "show_memory",
+    "spec_path": "/api/v1/memory/{memory_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/memory/{memory_id}/correct",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "correct_memory",
+    "spec_path": "/api/v1/memory/{memory_id}/correct",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/memory/{memory_id}/forget",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "forget_memory",
+    "spec_path": "/api/v1/memory/{memory_id}/forget",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/models",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_models",
+    "spec_path": "/api/v1/models",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/models/catalog",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "models_catalog_api",
+    "spec_path": "/api/v1/models/catalog",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w10-c/eval/export",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "export_eval_case_endpoint",
+    "spec_path": "/api/v1/nano-w10-c/eval/export",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/nano-w10-c/groups/{group_id}/roles",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "update_group_roles",
+    "spec_path": "/api/v1/nano-w10-c/groups/{group_id}/roles",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/nano-w10-c/secrets",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_bot_secrets",
+    "spec_path": "/api/v1/nano-w10-c/secrets",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w10-c/secrets/request",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "request_bot_secret",
+    "spec_path": "/api/v1/nano-w10-c/secrets/request",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/nano-w10-c/secrets/{name}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "delete_bot_secret",
+    "spec_path": "/api/v1/nano-w10-c/secrets/{name}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/nano-w10-c/secrets/{name}/scope",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "update_bot_secret_scope",
+    "spec_path": "/api/v1/nano-w10-c/secrets/{name}/scope",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w10-c/secrets/{name}/value",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "set_bot_secret_value",
+    "spec_path": "/api/v1/nano-w10-c/secrets/{name}/value",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/nano-w9/acp/members",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_acp_members",
+    "spec_path": "/api/v1/nano-w9/acp/members",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w9/acp/members",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "register_acp_member",
+    "spec_path": "/api/v1/nano-w9/acp/members",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w9/acp/turn",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "forward_acp_turn",
+    "spec_path": "/api/v1/nano-w9/acp/turn",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/nano-w9/audit/verify",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "verify_audit",
+    "spec_path": "/api/v1/nano-w9/audit/verify",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/nano-w9/branch-rooms",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_branch_rooms",
+    "spec_path": "/api/v1/nano-w9/branch-rooms",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w9/branch-rooms/open",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "open_branch_room",
+    "spec_path": "/api/v1/nano-w9/branch-rooms/open",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w9/branch-rooms/publish",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "publish_branch_room",
+    "spec_path": "/api/v1/nano-w9/branch-rooms/publish",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w9/cli-gen",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "run_cli_gen",
+    "spec_path": "/api/v1/nano-w9/cli-gen",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/nano-w9/cli-gen/phases",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "cli_gen_phases",
+    "spec_path": "/api/v1/nano-w9/cli-gen/phases",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/nano-w9/flags",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "read_flags",
+    "spec_path": "/api/v1/nano-w9/flags",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w9/search",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "search_receipts",
+    "spec_path": "/api/v1/nano-w9/search",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w9/signals",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "handle_signal",
+    "spec_path": "/api/v1/nano-w9/signals",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/nano-w9/trajectory",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "record_trajectory",
+    "spec_path": "/api/v1/nano-w9/trajectory",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/nano-w9/trajectory/{goal_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "trajectory_replay",
+    "spec_path": "/api/v1/nano-w9/trajectory/{goal_id}",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/operators",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "operators_ledger",
+    "spec_path": "/api/v1/operators",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/pairing/confirm",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "pairing_confirm",
+    "spec_path": "/api/v1/pairing/confirm",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/pairing/request",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "pairing_request",
+    "spec_path": "/api/v1/pairing/request",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/permission/profile",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "permission_profile_current_ep",
+    "spec_path": "/api/v1/permission/profile",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/permission/profile",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "permission_profile_set_ep",
+    "spec_path": "/api/v1/permission/profile",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/permission/profiles",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "permission_profiles_ep",
+    "spec_path": "/api/v1/permission/profiles",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/personal-runtime/metrics",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "personal_runtime_metrics",
+    "spec_path": "/api/v1/personal-runtime/metrics",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/plan/list",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "plan_list",
+    "spec_path": "/api/v1/plan/list",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/plan/{plan_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "plan_detail",
+    "spec_path": "/api/v1/plan/{plan_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/plugin/manage",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "plugin_manage",
+    "spec_path": "/api/v1/plugin/manage",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/presets/roles",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_roles",
+    "spec_path": "/api/v1/presets/roles",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/presets/skills",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_skills",
+    "spec_path": "/api/v1/presets/skills",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/projects",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_projects",
+    "spec_path": "/api/v1/projects",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/projects",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "create_project",
+    "spec_path": "/api/v1/projects",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_project",
+    "spec_path": "/api/v1/projects/{project_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/brief",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_project_brief",
+    "spec_path": "/api/v1/projects/{project_id}/brief",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/projects/{project_id}/brief",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "update_project_brief",
+    "spec_path": "/api/v1/projects/{project_id}/brief",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_project_messages",
+    "spec_path": "/api/v1/projects/{project_id}/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "post_project_message",
+    "spec_path": "/api/v1/projects/{project_id}/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/projects/{project_id}/tasks",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_project_tasks",
+    "spec_path": "/api/v1/projects/{project_id}/tasks",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/projects/{project_id}/tasks/{task_id}/{action}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "project_task_action",
+    "spec_path": "/api/v1/projects/{project_id}/tasks/{task_id}/{action}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/providers",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_providers",
+    "spec_path": "/api/v1/providers",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/providers/bot-model-source",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "set_bot_model_source",
+    "spec_path": "/api/v1/providers/bot-model-source",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/providers/bot-model-source/{bot_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_bot_model_source",
+    "spec_path": "/api/v1/providers/bot-model-source/{bot_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/providers/cli-agents",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_cli_agents",
+    "spec_path": "/api/v1/providers/cli-agents",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/providers/custom",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "register_custom_provider",
+    "spec_path": "/api/v1/providers/custom",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/providers/custom/{name}",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "unregister_custom_provider",
+    "spec_path": "/api/v1/providers/custom/{name}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/providers/effective-model/{bot_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_effective_model",
+    "spec_path": "/api/v1/providers/effective-model/{bot_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/providers/keys",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "set_user_api_key",
+    "spec_path": "/api/v1/providers/keys",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/providers/keys/{provider}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "delete_user_api_key",
+    "spec_path": "/api/v1/providers/keys/{provider}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/push/public_key",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "public_key",
+    "spec_path": "/api/v1/push/public_key",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/push/status",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "status",
+    "spec_path": "/api/v1/push/status",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/push/subscriptions",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "unsubscribe_by_endpoint",
+    "spec_path": "/api/v1/push/subscriptions",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/push/subscriptions",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_subscriptions",
+    "spec_path": "/api/v1/push/subscriptions",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/push/subscriptions",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "subscribe",
+    "spec_path": "/api/v1/push/subscriptions",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/push/subscriptions/{subscription_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "unsubscribe",
+    "spec_path": "/api/v1/push/subscriptions/{subscription_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/remote/files",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "stage_remote_file",
+    "spec_path": "/api/v1/remote/files",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/remote/files/{token}",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "fetch_remote_file",
+    "spec_path": "/api/v1/remote/files/{token}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/remote/hosts",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "list_remote_hosts",
+    "spec_path": "/api/v1/remote/hosts",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/remote/hosts",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "create_remote_host",
+    "spec_path": "/api/v1/remote/hosts",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/remote/hosts/{host_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "delete_remote_host",
+    "spec_path": "/api/v1/remote/hosts/{host_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/remote/hosts/{host_id}/files",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_ssh_hosts",
+      "require_user"
+    ],
+    "name": "list_ssh_host_files",
+    "spec_path": "/api/v1/remote/hosts/{host_id}/files",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/remote/hosts/{host_id}/probe",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_ssh_hosts",
+      "require_user"
+    ],
+    "name": "probe_ssh_host",
+    "spec_path": "/api/v1/remote/hosts/{host_id}/probe",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/remote/hosts/{host_id}/runs",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_ssh_hosts",
+      "require_user"
+    ],
+    "name": "list_ssh_host_runs",
+    "spec_path": "/api/v1/remote/hosts/{host_id}/runs",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/remote/hosts/{host_id}/runs/{name}/kill",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_ssh_hosts",
+      "require_user"
+    ],
+    "name": "kill_ssh_host_run",
+    "spec_path": "/api/v1/remote/hosts/{host_id}/runs/{name}/kill",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/remote/hosts/{host_id}/ssh",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_ssh_hosts",
+      "require_user"
+    ],
+    "name": "update_ssh_host",
+    "spec_path": "/api/v1/remote/hosts/{host_id}/ssh",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/remote/pending-approvals",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "list_pending_remote_approvals",
+    "spec_path": "/api/v1/remote/pending-approvals",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/remote/sessions",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "list_remote_sessions",
+    "spec_path": "/api/v1/remote/sessions",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/remote/sessions",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "start_remote_session",
+    "spec_path": "/api/v1/remote/sessions",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/remote/sessions/{session_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "get_remote_session",
+    "spec_path": "/api/v1/remote/sessions/{session_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/remote/sessions/{session_id}/apply",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "apply_remote_session",
+    "spec_path": "/api/v1/remote/sessions/{session_id}/apply",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/remote/sessions/{session_id}/cancel",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "cancel_remote_session",
+    "spec_path": "/api/v1/remote/sessions/{session_id}/cancel",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/remote/sessions/{session_id}/handoff",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "handoff_remote_session",
+    "spec_path": "/api/v1/remote/sessions/{session_id}/handoff",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/remote/wake-policy",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "get_wake_policy",
+    "spec_path": "/api/v1/remote/wake-policy",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/remote/wake-policy",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_remote_control",
+      "require_user"
+    ],
+    "name": "set_wake_policy",
+    "spec_path": "/api/v1/remote/wake-policy",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/review/annotations/{goal_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "annotation_list",
+    "spec_path": "/api/v1/review/annotations/{goal_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/review/annotations/{goal_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "annotation_create",
+    "spec_path": "/api/v1/review/annotations/{goal_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/review/annotations/{goal_id}/resolve/{annotation_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "annotation_resolve",
+    "spec_path": "/api/v1/review/annotations/{goal_id}/resolve/{annotation_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/review/annotations/{goal_id}/send",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "annotation_send",
+    "spec_path": "/api/v1/review/annotations/{goal_id}/send",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/review/attribution/export",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "attribution_export",
+    "spec_path": "/api/v1/review/attribution/export",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/review/attribution/file",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "attribution_file",
+    "spec_path": "/api/v1/review/attribution/file",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/review/attribution/revert",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "attribution_revert",
+    "spec_path": "/api/v1/review/attribution/revert",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/review/fix-checks",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "fix_checks",
+    "spec_path": "/api/v1/review/fix-checks",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 400
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/rkz/routines",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "api_list_routines",
+    "spec_path": "/api/v1/rkz/routines",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/rkz/routines",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "api_create_routine",
+    "spec_path": "/api/v1/rkz/routines",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/rkz/routines/{name}",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "api_delete_routine",
+    "spec_path": "/api/v1/rkz/routines/{name}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/rkz/routines/{name}",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "api_get_routine",
+    "spec_path": "/api/v1/rkz/routines/{name}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/rkz/routines/{name}",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "api_update_routine",
+    "spec_path": "/api/v1/rkz/routines/{name}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/runners",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_runners",
+    "spec_path": "/api/v1/runners",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/runners",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "add_runner",
+    "spec_path": "/api/v1/runners",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/runners/turn",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "run_runner_turn",
+    "spec_path": "/api/v1/runners/turn",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/runners/{runner_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "remove_runner",
+    "spec_path": "/api/v1/runners/{runner_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/runners/{runner_id}/bots/{bot_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "set_bot_runner",
+    "spec_path": "/api/v1/runners/{runner_id}/bots/{bot_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/runners/{runner_id}/health",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_runner_health",
+    "spec_path": "/api/v1/runners/{runner_id}/health",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/runners/{runner_id}/health",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "check_runner_health",
+    "spec_path": "/api/v1/runners/{runner_id}/health",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/scheduler",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "scheduler_ep",
+    "spec_path": "/api/v1/scheduler",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/sessions",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_unified_sessions",
+    "spec_path": "/api/v1/sessions",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sessions",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "create_unified_session",
+    "spec_path": "/api/v1/sessions",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/sessions/search",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "search_sessions",
+    "spec_path": "/api/v1/sessions/search",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sessions/search/rebuild",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "rebuild_fts",
+    "spec_path": "/api/v1/sessions/search/rebuild",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/sessions/{session_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_unified_session",
+    "spec_path": "/api/v1/sessions/{session_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sessions/{session_id}/attach",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "attach_unified_session",
+    "spec_path": "/api/v1/sessions/{session_id}/attach",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/sessions/{session_id}/events",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_unified_session_events",
+    "spec_path": "/api/v1/sessions/{session_id}/events",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sessions/{session_id}/fork",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "fork_session_polished",
+    "spec_path": "/api/v1/sessions/{session_id}/fork",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/sessions/{session_id}/fork/preview",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "fork_preview",
+    "spec_path": "/api/v1/sessions/{session_id}/fork/preview",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sessions/{session_id}/handoff",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "handoff_session",
+    "spec_path": "/api/v1/sessions/{session_id}/handoff",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/sessions/{session_id}/handoff/preview",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "handoff_preview",
+    "spec_path": "/api/v1/sessions/{session_id}/handoff/preview",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/sessions/{session_id}/resume",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "resume_unified_session",
+    "spec_path": "/api/v1/sessions/{session_id}/resume",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/settings/artifacts",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user",
+      "require_owner"
+    ],
+    "name": "get_artifact_sharing_settings",
+    "spec_path": "/api/v1/settings/artifacts",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/settings/artifacts",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user",
+      "require_owner"
+    ],
+    "name": "update_artifact_sharing_settings",
+    "spec_path": "/api/v1/settings/artifacts",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/signals",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "handle_signal_compat",
+    "spec_path": "/api/v1/signals",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/skill/confirm",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "skill_confirm_ep",
+    "spec_path": "/api/v1/skill/confirm",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/skill/propose",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "skill_propose_ep",
+    "spec_path": "/api/v1/skill/propose",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/skill/reject",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "skill_reject_ep",
+    "spec_path": "/api/v1/skill/reject",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/skills",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_skills",
+    "spec_path": "/api/v1/skills",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/skills",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "create_skill",
+    "spec_path": "/api/v1/skills",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/skills/teach/draft",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "create_skill_draft_from_trajectory",
+    "spec_path": "/api/v1/skills/teach/draft",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/skills/teach/drafts",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_skill_drafts",
+    "spec_path": "/api/v1/skills/teach/drafts",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/skills/{skill_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "delete_skill",
+    "spec_path": "/api/v1/skills/{skill_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/skills/{skill_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "show_skill",
+    "spec_path": "/api/v1/skills/{skill_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/skills/{skill_id}/confirm",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "confirm_skill",
+    "spec_path": "/api/v1/skills/{skill_id}/confirm",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/skills/{skill_id}/deprecate",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "deprecate_skill",
+    "spec_path": "/api/v1/skills/{skill_id}/deprecate",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/skills/{skill_id}/rollback",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "rollback_skill",
+    "spec_path": "/api/v1/skills/{skill_id}/rollback",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/skills/{skill_id}/run",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "run_skill",
+    "spec_path": "/api/v1/skills/{skill_id}/run",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/skills/{skill_id}/versions",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "skill_versions",
+    "spec_path": "/api/v1/skills/{skill_id}/versions",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/spec/execute",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "spec_execute_ep",
+    "spec_path": "/api/v1/spec/execute",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/spec/presets",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "spec_presets",
+    "spec_path": "/api/v1/spec/presets",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/supervision/missions",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "list_missions",
+    "spec_path": "/api/v1/supervision/missions",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/supervision/missions",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "create_mission",
+    "spec_path": "/api/v1/supervision/missions",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/supervision/missions/{mission_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "inspect_mission",
+    "spec_path": "/api/v1/supervision/missions/{mission_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/supervision/missions/{mission_id}/cancel",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "cancel_mission",
+    "spec_path": "/api/v1/supervision/missions/{mission_id}/cancel",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/supervision/missions/{mission_id}/continue",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "continue_mission",
+    "spec_path": "/api/v1/supervision/missions/{mission_id}/continue",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/supervision/missions/{mission_id}/escalations",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "escalations",
+    "spec_path": "/api/v1/supervision/missions/{mission_id}/escalations",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/supervision/missions/{mission_id}/events",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "mission_events",
+    "spec_path": "/api/v1/supervision/missions/{mission_id}/events",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/supervision/missions/{mission_id}/mode",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "set_mode",
+    "spec_path": "/api/v1/supervision/missions/{mission_id}/mode",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/supervision/missions/{mission_id}/reports/latest",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "latest_report",
+    "spec_path": "/api/v1/supervision/missions/{mission_id}/reports/latest",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/supervision/missions/{mission_id}/reports/{iteration}",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "report_by_iteration",
+    "spec_path": "/api/v1/supervision/missions/{mission_id}/reports/{iteration}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/supervision/missions/{mission_id}/reviews",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "review_history",
+    "spec_path": "/api/v1/supervision/missions/{mission_id}/reviews",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/supervision/missions/{mission_id}/run",
+    "auth": "require_user",
+    "auth_deps": [
+      "get_current_user",
+      "require_user"
+    ],
+    "name": "run_mission",
+    "spec_path": "/api/v1/supervision/missions/{mission_id}/run",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tailnet/peers",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "get_peers",
+    "spec_path": "/api/v1/tailnet/peers",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/tailnet/peers",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "put_peers",
+    "spec_path": "/api/v1/tailnet/peers",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tailnet/policy",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "get_policy",
+    "spec_path": "/api/v1/tailnet/policy",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/tailnet/policy",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "put_policy",
+    "spec_path": "/api/v1/tailnet/policy",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tailnet/requests/{request_id}",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "get_request",
+    "spec_path": "/api/v1/tailnet/requests/{request_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tailnet/status",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "tailnet_status",
+    "spec_path": "/api/v1/tailnet/status",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tasks",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_tasks",
+    "spec_path": "/api/v1/tasks",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tasks",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "create_task",
+    "spec_path": "/api/v1/tasks",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tasks/{task_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_task",
+    "spec_path": "/api/v1/tasks/{task_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tasks/{task_id}/approve",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "handle_human_approval_compat",
+    "spec_path": "/api/v1/tasks/{task_id}/approve",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tasks/{task_id}/cancel",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "cancel_task",
+    "spec_path": "/api/v1/tasks/{task_id}/cancel",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tasks/{task_id}/continue",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "continue_task",
+    "spec_path": "/api/v1/tasks/{task_id}/continue",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tasks/{task_id}/events",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "task_events",
+    "spec_path": "/api/v1/tasks/{task_id}/events",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/tasks/{task_id}/resume",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "resume_task",
+    "spec_path": "/api/v1/tasks/{task_id}/resume",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tdx/needs-you",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "get_needs_you",
+    "spec_path": "/api/v1/tdx/needs-you",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tdx/publish-perms",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "get_publish_perms",
+    "spec_path": "/api/v1/tdx/publish-perms",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/tdx/publish-perms/{agent_id}",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "update_publish_perms",
+    "spec_path": "/api/v1/tdx/publish-perms/{agent_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tdx/runs",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "get_runs",
+    "spec_path": "/api/v1/tdx/runs",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tdx/runs/{task_id}/compare",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "compare_run_rounds",
+    "spec_path": "/api/v1/tdx/runs/{task_id}/compare",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/tdx/runs/{task_id}/rounds",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user"
+    ],
+    "name": "get_run_rounds",
+    "spec_path": "/api/v1/tdx/runs/{task_id}/rounds",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/telemetry/export",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "export_trace",
+    "spec_path": "/api/v1/telemetry/export",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/telemetry/metrics",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "metrics",
+    "spec_path": "/api/v1/telemetry/metrics",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/telemetry/traces",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_traces",
+    "spec_path": "/api/v1/telemetry/traces",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/telemetry/traces/{trace_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "replay_trace",
+    "spec_path": "/api/v1/telemetry/traces/{trace_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/usage/quota",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_quota",
+    "spec_path": "/api/v1/usage/quota",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/usage/tokens",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_token_usage",
+    "spec_path": "/api/v1/usage/tokens",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/webhooks/{source}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "webhook_event_compat",
+    "spec_path": "/api/v1/webhooks/{source}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/workbench/{task_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_workbench",
+    "spec_path": "/api/v1/workbench/{task_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/workbench/{task_id}/approval",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "resolve_workbench_approval",
+    "spec_path": "/api/v1/workbench/{task_id}/approval",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/workbench/{task_id}/artifact/{name}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_workbench_artifact",
+    "spec_path": "/api/v1/workbench/{task_id}/artifact/{name}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/workbench/{task_id}/browser/action",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "browser_action",
+    "spec_path": "/api/v1/workbench/{task_id}/browser/action",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/workbench/{task_id}/browser/control",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "control_workbench_browser",
+    "spec_path": "/api/v1/workbench/{task_id}/browser/control",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/workbench/{task_id}/events",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_workbench_events",
+    "spec_path": "/api/v1/workbench/{task_id}/events",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/workbench/{task_id}/plan-review",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_plan_review",
+    "spec_path": "/api/v1/workbench/{task_id}/plan-review",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/workbench/{task_id}/plan-review",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "resolve_plan_review_approval",
+    "spec_path": "/api/v1/workbench/{task_id}/plan-review",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/workbench/{task_id}/task",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "control_workbench_task",
+    "spec_path": "/api/v1/workbench/{task_id}/task",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/workspace/shared-paths",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_shared_paths",
+    "spec_path": "/api/v1/workspace/shared-paths",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/workspace/shared-paths",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "put_shared_paths",
+    "spec_path": "/api/v1/workspace/shared-paths",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/xrt/cancel/{execution_id}",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user",
+      "require_xrt_enabled"
+    ],
+    "name": "cancel_xrt_task",
+    "spec_path": "/api/v1/xrt/cancel/{execution_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/xrt/dispatch",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user",
+      "require_xrt_enabled"
+    ],
+    "name": "dispatch_xrt_task",
+    "spec_path": "/api/v1/xrt/dispatch",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 404
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/xrt/runtimes",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user",
+      "require_xrt_enabled"
+    ],
+    "name": "list_xrt_runtimes",
+    "spec_path": "/api/v1/xrt/runtimes",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 404
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/xrt/status/{execution_id}",
+    "auth": "require_tailnet_owner",
+    "auth_deps": [
+      "require_tailnet_owner",
+      "require_user",
+      "require_xrt_enabled"
+    ],
+    "name": "get_xrt_status",
+    "spec_path": "/api/v1/xrt/status/{execution_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/audit/traces",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_traces",
+    "spec_path": "/audit/traces",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/audit/{trace_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "replay_trace",
+    "spec_path": "/audit/{trace_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/auth/key",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "set_api_key",
+    "spec_path": "/auth/key",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/auth/providers",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_providers",
+    "spec_path": "/auth/providers",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/automata/jobs",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_jobs",
+    "spec_path": "/automata/jobs",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/automata/jobs",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "create_job",
+    "spec_path": "/automata/jobs",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/automata/jobs/{task_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "remove_job",
+    "spec_path": "/automata/jobs/{task_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/automata/run-now",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "run_now",
+    "spec_path": "/automata/run-now",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/automata/webhooks/{source}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "webhook_event",
+    "spec_path": "/automata/webhooks/{source}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/autonomous/evaluate",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "evaluate_agent",
+    "spec_path": "/autonomous/evaluate",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/autonomous/execute",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "execute_plan",
+    "spec_path": "/autonomous/execute",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/autonomous/learn",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "learn_from_experience",
+    "spec_path": "/autonomous/learn",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/autonomous/memory",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "store_memory",
+    "spec_path": "/autonomous/memory",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/autonomous/memory/search",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "search_memory",
+    "spec_path": "/autonomous/memory/search",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/autonomous/plan",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "plan_goal",
+    "spec_path": "/autonomous/plan",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/autonomous/stats",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_agent_stats",
+    "spec_path": "/autonomous/stats",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/chat",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "chat",
+    "spec_path": "/chat",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/closed-loop/intervene",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "closed_loop_intervene",
+    "spec_path": "/closed-loop/intervene",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/collaboration/session",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "create_session",
+    "spec_path": "/collaboration/session",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/collaboration/session/{session_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "delete_session",
+    "spec_path": "/collaboration/session/{session_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/collaboration/session/{session_id}",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_session",
+    "spec_path": "/collaboration/session/{session_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/collaboration/session/{session_id}/cursor",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "update_cursor",
+    "spec_path": "/collaboration/session/{session_id}/cursor",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/collaboration/session/{session_id}/join",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "join_session",
+    "spec_path": "/collaboration/session/{session_id}/join",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/collaboration/session/{session_id}/message",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "send_message",
+    "spec_path": "/collaboration/session/{session_id}/message",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/collaboration/session/{session_id}/permission",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "update_permission",
+    "spec_path": "/collaboration/session/{session_id}/permission",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/collaboration/sessions",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_sessions",
+    "spec_path": "/collaboration/sessions",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/cross-language/analyze-project",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "analyze_project",
+    "spec_path": "/cross-language/analyze-project",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/cross-language/languages",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_supported_languages",
+    "spec_path": "/cross-language/languages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/cross-language/parse",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "parse_file",
+    "spec_path": "/cross-language/parse",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/cross-language/translate",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "translate_code",
+    "spec_path": "/cross-language/translate",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/evolution/health",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "evolution_health",
+    "spec_path": "/evolution/health",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/evolution/operators",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_operators",
+    "spec_path": "/evolution/operators",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/evolution/operators",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "register_operator",
+    "spec_path": "/evolution/operators",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/evolution/operators/{op_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_operator",
+    "spec_path": "/evolution/operators/{op_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/evolution/operators/{op_id}/evolve",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "evolve_operator",
+    "spec_path": "/evolution/operators/{op_id}/evolve",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/evolution/operators/{op_id}/prd",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_prd",
+    "spec_path": "/evolution/operators/{op_id}/prd",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/evolution/operators/{op_id}/promote",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "promote_operator",
+    "spec_path": "/evolution/operators/{op_id}/promote",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/evolution/operators/{op_id}/shadow",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "record_shadow",
+    "spec_path": "/evolution/operators/{op_id}/shadow",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/flow/phase1",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "flow_phase1",
+    "spec_path": "/flow/phase1",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "POST",
+    "path": "/flow/phase2",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "flow_phase2",
+    "spec_path": "/flow/phase2",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "POST",
+    "path": "/flow/phase3",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "flow_phase3",
+    "spec_path": "/flow/phase3",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/health",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "health",
+    "spec_path": "/health",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/health/execution-runtime",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "execution_runtime_health",
+    "spec_path": "/health/execution-runtime",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/health/personal-runtime",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "personal_runtime_health",
+    "spec_path": "/health/personal-runtime",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/init",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "init_project_route",
+    "spec_path": "/init",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/integrations/github/create-issue",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "github_create_issue",
+    "spec_path": "/integrations/github/create-issue",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/integrations/list",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_integrations",
+    "spec_path": "/integrations/list",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/integrations/notify",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "notify",
+    "spec_path": "/integrations/notify",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/integrations/send-to",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "send_to",
+    "spec_path": "/integrations/send-to",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/integrations/slack/send-message",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "slack_send_message",
+    "spec_path": "/integrations/slack/send-message",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/invariants/check",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "invariant_check",
+    "spec_path": "/invariants/check",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/master/chat",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "master_chat",
+    "spec_path": "/master/chat",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/master/tools",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_master_tools",
+    "spec_path": "/master/tools",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/mcp",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "remote_mcp_terminate",
+    "spec_path": "/mcp",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/mcp",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "list_mcp_servers",
+    "spec_path": "/mcp",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/mcp",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "remote_mcp_jsonrpc",
+    "spec_path": "/mcp",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/mcp/call",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "mcp_call_route",
+    "spec_path": "/mcp/call",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/mcp/connect",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "mcp_connect_route",
+    "spec_path": "/mcp/connect",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/mcp/health",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "remote_mcp_health",
+    "spec_path": "/mcp/health",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/models",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_models",
+    "spec_path": "/models",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/models/catalog",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "models_catalog",
+    "spec_path": "/models/catalog",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/models/load",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "load_model",
+    "spec_path": "/models/load",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/models/register",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "register_model",
+    "spec_path": "/models/register",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/models/registry",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_registry",
+    "spec_path": "/models/registry",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/models/{model_name}/versions",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_versions",
+    "spec_path": "/models/{model_name}/versions",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/multimodal/analyze",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "analyze_file",
+    "spec_path": "/multimodal/analyze",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/multimodal/document/analyze",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "analyze_document",
+    "spec_path": "/multimodal/document/analyze",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/multimodal/document/segments",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "segment_document",
+    "spec_path": "/multimodal/document/segments",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/multimodal/document/text",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "extract_text_from_document",
+    "spec_path": "/multimodal/document/text",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/multimodal/image/analyze",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "analyze_image",
+    "spec_path": "/multimodal/image/analyze",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/multimodal/image/code",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "extract_code_from_image",
+    "spec_path": "/multimodal/image/code",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/multimodal/image/ocr",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "extract_ocr",
+    "spec_path": "/multimodal/image/ocr",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/multimodal/prepare-for-llm",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "prepare_for_llm",
+    "spec_path": "/multimodal/prepare-for-llm",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/neurosymbolic/allocate",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "neuro_symbolic_allocate",
+    "spec_path": "/neurosymbolic/allocate",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/neurosymbolic/deadlock",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "neuro_symbolic_deadlock",
+    "spec_path": "/neurosymbolic/deadlock",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/neurosymbolic/game",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "neuro_symbolic_game",
+    "spec_path": "/neurosymbolic/game",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/neurosymbolic/plan",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "neuro_symbolic_plan",
+    "spec_path": "/neurosymbolic/plan",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/notifications/stream",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "notifications_stream",
+    "spec_path": "/notifications/stream",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/notifications/{notification_id}/approve",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "approve_notification",
+    "spec_path": "/notifications/{notification_id}/approve",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "POST",
+    "path": "/observer/lookahead",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "observer_lookahead",
+    "spec_path": "/observer/lookahead",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/omni/webhook/{channel_name}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "inbound_webhook",
+    "spec_path": "/omni/webhook/{channel_name}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/operator/dispatch",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "operator_dispatch",
+    "spec_path": "/operator/dispatch",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/performance/cache/get",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "cache_get",
+    "spec_path": "/performance/cache/get",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/performance/cache/set",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "cache_set",
+    "spec_path": "/performance/cache/set",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/performance/cache/stats",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "cache_stats",
+    "spec_path": "/performance/cache/stats",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/performance/cache/warmup",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "cache_warmup",
+    "spec_path": "/performance/cache/warmup",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/performance/cpu/analyze",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "analyze_cpu_usage",
+    "spec_path": "/performance/cpu/analyze",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/performance/incremental/get",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "incremental_get_value",
+    "spec_path": "/performance/incremental/get",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/performance/incremental/graph",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_dependency_graph",
+    "spec_path": "/performance/incremental/graph",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/performance/incremental/register",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "incremental_register",
+    "spec_path": "/performance/incremental/register",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/performance/incremental/set",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "incremental_set_value",
+    "spec_path": "/performance/incremental/set",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/performance/memory/analyze",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "analyze_memory_usage",
+    "spec_path": "/performance/memory/analyze",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/performance/prompt-cache",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "prompt_cache_stats",
+    "spec_path": "/performance/prompt-cache",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/performance/prompt-cache/typing-signal",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "prompt_cache_typing_signal",
+    "spec_path": "/performance/prompt-cache/typing-signal",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/permission/evaluate",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "evaluate",
+    "spec_path": "/permission/evaluate",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/permission/pending",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "pending",
+    "spec_path": "/permission/pending",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/permission/profile",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_current_profile",
+    "spec_path": "/permission/profile",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/permission/profile",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "set_permission_profile",
+    "spec_path": "/permission/profile",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/permission/profiles",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_permission_profiles",
+    "spec_path": "/permission/profiles",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/permission/{request_id}/approve",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "approve",
+    "spec_path": "/permission/{request_id}/approve",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/permission/{request_id}/deny",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "deny",
+    "spec_path": "/permission/{request_id}/deny",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/projects",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_projects",
+    "spec_path": "/projects",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/projects",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "create_project",
+    "spec_path": "/projects",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/projects/{project_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_project",
+    "spec_path": "/projects/{project_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/projects/{project_id}/brief",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_project_brief",
+    "spec_path": "/projects/{project_id}/brief",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "PUT",
+    "path": "/projects/{project_id}/brief",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "update_project_brief",
+    "spec_path": "/projects/{project_id}/brief",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/projects/{project_id}/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "get_project_messages",
+    "spec_path": "/projects/{project_id}/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/projects/{project_id}/messages",
+    "auth": "require_user",
+    "auth_deps": [
+      "require_user"
+    ],
+    "name": "post_project_message",
+    "spec_path": "/projects/{project_id}/messages",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/projects/{project_id}/tasks",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_project_tasks",
+    "spec_path": "/projects/{project_id}/tasks",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/projects/{project_id}/tasks/{task_id}/{action}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "project_task_action",
+    "spec_path": "/projects/{project_id}/tasks/{task_id}/{action}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/prompt",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "handle_prompt",
+    "spec_path": "/prompt",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/research",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "research_route",
+    "spec_path": "/research",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/search/index",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "index_project",
+    "spec_path": "/search/index",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/search/recommend",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "recommend_completion",
+    "spec_path": "/search/recommend",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/search/search",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "search_code",
+    "spec_path": "/search/search",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/search/stats",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_search_stats",
+    "spec_path": "/search/stats",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/security/audit-logs",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_audit_logs",
+    "spec_path": "/security/audit-logs",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/security/audit-stats",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_audit_stats",
+    "spec_path": "/security/audit-stats",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/security/permissions",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_permissions_config",
+    "spec_path": "/security/permissions",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/security/validate-input",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "validate_input_endpoint",
+    "spec_path": "/security/validate-input",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/security/violations",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_recent_violations",
+    "spec_path": "/security/violations",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/session",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "create_session",
+    "spec_path": "/session",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/session/{session_id}",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_session",
+    "spec_path": "/session/{session_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/session/{session_id}/changes",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "get_session_changes",
+    "spec_path": "/session/{session_id}/changes",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/session/{session_id}/compact",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "compact_session",
+    "spec_path": "/session/{session_id}/compact",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/session/{session_id}/fork",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "fork_session",
+    "spec_path": "/session/{session_id}/fork",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/session/{session_id}/lineage",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "session_lineage",
+    "spec_path": "/session/{session_id}/lineage",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/session/{session_id}/resume",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "resume_session",
+    "spec_path": "/session/{session_id}/resume",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/session/{session_id}/share",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "share_session",
+    "spec_path": "/session/{session_id}/share",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/session/{session_id}/undo",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "undo_session",
+    "spec_path": "/session/{session_id}/undo",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/sessions",
+    "auth": "get_current_user(optional)",
+    "auth_deps": [
+      "get_current_user"
+    ],
+    "name": "list_sessions",
+    "spec_path": "/sessions",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/stream/execution/{execution_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "stream_execution",
+    "spec_path": "/stream/execution/{execution_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/stream/{session_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "stream_session",
+    "spec_path": "/stream/{session_id}",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "path": "/threat-model/evolve",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "threat_model_evolve",
+    "spec_path": "/threat-model/evolve",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/tool",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_tools",
+    "spec_path": "/tool",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/tool",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "execute_tool_route",
+    "spec_path": "/tool",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/tools/execute",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "execute_tool",
+    "spec_path": "/tools/execute",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/tools/execute-parallel",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "execute_tools_parallel",
+    "spec_path": "/tools/execute-parallel",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/tools/sandbox/execute",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "execute_in_sandbox",
+    "spec_path": "/tools/sandbox/execute",
+    "in_openapi": true,
+    "frontend_called": true,
+    "status": 422
+  },
+  {
+    "method": "GET",
+    "path": "/tools/suggestions",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "get_tool_suggestions",
+    "spec_path": "/tools/suggestions",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/tools/{tool_name}/history",
+    "auth": "require_owner",
+    "auth_deps": [
+      "require_owner"
+    ],
+    "name": "get_tool_history",
+    "spec_path": "/tools/{tool_name}/history",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/vault/pending",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_pending",
+    "spec_path": "/vault/pending",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/vault/secrets",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_secrets",
+    "spec_path": "/vault/secrets",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/vault/secrets",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "set_secret",
+    "spec_path": "/vault/secrets",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/vault/tasks/{task_id}/approve",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "handle_human_approval",
+    "spec_path": "/vault/tasks/{task_id}/approve",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/visualization/architecture",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "generate_architecture_diagram",
+    "spec_path": "/visualization/architecture",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/visualization/debugger/breakpoint",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_nonproduction_debug"
+    ],
+    "name": "add_breakpoint",
+    "spec_path": "/visualization/debugger/breakpoint",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/visualization/debugger/state",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_nonproduction_debug"
+    ],
+    "name": "get_debugger_state",
+    "spec_path": "/visualization/debugger/state",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/visualization/generate",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "generate_code_graph",
+    "spec_path": "/visualization/generate",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/visualization/metrics",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_graph_metrics",
+    "spec_path": "/visualization/metrics",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/vscode/chat",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "vscode_chat",
+    "spec_path": "/vscode/chat",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/vscode/debug/breakpoint",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_nonproduction_debug"
+    ],
+    "name": "add_breakpoint",
+    "spec_path": "/vscode/debug/breakpoint",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/vscode/debug/start",
+    "auth": "public/none",
+    "auth_deps": [
+      "require_nonproduction_debug"
+    ],
+    "name": "start_debug_session",
+    "spec_path": "/vscode/debug/start",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/vscode/projects",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "list_vscode_projects",
+    "spec_path": "/vscode/projects",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/vscode/run-agent",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "run_agent",
+    "spec_path": "/vscode/run-agent",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "POST",
+    "path": "/vscode/run-stream",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "run_stream",
+    "spec_path": "/vscode/run-stream",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/vscode/session/{session_id}",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_session",
+    "spec_path": "/vscode/session/{session_id}",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  },
+  {
+    "method": "GET",
+    "path": "/vscode/workspace-status",
+    "auth": "public/none",
+    "auth_deps": [],
+    "name": "get_workspace_status",
+    "spec_path": "/vscode/workspace-status",
+    "in_openapi": true,
+    "frontend_called": false,
+    "status": null
+  }
+]

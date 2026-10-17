@@ -1,0 +1,3691 @@
+[
+  {
+    "method": "POST",
+    "openapi_path": "/advanced-visualization/3d-graph",
+    "test_path": "/advanced-visualization/3d-graph",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"ast_data\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/advanced-visualization/data-flow-diagram",
+    "test_path": "/advanced-visualization/data-flow-diagram",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"list_type\",\"loc\":[\"body\"],\"msg\":\"Input should be a valid list\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/advanced-visualization/debug/edit-variable",
+    "test_path": "/advanced-visualization/debug/edit-variable",
+    "status": 404,
+    "response": "{\"detail\":\"debug endpoints are disabled\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/advanced-visualization/debug/state",
+    "test_path": "/advanced-visualization/debug/state",
+    "status": 404,
+    "response": "{\"detail\":\"debug endpoints are disabled\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/advanced-visualization/debug/step",
+    "test_path": "/advanced-visualization/debug/step",
+    "status": 404,
+    "response": "{\"detail\":\"debug endpoints are disabled\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/advanced-visualization/deployment-topology",
+    "test_path": "/advanced-visualization/deployment-topology",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"list_type\",\"loc\":[\"body\"],\"msg\":\"Input should be a valid list\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/adversarial/review",
+    "test_path": "/adversarial/review",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"strategy_code\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/agent-collaboration/agent",
+    "test_path": "/agent-collaboration/agent",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"agent_id\"],\"msg\":\"Field required\",\"input\":{}},{\"type\":\"missing\",\"loc\":[\"body\",\"role\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/agent-collaboration/agent/{agent_id}",
+    "test_path": "/agent-collaboration/agent/test-id",
+    "status": 404,
+    "response": "{\"detail\":\"Agent not found\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/agent-collaboration/graph",
+    "test_path": "/agent-collaboration/graph",
+    "status": 200,
+    "response": "{\"status\":\"success\",\"graph\":{\"nodes\":[],\"edges\":[]}}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/agent-collaboration/summary",
+    "test_path": "/agent-collaboration/summary",
+    "status": 200,
+    "response": "{\"status\":\"success\",\"summary\":{\"coordinator_id\":\"default\",\"total_agents\":4,\"total_tasks\":0,\"completed_tasks\":0,\"failed_tasks\":0,\"pending_tasks\":0,\"active_messages\":0}}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/agent-collaboration/task",
+    "test_path": "/agent-collaboration/task",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{}},{\"type\":\"missing\",\"loc\":[\"body\",\"agent_role\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/agent-collaboration/task/assign",
+    "test_path": "/agent-collaboration/task/assign",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"task_id\"],\"msg\":\"Field required\",\"input\":{}},{\"type\":\"missing\",\"loc\":[\"body\",\"agent_id\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/agent-collaboration/task/complete",
+    "test_path": "/agent-collaboration/task/complete",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"task_id\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/agent-collaboration/task/{task_id}",
+    "test_path": "/agent-collaboration/task/test-id",
+    "status": 404,
+    "response": "{\"detail\":\"Task not found\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/agent/invoke",
+    "test_path": "/agent/invoke",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"text\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/agent/personas",
+    "test_path": "/agent/personas",
+    "status": 200,
+    "response": "{\"personas\":[{\"name\":\"build\",\"tools\":[\"read\",\"read_range\",\"write\",\"edit\",\"bash\",\"grep\",\"glob\",\"list\",\"webfetch\",\"websearch\",\"lsp_definition\",\"lsp_references\",\"lsp_hover\",\"lsp_doc_symbol\",\"lsp_ws_symbo"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/analysis/dependencies",
+    "test_path": "/analysis/dependencies",
+    "status": 200,
+    "response": "{\"status\":\"success\",\"graph\":{}}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/analysis/project",
+    "test_path": "/analysis/project",
+    "status": 0,
+    "response": "timed out"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/analysis/search",
+    "test_path": "/analysis/search",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"query\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/analysis/summary/{file_path}",
+    "test_path": "/analysis/summary/test-val",
+    "status": 200,
+    "response": "{\"status\":\"success\",\"summary\":{\"file\":\"test-val\",\"function_count\":0,\"class_count\":0,\"symbol_count\":0,\"functions\":[],\"classes\":[]}}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/analysis/symbols",
+    "test_path": "/analysis/symbols",
+    "status": 200,
+    "response": "{\"status\":\"success\",\"count\":46753,\"symbols\":[{\"name\":\"_compat_getattr\",\"type\":\"function\",\"file\":\"veya/compat.py\",\"line\":31,\"docstring\":null},{\"name\":\"is_retired_executor\",\"type\":\"function\",\"file\":\"vey"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/3o/tasks",
+    "test_path": "/api/v1/3o/tasks",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"user_input\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/3o/tasks/{task_id}",
+    "test_path": "/api/v1/3o/tasks/test-id",
+    "status": 404,
+    "response": "{\"detail\":\"\\\"\u4efb\u52a1 'test-id' \u4e0d\u5b58\u5728\\\"\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/3o/tasks/{task_id}/pause",
+    "test_path": "/api/v1/3o/tasks/test-id/pause",
+    "status": 404,
+    "response": "{\"detail\":\"\\\"\u4efb\u52a1 'test-id' \u4e0d\u5b58\u5728\\\"\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/3o/tasks/{task_id}/resume",
+    "test_path": "/api/v1/3o/tasks/test-id/resume",
+    "status": 404,
+    "response": "{\"detail\":\"\\\"\u4efb\u52a1 'test-id' \u4e0d\u5b58\u5728\\\"\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/3o/tasks/{task_id}/stream",
+    "test_path": "/api/v1/3o/tasks/test-id/stream",
+    "status": 404,
+    "response": "{\"detail\":\"\\\"\u4efb\u52a1 'test-id' \u4e0d\u5b58\u5728\\\"\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/a/{token}",
+    "test_path": "/api/v1/a/test-val",
+    "status": 404,
+    "response": "{\"detail\":\"Artifact not found\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/agent/answer",
+    "test_path": "/api/v1/agent/answer",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"request_id\"],\"msg\":\"Field required\",\"input\":{}},{\"type\":\"missing\",\"loc\":[\"body\",\"answer\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/agent/approval",
+    "test_path": "/api/v1/agent/approval",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"request_id\"],\"msg\":\"Field required\",\"input\":{}},{\"type\":\"missing\",\"loc\":[\"body\",\"approved\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/agent/history/{sid}",
+    "test_path": "/api/v1/agent/history/test-id",
+    "status": 200,
+    "response": "{\"session_id\":\"test-id\",\"messages\":[]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/agent/run",
+    "test_path": "/api/v1/agent/run",
+    "status": 0,
+    "response": "timed out"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/agent/sessions",
+    "test_path": "/api/v1/agent/sessions",
+    "status": 200,
+    "response": "{\"sessions\":[{\"sid\":\"sess_01a147a7-f7a2-7582-8f4c-60d9110d4ae0\",\"title\":\"test text\",\"msg_count\":2,\"updated_at\":1792203556},{\"sid\":\"sess_01a147a7-c297-7554-a942-281925493fdc\",\"title\":\"test text\",\"msg_c"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/agent/sessions/{sid}/attach",
+    "test_path": "/api/v1/agent/sessions/test-id/attach",
+    "status": 200,
+    "response": "{\"session_id\":\"test-id\",\"messages\":[],\"active\":false}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/agent/skills-inject",
+    "test_path": "/api/v1/agent/skills-inject",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"description\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/agent/steer",
+    "test_path": "/api/v1/agent/steer",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"session_id\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/agent/stop",
+    "test_path": "/api/v1/agent/stop",
+    "status": 200,
+    "response": "{\"cancelled\":\"none\",\"error\":\"session_id required\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/agent/stream",
+    "test_path": "/api/v1/agent/stream",
+    "status": 200,
+    "response": "retry: 3000\n\nid: 1:1\ndata: {\"type\": \"master_start\", \"session_id\": \"sess_01a147a9-a0d2-7139-9432-16d0b9b1470d\", \"id\": \"1:1\", \"epoch\": 1, \"seq\": 1}\n\nid: 1:2\ndata: {\"type\": \"master_round\", \"session_id\": "
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/agent/stream_status",
+    "test_path": "/api/v1/agent/stream_status",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"query\",\"session_id\"],\"msg\":\"Field required\",\"input\":null}]}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/agents/cli",
+    "test_path": "/api/v1/agents/cli",
+    "status": 200,
+    "response": "{\"profiles\":[{\"name\":\"claude-code\",\"command_template\":\"claude {prompt} --cwd {cwd}\",\"detected_path\":\"/home/soffy/.local/bin/claude\",\"version\":\"2.1.214 (Claude Code)\",\"is_custom\":false,\"available\":true"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/agents/cli/custom",
+    "test_path": "/api/v1/agents/cli/custom",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"name\"],\"msg\":\"Field required\",\"input\":{}},{\"type\":\"missing\",\"loc\":[\"body\",\"command_template\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/approvals",
+    "test_path": "/api/v1/approvals",
+    "status": 200,
+    "response": "{\"approvals\":[],\"scope\":\"659726e1a500ade3\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/approvals/{approval_id}/resolve",
+    "test_path": "/api/v1/approvals/test-id/resolve",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"decision\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/artifacts/shares",
+    "test_path": "/api/v1/artifacts/shares",
+    "status": 403,
+    "response": "{\"detail\":\"Public sharing is disabled\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/artifacts/{artifact_id}/share",
+    "test_path": "/api/v1/artifacts/test-id/share",
+    "status": 403,
+    "response": "{\"detail\":\"Public sharing is disabled\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/artifacts/{artifact_id}/share",
+    "test_path": "/api/v1/artifacts/test-id/share",
+    "status": 403,
+    "response": "{\"detail\":\"Public sharing is disabled\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/auth/login",
+    "test_path": "/api/v1/auth/login",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"username\"],\"msg\":\"Field required\",\"input\":{}},{\"type\":\"missing\",\"loc\":[\"body\",\"password\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/auth/logout",
+    "test_path": "/api/v1/auth/logout",
+    "status": 200,
+    "response": "{\"status\":\"ok\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/auth/me",
+    "test_path": "/api/v1/auth/me",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/auth/register",
+    "test_path": "/api/v1/auth/register",
+    "status": 422,
+    "response": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"username\"],\"msg\":\"Field required\",\"input\":{}},{\"type\":\"missing\",\"loc\":[\"body\",\"password\"],\"msg\":\"Field required\",\"input\":{}}]}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/automation/issue-decompose",
+    "test_path": "/api/v1/automation/issue-decompose",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/autonomous/run",
+    "test_path": "/api/v1/autonomous/run",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/backends",
+    "test_path": "/api/v1/backends",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/backends/register",
+    "test_path": "/api/v1/backends/register",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/backends/run",
+    "test_path": "/api/v1/backends/run",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/backends/status",
+    "test_path": "/api/v1/backends/status",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/board",
+    "test_path": "/api/v1/board",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bot",
+    "test_path": "/api/v1/bot",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bot-runtime",
+    "test_path": "/api/v1/bot-runtime",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bot-runtime",
+    "test_path": "/api/v1/bot-runtime",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bot-runtime/{bot_id}",
+    "test_path": "/api/v1/bot-runtime/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bot-runtime/{bot_id}/deploy",
+    "test_path": "/api/v1/bot-runtime/test-id/deploy",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bot-runtime/{bot_id}/goals",
+    "test_path": "/api/v1/bot-runtime/test-id/goals",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bot-runtime/{bot_id}/goals/{goal_id}",
+    "test_path": "/api/v1/bot-runtime/test-id/goals/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bot-runtime/{bot_id}/messages",
+    "test_path": "/api/v1/bot-runtime/test-id/messages",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bot-runtime/{bot_id}/pause",
+    "test_path": "/api/v1/bot-runtime/test-id/pause",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bot-runtime/{bot_id}/resume",
+    "test_path": "/api/v1/bot-runtime/test-id/resume",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bot-runtime/{bot_id}/sessions",
+    "test_path": "/api/v1/bot-runtime/test-id/sessions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bot-runtime/{bot_id}/start",
+    "test_path": "/api/v1/bot-runtime/test-id/start",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bot-runtime/{bot_id}/stop",
+    "test_path": "/api/v1/bot-runtime/test-id/stop",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bot/onboarding",
+    "test_path": "/api/v1/bot/onboarding",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bot/tasks",
+    "test_path": "/api/v1/bot/tasks",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots",
+    "test_path": "/api/v1/bots",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots",
+    "test_path": "/api/v1/bots",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/groups",
+    "test_path": "/api/v1/bots/groups",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/groups",
+    "test_path": "/api/v1/bots/groups",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/groups/{group_id}/messages",
+    "test_path": "/api/v1/bots/groups/test-id/messages",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/groups/{group_id}/messages",
+    "test_path": "/api/v1/bots/groups/test-id/messages",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/proposals/{proposal_id}/accept",
+    "test_path": "/api/v1/bots/proposals/test-id/accept",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}",
+    "test_path": "/api/v1/bots/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PATCH",
+    "openapi_path": "/api/v1/bots/{bot_id}",
+    "test_path": "/api/v1/bots/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/bots/{bot_id}",
+    "test_path": "/api/v1/bots/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/checkpoints/{card_id}",
+    "test_path": "/api/v1/bots/test-id/checkpoints/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/corrections",
+    "test_path": "/api/v1/bots/test-id/corrections",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/fork",
+    "test_path": "/api/v1/bots/test-id/fork",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory",
+    "test_path": "/api/v1/bots/test-id/memory",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory/entries",
+    "test_path": "/api/v1/bots/test-id/memory/entries",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory/journal",
+    "test_path": "/api/v1/bots/test-id/memory/journal",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory/retract",
+    "test_path": "/api/v1/bots/test-id/memory/retract",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory/search",
+    "test_path": "/api/v1/bots/test-id/memory/search",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory/summary",
+    "test_path": "/api/v1/bots/test-id/memory/summary",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory/user-global",
+    "test_path": "/api/v1/bots/test-id/memory/user-global",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory/user-global",
+    "test_path": "/api/v1/bots/test-id/memory/user-global",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory/{name}",
+    "test_path": "/api/v1/bots/test-id/memory/test-name",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory/{name}",
+    "test_path": "/api/v1/bots/test-id/memory/test-name",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/bots/{bot_id}/memory/{name}",
+    "test_path": "/api/v1/bots/test-id/memory/test-name",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/message_bot",
+    "test_path": "/api/v1/bots/test-id/message_bot",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/messages",
+    "test_path": "/api/v1/bots/test-id/messages",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/messages",
+    "test_path": "/api/v1/bots/test-id/messages",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/presets/apply",
+    "test_path": "/api/v1/bots/test-id/presets/apply",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/public",
+    "test_path": "/api/v1/bots/test-id/public",
+    "status": 401,
+    "response": "{\"detail\":\"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/public/messages",
+    "test_path": "/api/v1/bots/test-id/public/messages",
+    "status": 401,
+    "response": "{\"detail\":\"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/public/messages",
+    "test_path": "/api/v1/bots/test-id/public/messages",
+    "status": 401,
+    "response": "{\"detail\":\"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/public_share",
+    "test_path": "/api/v1/bots/test-id/public_share",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/routines",
+    "test_path": "/api/v1/bots/test-id/routines",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/routines",
+    "test_path": "/api/v1/bots/test-id/routines",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/routines/webhook",
+    "test_path": "/api/v1/bots/test-id/routines/webhook",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PATCH",
+    "openapi_path": "/api/v1/bots/{bot_id}/routines/{routine_id}",
+    "test_path": "/api/v1/bots/test-id/routines/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/bots/{bot_id}/routines/{routine_id}",
+    "test_path": "/api/v1/bots/test-id/routines/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/routines/{routine_id}/history",
+    "test_path": "/api/v1/bots/test-id/routines/test-id/history",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/routines/{routine_id}/run_now",
+    "test_path": "/api/v1/bots/test-id/routines/test-id/run_now",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/supervised",
+    "test_path": "/api/v1/bots/test-id/supervised",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/cancel",
+    "test_path": "/api/v1/bots/test-id/supervised/test-id/cancel",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/interval",
+    "test_path": "/api/v1/bots/test-id/supervised/test-id/interval",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/max-repairs",
+    "test_path": "/api/v1/bots/test-id/supervised/test-id/max-repairs",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/pause",
+    "test_path": "/api/v1/bots/test-id/supervised/test-id/pause",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/resume",
+    "test_path": "/api/v1/bots/test-id/supervised/test-id/resume",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/bots/{bot_id}/supervised/{binding_id}/stall",
+    "test_path": "/api/v1/bots/test-id/supervised/test-id/stall",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/bots/{bot_id}/workers",
+    "test_path": "/api/v1/bots/test-id/workers",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/browser/run",
+    "test_path": "/api/v1/browser/run",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/channels/bind/code",
+    "test_path": "/api/v1/channels/bind/code",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/channels/bindings",
+    "test_path": "/api/v1/channels/bindings",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/channels/dingtalk/webhook",
+    "test_path": "/api/v1/channels/dingtalk/webhook",
+    "status": 403,
+    "response": "{\"detail\":\"dingtalk: signature verification failed\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/channels/feishu/webhook",
+    "test_path": "/api/v1/channels/feishu/webhook",
+    "status": 403,
+    "response": "{\"detail\":\"feishu: signature verification failed\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/channels/morning-feed/config",
+    "test_path": "/api/v1/channels/morning-feed/config",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/channels/morning-feed/config",
+    "test_path": "/api/v1/channels/morning-feed/config",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/channels/status",
+    "test_path": "/api/v1/channels/status",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/channels/telegram/webhook",
+    "test_path": "/api/v1/channels/telegram/webhook",
+    "status": 403,
+    "response": "{\"detail\":\"telegram: signature verification failed\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/channels/unbind",
+    "test_path": "/api/v1/channels/unbind",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/channels/wecom/verify",
+    "test_path": "/api/v1/channels/wecom/verify",
+    "status": 403,
+    "response": "{\"detail\":\"signature verification failed\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/channels/wecom/webhook",
+    "test_path": "/api/v1/channels/wecom/webhook",
+    "status": 403,
+    "response": "{\"detail\":\"wecom: signature verification failed\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/continuity",
+    "test_path": "/api/v1/continuity",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/design/capture",
+    "test_path": "/api/v1/design/capture",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/engines",
+    "test_path": "/api/v1/engines",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/execution/runtime/list",
+    "test_path": "/api/v1/execution/runtime/list",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/execution/runtime/{runtime_id}",
+    "test_path": "/api/v1/execution/runtime/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/execution/{execution_id}",
+    "test_path": "/api/v1/execution/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/execution/{execution_id}/cancel",
+    "test_path": "/api/v1/execution/test-id/cancel",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/execution/{execution_id}/capabilities",
+    "test_path": "/api/v1/execution/test-id/capabilities",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/execution/{execution_id}/recover",
+    "test_path": "/api/v1/execution/test-id/recover",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/execution/{execution_id}/resume",
+    "test_path": "/api/v1/execution/test-id/resume",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/execution/{execution_id}/suspend",
+    "test_path": "/api/v1/execution/test-id/suspend",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/execution/{execution_id}/terminate",
+    "test_path": "/api/v1/execution/test-id/terminate",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/fs/read",
+    "test_path": "/api/v1/fs/read",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/fs/tree",
+    "test_path": "/api/v1/fs/tree",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/fs/upload",
+    "test_path": "/api/v1/fs/upload",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/git/commit",
+    "test_path": "/api/v1/git/commit",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/git/diff",
+    "test_path": "/api/v1/git/diff",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/git/status",
+    "test_path": "/api/v1/git/status",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/goal-driven/run",
+    "test_path": "/api/v1/goal-driven/run",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/goal-driven/status",
+    "test_path": "/api/v1/goal-driven/status",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/grants",
+    "test_path": "/api/v1/grants",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/grants/{grant_id}",
+    "test_path": "/api/v1/grants/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/graph/files",
+    "test_path": "/api/v1/graph/files",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/graph/schema",
+    "test_path": "/api/v1/graph/schema",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/gsk/evidence",
+    "test_path": "/api/v1/gsk/evidence",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/gsk/receipts",
+    "test_path": "/api/v1/gsk/receipts",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/h/{filename}",
+    "test_path": "/api/v1/h/test-name",
+    "status": 400,
+    "response": "{\"detail\":\"only .html pages are served\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/handoff",
+    "test_path": "/api/v1/handoff",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/handoff/{handoff_id}/cancel",
+    "test_path": "/api/v1/handoff/test-id/cancel",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/handoff/{handoff_id}/done",
+    "test_path": "/api/v1/handoff/test-id/done",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/html/{filename}",
+    "test_path": "/api/v1/html/test-name",
+    "status": 400,
+    "response": "{\"detail\":\"only .html pages are served\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/knowledge",
+    "test_path": "/api/v1/knowledge",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/learning/candidates",
+    "test_path": "/api/v1/learning/candidates",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/learning/{learning_id}",
+    "test_path": "/api/v1/learning/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/mab/profiles",
+    "test_path": "/api/v1/mab/profiles",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/mab/profiles",
+    "test_path": "/api/v1/mab/profiles",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/mab/profiles/{profile_id}",
+    "test_path": "/api/v1/mab/profiles/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/mab/profiles/{profile_id}",
+    "test_path": "/api/v1/mab/profiles/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/mab/profiles/{profile_id}",
+    "test_path": "/api/v1/mab/profiles/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/mab/profiles/{profile_id}/enable",
+    "test_path": "/api/v1/mab/profiles/test-id/enable",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/mab/profiles/{profile_id}/revoke",
+    "test_path": "/api/v1/mab/profiles/test-id/revoke",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/mab/profiles/{profile_id}/stream-ticket",
+    "test_path": "/api/v1/mab/profiles/test-id/stream-ticket",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/mcp-presets",
+    "test_path": "/api/v1/mcp-presets",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/mcp-presets/{name}/attach",
+    "test_path": "/api/v1/mcp-presets/test-name/attach",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/mcp/categories",
+    "test_path": "/api/v1/mcp/categories",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/mcp/health",
+    "test_path": "/api/v1/mcp/health",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/memory",
+    "test_path": "/api/v1/memory",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/memory",
+    "test_path": "/api/v1/memory",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/memory/candidates/{candidate_id}",
+    "test_path": "/api/v1/memory/candidates/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/memory/candidates/{candidate_id}/commit",
+    "test_path": "/api/v1/memory/candidates/test-id/commit",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/memory/doctor",
+    "test_path": "/api/v1/memory/doctor",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/memory/{memory_id}",
+    "test_path": "/api/v1/memory/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/memory/{memory_id}/correct",
+    "test_path": "/api/v1/memory/test-id/correct",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/memory/{memory_id}/forget",
+    "test_path": "/api/v1/memory/test-id/forget",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/models",
+    "test_path": "/api/v1/models",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/models/catalog",
+    "test_path": "/api/v1/models/catalog",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w10-c/eval/export",
+    "test_path": "/api/v1/nano-w10-c/eval/export",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PATCH",
+    "openapi_path": "/api/v1/nano-w10-c/groups/{group_id}/roles",
+    "test_path": "/api/v1/nano-w10-c/groups/test-id/roles",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/nano-w10-c/secrets",
+    "test_path": "/api/v1/nano-w10-c/secrets",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w10-c/secrets/request",
+    "test_path": "/api/v1/nano-w10-c/secrets/request",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/nano-w10-c/secrets/{name}",
+    "test_path": "/api/v1/nano-w10-c/secrets/test-name",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PATCH",
+    "openapi_path": "/api/v1/nano-w10-c/secrets/{name}/scope",
+    "test_path": "/api/v1/nano-w10-c/secrets/test-name/scope",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w10-c/secrets/{name}/value",
+    "test_path": "/api/v1/nano-w10-c/secrets/test-name/value",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/nano-w9/acp/members",
+    "test_path": "/api/v1/nano-w9/acp/members",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w9/acp/members",
+    "test_path": "/api/v1/nano-w9/acp/members",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w9/acp/turn",
+    "test_path": "/api/v1/nano-w9/acp/turn",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/nano-w9/audit/verify",
+    "test_path": "/api/v1/nano-w9/audit/verify",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/nano-w9/branch-rooms",
+    "test_path": "/api/v1/nano-w9/branch-rooms",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w9/branch-rooms/open",
+    "test_path": "/api/v1/nano-w9/branch-rooms/open",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w9/branch-rooms/publish",
+    "test_path": "/api/v1/nano-w9/branch-rooms/publish",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w9/cli-gen",
+    "test_path": "/api/v1/nano-w9/cli-gen",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/nano-w9/cli-gen/phases",
+    "test_path": "/api/v1/nano-w9/cli-gen/phases",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/nano-w9/flags",
+    "test_path": "/api/v1/nano-w9/flags",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w9/search",
+    "test_path": "/api/v1/nano-w9/search",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w9/signals",
+    "test_path": "/api/v1/nano-w9/signals",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/nano-w9/trajectory",
+    "test_path": "/api/v1/nano-w9/trajectory",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/nano-w9/trajectory/{goal_id}",
+    "test_path": "/api/v1/nano-w9/trajectory/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/operators",
+    "test_path": "/api/v1/operators",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/pairing/confirm",
+    "test_path": "/api/v1/pairing/confirm",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/pairing/request",
+    "test_path": "/api/v1/pairing/request",
+    "status": 200,
+    "response": "{\"status\":\"completed\",\"op\":\"request\",\"code\":\"JANSG94J\",\"expires_at\":1792204266.8851585}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/permission/profile",
+    "test_path": "/api/v1/permission/profile",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/permission/profile",
+    "test_path": "/api/v1/permission/profile",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/permission/profiles",
+    "test_path": "/api/v1/permission/profiles",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/personal-runtime/metrics",
+    "test_path": "/api/v1/personal-runtime/metrics",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/plan/list",
+    "test_path": "/api/v1/plan/list",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/plan/{plan_id}",
+    "test_path": "/api/v1/plan/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/plugin/manage",
+    "test_path": "/api/v1/plugin/manage",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/presets/roles",
+    "test_path": "/api/v1/presets/roles",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/presets/skills",
+    "test_path": "/api/v1/presets/skills",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/projects",
+    "test_path": "/api/v1/projects",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/projects",
+    "test_path": "/api/v1/projects",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/projects/{project_id}",
+    "test_path": "/api/v1/projects/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/projects/{project_id}/brief",
+    "test_path": "/api/v1/projects/test-id/brief",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/projects/{project_id}/brief",
+    "test_path": "/api/v1/projects/test-id/brief",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/projects/{project_id}/messages",
+    "test_path": "/api/v1/projects/test-id/messages",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/projects/{project_id}/messages",
+    "test_path": "/api/v1/projects/test-id/messages",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/projects/{project_id}/tasks",
+    "test_path": "/api/v1/projects/test-id/tasks",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/projects/{project_id}/tasks/{task_id}/{action}",
+    "test_path": "/api/v1/projects/test-id/tasks/test-id/test-action",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/providers",
+    "test_path": "/api/v1/providers",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/providers/bot-model-source",
+    "test_path": "/api/v1/providers/bot-model-source",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/providers/bot-model-source/{bot_id}",
+    "test_path": "/api/v1/providers/bot-model-source/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/providers/cli-agents",
+    "test_path": "/api/v1/providers/cli-agents",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/providers/custom",
+    "test_path": "/api/v1/providers/custom",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/providers/custom/{name}",
+    "test_path": "/api/v1/providers/custom/test-name",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/providers/effective-model/{bot_id}",
+    "test_path": "/api/v1/providers/effective-model/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/providers/keys",
+    "test_path": "/api/v1/providers/keys",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/providers/keys/{provider}",
+    "test_path": "/api/v1/providers/keys/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/push/public_key",
+    "test_path": "/api/v1/push/public_key",
+    "status": 200,
+    "response": "{\"public_key\":\"BDNfrN7xn9NIsONvh7epJge7iPEjeZhxyoW78IrFTL6YEbDO1WgIbPP5GfmrLsS08Y4Hr2ZWYk9jaiWYnS5pOP8\",\"subject\":\"mailto:veya@localhost\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/push/status",
+    "test_path": "/api/v1/push/status",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/push/subscriptions",
+    "test_path": "/api/v1/push/subscriptions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/push/subscriptions",
+    "test_path": "/api/v1/push/subscriptions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/push/subscriptions",
+    "test_path": "/api/v1/push/subscriptions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/push/subscriptions/{subscription_id}",
+    "test_path": "/api/v1/push/subscriptions/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/remote/files",
+    "test_path": "/api/v1/remote/files",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/remote/files/{token}",
+    "test_path": "/api/v1/remote/files/test-val",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/remote/hosts",
+    "test_path": "/api/v1/remote/hosts",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/remote/hosts",
+    "test_path": "/api/v1/remote/hosts",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/remote/hosts/{host_id}",
+    "test_path": "/api/v1/remote/hosts/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/remote/hosts/{host_id}/files",
+    "test_path": "/api/v1/remote/hosts/test-id/files",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/remote/hosts/{host_id}/probe",
+    "test_path": "/api/v1/remote/hosts/test-id/probe",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/remote/hosts/{host_id}/runs",
+    "test_path": "/api/v1/remote/hosts/test-id/runs",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/remote/hosts/{host_id}/runs/{name}/kill",
+    "test_path": "/api/v1/remote/hosts/test-id/runs/test-name/kill",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/remote/hosts/{host_id}/ssh",
+    "test_path": "/api/v1/remote/hosts/test-id/ssh",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/remote/pending-approvals",
+    "test_path": "/api/v1/remote/pending-approvals",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/remote/sessions",
+    "test_path": "/api/v1/remote/sessions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/remote/sessions",
+    "test_path": "/api/v1/remote/sessions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/remote/sessions/{session_id}",
+    "test_path": "/api/v1/remote/sessions/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/remote/sessions/{session_id}/apply",
+    "test_path": "/api/v1/remote/sessions/test-id/apply",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/remote/sessions/{session_id}/cancel",
+    "test_path": "/api/v1/remote/sessions/test-id/cancel",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/remote/sessions/{session_id}/handoff",
+    "test_path": "/api/v1/remote/sessions/test-id/handoff",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/remote/wake-policy",
+    "test_path": "/api/v1/remote/wake-policy",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/remote/wake-policy",
+    "test_path": "/api/v1/remote/wake-policy",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/review/annotations/{goal_id}",
+    "test_path": "/api/v1/review/annotations/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/review/annotations/{goal_id}",
+    "test_path": "/api/v1/review/annotations/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/review/annotations/{goal_id}/resolve/{annotation_id}",
+    "test_path": "/api/v1/review/annotations/test-id/resolve/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/review/annotations/{goal_id}/send",
+    "test_path": "/api/v1/review/annotations/test-id/send",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/review/attribution/export",
+    "test_path": "/api/v1/review/attribution/export",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/review/attribution/file",
+    "test_path": "/api/v1/review/attribution/file",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/review/attribution/revert",
+    "test_path": "/api/v1/review/attribution/revert",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/review/fix-checks",
+    "test_path": "/api/v1/review/fix-checks",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/rkz/routines",
+    "test_path": "/api/v1/rkz/routines",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/rkz/routines",
+    "test_path": "/api/v1/rkz/routines",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/rkz/routines/{name}",
+    "test_path": "/api/v1/rkz/routines/test-name",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/rkz/routines/{name}",
+    "test_path": "/api/v1/rkz/routines/test-name",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/rkz/routines/{name}",
+    "test_path": "/api/v1/rkz/routines/test-name",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/runners",
+    "test_path": "/api/v1/runners",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/runners",
+    "test_path": "/api/v1/runners",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/runners/turn",
+    "test_path": "/api/v1/runners/turn",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/runners/{runner_id}",
+    "test_path": "/api/v1/runners/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/runners/{runner_id}/bots/{bot_id}",
+    "test_path": "/api/v1/runners/test-id/bots/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/runners/{runner_id}/health",
+    "test_path": "/api/v1/runners/test-id/health",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/runners/{runner_id}/health",
+    "test_path": "/api/v1/runners/test-id/health",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/scheduler",
+    "test_path": "/api/v1/scheduler",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/sessions",
+    "test_path": "/api/v1/sessions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/sessions",
+    "test_path": "/api/v1/sessions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/sessions/api/v1/sessions/search",
+    "test_path": "/api/v1/sessions/api/v1/sessions/search",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/sessions/api/v1/sessions/search/rebuild",
+    "test_path": "/api/v1/sessions/api/v1/sessions/search/rebuild",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/sessions/api/v1/sessions/{session_id}/fork",
+    "test_path": "/api/v1/sessions/api/v1/sessions/test-id/fork",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/sessions/api/v1/sessions/{session_id}/fork/preview",
+    "test_path": "/api/v1/sessions/api/v1/sessions/test-id/fork/preview",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/sessions/api/v1/sessions/{session_id}/handoff",
+    "test_path": "/api/v1/sessions/api/v1/sessions/test-id/handoff",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/sessions/api/v1/sessions/{session_id}/handoff/preview",
+    "test_path": "/api/v1/sessions/api/v1/sessions/test-id/handoff/preview",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/sessions/{session_id}",
+    "test_path": "/api/v1/sessions/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/sessions/{session_id}/attach",
+    "test_path": "/api/v1/sessions/test-id/attach",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/sessions/{session_id}/events",
+    "test_path": "/api/v1/sessions/test-id/events",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/sessions/{session_id}/resume",
+    "test_path": "/api/v1/sessions/test-id/resume",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/settings/artifacts",
+    "test_path": "/api/v1/settings/artifacts",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/settings/artifacts",
+    "test_path": "/api/v1/settings/artifacts",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/signals",
+    "test_path": "/api/v1/signals",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/skill/confirm",
+    "test_path": "/api/v1/skill/confirm",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/skill/propose",
+    "test_path": "/api/v1/skill/propose",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/skill/reject",
+    "test_path": "/api/v1/skill/reject",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/skills",
+    "test_path": "/api/v1/skills",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/skills",
+    "test_path": "/api/v1/skills",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/skills/teach/draft",
+    "test_path": "/api/v1/skills/teach/draft",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/skills/teach/drafts",
+    "test_path": "/api/v1/skills/teach/drafts",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/skills/{skill_id}",
+    "test_path": "/api/v1/skills/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/api/v1/skills/{skill_id}",
+    "test_path": "/api/v1/skills/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/skills/{skill_id}/confirm",
+    "test_path": "/api/v1/skills/test-id/confirm",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/skills/{skill_id}/deprecate",
+    "test_path": "/api/v1/skills/test-id/deprecate",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/skills/{skill_id}/rollback",
+    "test_path": "/api/v1/skills/test-id/rollback",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/skills/{skill_id}/run",
+    "test_path": "/api/v1/skills/test-id/run",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/skills/{skill_id}/versions",
+    "test_path": "/api/v1/skills/test-id/versions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/spec/execute",
+    "test_path": "/api/v1/spec/execute",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/spec/presets",
+    "test_path": "/api/v1/spec/presets",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/supervision/missions",
+    "test_path": "/api/v1/supervision/missions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/supervision/missions",
+    "test_path": "/api/v1/supervision/missions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/supervision/missions/{mission_id}",
+    "test_path": "/api/v1/supervision/missions/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/supervision/missions/{mission_id}/cancel",
+    "test_path": "/api/v1/supervision/missions/test-id/cancel",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/supervision/missions/{mission_id}/continue",
+    "test_path": "/api/v1/supervision/missions/test-id/continue",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/supervision/missions/{mission_id}/escalations",
+    "test_path": "/api/v1/supervision/missions/test-id/escalations",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/supervision/missions/{mission_id}/events",
+    "test_path": "/api/v1/supervision/missions/test-id/events",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/supervision/missions/{mission_id}/mode",
+    "test_path": "/api/v1/supervision/missions/test-id/mode",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/supervision/missions/{mission_id}/reports/latest",
+    "test_path": "/api/v1/supervision/missions/test-id/reports/latest",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/supervision/missions/{mission_id}/reports/{iteration}",
+    "test_path": "/api/v1/supervision/missions/test-id/reports/test-val",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/supervision/missions/{mission_id}/reviews",
+    "test_path": "/api/v1/supervision/missions/test-id/reviews",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/supervision/missions/{mission_id}/run",
+    "test_path": "/api/v1/supervision/missions/test-id/run",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tailnet/peers",
+    "test_path": "/api/v1/tailnet/peers",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/tailnet/peers",
+    "test_path": "/api/v1/tailnet/peers",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tailnet/policy",
+    "test_path": "/api/v1/tailnet/policy",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/tailnet/policy",
+    "test_path": "/api/v1/tailnet/policy",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tailnet/requests/{request_id}",
+    "test_path": "/api/v1/tailnet/requests/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tailnet/status",
+    "test_path": "/api/v1/tailnet/status",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tasks",
+    "test_path": "/api/v1/tasks",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/tasks",
+    "test_path": "/api/v1/tasks",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tasks/{task_id}",
+    "test_path": "/api/v1/tasks/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/tasks/{task_id}/approve",
+    "test_path": "/api/v1/tasks/test-id/approve",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/tasks/{task_id}/cancel",
+    "test_path": "/api/v1/tasks/test-id/cancel",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/tasks/{task_id}/continue",
+    "test_path": "/api/v1/tasks/test-id/continue",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tasks/{task_id}/events",
+    "test_path": "/api/v1/tasks/test-id/events",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/tasks/{task_id}/resume",
+    "test_path": "/api/v1/tasks/test-id/resume",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tdx/needs-you",
+    "test_path": "/api/v1/tdx/needs-you",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tdx/publish-perms",
+    "test_path": "/api/v1/tdx/publish-perms",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/tdx/publish-perms/{agent_id}",
+    "test_path": "/api/v1/tdx/publish-perms/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tdx/runs",
+    "test_path": "/api/v1/tdx/runs",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tdx/runs/{task_id}/compare",
+    "test_path": "/api/v1/tdx/runs/test-id/compare",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/tdx/runs/{task_id}/rounds",
+    "test_path": "/api/v1/tdx/runs/test-id/rounds",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/telemetry/export",
+    "test_path": "/api/v1/telemetry/export",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/telemetry/metrics",
+    "test_path": "/api/v1/telemetry/metrics",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/telemetry/traces",
+    "test_path": "/api/v1/telemetry/traces",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/telemetry/traces/{trace_id}",
+    "test_path": "/api/v1/telemetry/traces/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/usage/quota",
+    "test_path": "/api/v1/usage/quota",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/usage/tokens",
+    "test_path": "/api/v1/usage/tokens",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/webhooks/{source}",
+    "test_path": "/api/v1/webhooks/test-val",
+    "status": 401,
+    "response": "{\"detail\":\"Missing webhook signature\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/workbench/{task_id}",
+    "test_path": "/api/v1/workbench/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/workbench/{task_id}/approval",
+    "test_path": "/api/v1/workbench/test-id/approval",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/workbench/{task_id}/artifact/{name}",
+    "test_path": "/api/v1/workbench/test-id/artifact/test-name",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/workbench/{task_id}/browser/action",
+    "test_path": "/api/v1/workbench/test-id/browser/action",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/workbench/{task_id}/browser/control",
+    "test_path": "/api/v1/workbench/test-id/browser/control",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/workbench/{task_id}/events",
+    "test_path": "/api/v1/workbench/test-id/events",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/workbench/{task_id}/plan-review",
+    "test_path": "/api/v1/workbench/test-id/plan-review",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/workbench/{task_id}/plan-review",
+    "test_path": "/api/v1/workbench/test-id/plan-review",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/workbench/{task_id}/task",
+    "test_path": "/api/v1/workbench/test-id/task",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/workspace/shared-paths",
+    "test_path": "/api/v1/workspace/shared-paths",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/api/v1/workspace/shared-paths",
+    "test_path": "/api/v1/workspace/shared-paths",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/xrt/cancel/{execution_id}",
+    "test_path": "/api/v1/xrt/cancel/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/api/v1/xrt/dispatch",
+    "test_path": "/api/v1/xrt/dispatch",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/xrt/runtimes",
+    "test_path": "/api/v1/xrt/runtimes",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/api/v1/xrt/status/{execution_id}",
+    "test_path": "/api/v1/xrt/status/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/audit/traces",
+    "test_path": "/audit/traces",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/audit/{trace_id}",
+    "test_path": "/audit/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/auth/key",
+    "test_path": "/auth/key",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/auth/providers",
+    "test_path": "/auth/providers",
+    "status": 200,
+    "response": "{\"providers\":[{\"name\":\"dashscope\",\"env_var\":\"DASHSCOPE_API_KEY\",\"configured\":false},{\"name\":\"anthropic\",\"env_var\":\"ANTHROPIC_API_KEY\",\"configured\":false},{\"name\":\"openai\",\"env_var\":\"OPENAI_API_KEY\",\"c"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/automata/jobs",
+    "test_path": "/automata/jobs",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/automata/jobs",
+    "test_path": "/automata/jobs",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/automata/jobs/{task_id}",
+    "test_path": "/automata/jobs/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/automata/run-now",
+    "test_path": "/automata/run-now",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/automata/webhooks/{source}",
+    "test_path": "/automata/webhooks/test-val",
+    "status": 401,
+    "response": "{\"detail\":\"Missing webhook signature\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/autonomous/evaluate",
+    "test_path": "/autonomous/evaluate",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/autonomous/execute",
+    "test_path": "/autonomous/execute",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/autonomous/learn",
+    "test_path": "/autonomous/learn",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/autonomous/memory",
+    "test_path": "/autonomous/memory",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/autonomous/memory/search",
+    "test_path": "/autonomous/memory/search",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/autonomous/plan",
+    "test_path": "/autonomous/plan",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/autonomous/stats",
+    "test_path": "/autonomous/stats",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/chat",
+    "test_path": "/chat",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/closed-loop/intervene",
+    "test_path": "/closed-loop/intervene",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/collaboration/session",
+    "test_path": "/collaboration/session",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/collaboration/session/{session_id}",
+    "test_path": "/collaboration/session/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/collaboration/session/{session_id}",
+    "test_path": "/collaboration/session/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/collaboration/session/{session_id}/cursor",
+    "test_path": "/collaboration/session/test-id/cursor",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/collaboration/session/{session_id}/join",
+    "test_path": "/collaboration/session/test-id/join",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/collaboration/session/{session_id}/message",
+    "test_path": "/collaboration/session/test-id/message",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/collaboration/session/{session_id}/permission",
+    "test_path": "/collaboration/session/test-id/permission",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/collaboration/sessions",
+    "test_path": "/collaboration/sessions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/cross-language/analyze-project",
+    "test_path": "/cross-language/analyze-project",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/cross-language/languages",
+    "test_path": "/cross-language/languages",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/cross-language/parse",
+    "test_path": "/cross-language/parse",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/cross-language/translate",
+    "test_path": "/cross-language/translate",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/evolution/health",
+    "test_path": "/evolution/health",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/evolution/operators",
+    "test_path": "/evolution/operators",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/evolution/operators",
+    "test_path": "/evolution/operators",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/evolution/operators/{op_id}",
+    "test_path": "/evolution/operators/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/evolution/operators/{op_id}/evolve",
+    "test_path": "/evolution/operators/test-id/evolve",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/evolution/operators/{op_id}/prd",
+    "test_path": "/evolution/operators/test-id/prd",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/evolution/operators/{op_id}/promote",
+    "test_path": "/evolution/operators/test-id/promote",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/evolution/operators/{op_id}/shadow",
+    "test_path": "/evolution/operators/test-id/shadow",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/flow/phase1",
+    "test_path": "/flow/phase1",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/flow/phase2",
+    "test_path": "/flow/phase2",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/flow/phase3",
+    "test_path": "/flow/phase3",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/health",
+    "test_path": "/health",
+    "status": 200,
+    "response": "{\"status\":\"ok\",\"version\":\"0.5.1\",\"capabilities\":{\"hands\":false}}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/health/execution-runtime",
+    "test_path": "/health/execution-runtime",
+    "status": 200,
+    "response": "{\"ok\":true,\"backend\":\"postgres\",\"authority\":\"postgresql\",\"db_connected\":true,\"schema_version\":3,\"pending_outbox\":0,\"version\":3,\"ready\":0,\"queue_depth\":0,\"active_leases\":0,\"expired_leases\":0,\"outbox_pe"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/health/personal-runtime",
+    "test_path": "/health/personal-runtime",
+    "status": 200,
+    "response": "{\"enabled\":true,\"backend\":\"postgres\",\"authority\":\"postgresql\",\"healthy\":true,\"schema_version\":3,\"pending_outbox\":0,\"queue_depth\":0,\"active_leases\":0,\"expired_leases\":0,\"execution_outbox_pending\":0,\"qu"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/init",
+    "test_path": "/init",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/integrations/github/create-issue",
+    "test_path": "/integrations/github/create-issue",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/integrations/list",
+    "test_path": "/integrations/list",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/integrations/notify",
+    "test_path": "/integrations/notify",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/integrations/send-to",
+    "test_path": "/integrations/send-to",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/integrations/slack/send-message",
+    "test_path": "/integrations/slack/send-message",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/invariants/check",
+    "test_path": "/invariants/check",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/master/chat",
+    "test_path": "/master/chat",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/master/tools",
+    "test_path": "/master/tools",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/mcp",
+    "test_path": "/mcp",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/mcp",
+    "test_path": "/mcp",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "DELETE",
+    "openapi_path": "/mcp",
+    "test_path": "/mcp",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/mcp/call",
+    "test_path": "/mcp/call",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/mcp/connect",
+    "test_path": "/mcp/connect",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/mcp/health",
+    "test_path": "/mcp/health",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/models",
+    "test_path": "/models",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/models/catalog",
+    "test_path": "/models/catalog",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/models/load",
+    "test_path": "/models/load",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/models/register",
+    "test_path": "/models/register",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/models/registry",
+    "test_path": "/models/registry",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/models/{model_name}/versions",
+    "test_path": "/models/test-name/versions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/multimodal/analyze",
+    "test_path": "/multimodal/analyze",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/multimodal/document/analyze",
+    "test_path": "/multimodal/document/analyze",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/multimodal/document/segments",
+    "test_path": "/multimodal/document/segments",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/multimodal/document/text",
+    "test_path": "/multimodal/document/text",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/multimodal/image/analyze",
+    "test_path": "/multimodal/image/analyze",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/multimodal/image/code",
+    "test_path": "/multimodal/image/code",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/multimodal/image/ocr",
+    "test_path": "/multimodal/image/ocr",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/multimodal/prepare-for-llm",
+    "test_path": "/multimodal/prepare-for-llm",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/neurosymbolic/allocate",
+    "test_path": "/neurosymbolic/allocate",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/neurosymbolic/deadlock",
+    "test_path": "/neurosymbolic/deadlock",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/neurosymbolic/game",
+    "test_path": "/neurosymbolic/game",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/neurosymbolic/plan",
+    "test_path": "/neurosymbolic/plan",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/notifications/stream",
+    "test_path": "/notifications/stream",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/notifications/{notification_id}/approve",
+    "test_path": "/notifications/test-id/approve",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/observer/lookahead",
+    "test_path": "/observer/lookahead",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/omni/webhook/{channel_name}",
+    "test_path": "/omni/webhook/test-name",
+    "status": 200,
+    "response": "{\"status\":\"received\",\"firewall_safe\":true}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/operator/dispatch",
+    "test_path": "/operator/dispatch",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/performance/cache/get",
+    "test_path": "/performance/cache/get",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/performance/cache/set",
+    "test_path": "/performance/cache/set",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/performance/cache/stats",
+    "test_path": "/performance/cache/stats",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/performance/cache/warmup",
+    "test_path": "/performance/cache/warmup",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/performance/cpu/analyze",
+    "test_path": "/performance/cpu/analyze",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/performance/incremental/get",
+    "test_path": "/performance/incremental/get",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/performance/incremental/graph",
+    "test_path": "/performance/incremental/graph",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/performance/incremental/register",
+    "test_path": "/performance/incremental/register",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/performance/incremental/set",
+    "test_path": "/performance/incremental/set",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/performance/memory/analyze",
+    "test_path": "/performance/memory/analyze",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/performance/prompt-cache",
+    "test_path": "/performance/prompt-cache",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/performance/prompt-cache/typing-signal",
+    "test_path": "/performance/prompt-cache/typing-signal",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/permission/evaluate",
+    "test_path": "/permission/evaluate",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/permission/pending",
+    "test_path": "/permission/pending",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/permission/profile",
+    "test_path": "/permission/profile",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/permission/profile",
+    "test_path": "/permission/profile",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/permission/profiles",
+    "test_path": "/permission/profiles",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/permission/{request_id}/approve",
+    "test_path": "/permission/test-id/approve",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/permission/{request_id}/deny",
+    "test_path": "/permission/test-id/deny",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/projects",
+    "test_path": "/projects",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/projects",
+    "test_path": "/projects",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/projects/{project_id}",
+    "test_path": "/projects/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/projects/{project_id}/brief",
+    "test_path": "/projects/test-id/brief",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "PUT",
+    "openapi_path": "/projects/{project_id}/brief",
+    "test_path": "/projects/test-id/brief",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/projects/{project_id}/messages",
+    "test_path": "/projects/test-id/messages",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/projects/{project_id}/messages",
+    "test_path": "/projects/test-id/messages",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/projects/{project_id}/tasks",
+    "test_path": "/projects/test-id/tasks",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/projects/{project_id}/tasks/{task_id}/{action}",
+    "test_path": "/projects/test-id/tasks/test-id/test-action",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/prompt",
+    "test_path": "/prompt",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/research",
+    "test_path": "/research",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/search/index",
+    "test_path": "/search/index",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/search/recommend",
+    "test_path": "/search/recommend",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/search/search",
+    "test_path": "/search/search",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/search/stats",
+    "test_path": "/search/stats",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/security/audit-logs",
+    "test_path": "/security/audit-logs",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/security/audit-stats",
+    "test_path": "/security/audit-stats",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/security/permissions",
+    "test_path": "/security/permissions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/security/validate-input",
+    "test_path": "/security/validate-input",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/security/violations",
+    "test_path": "/security/violations",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/session",
+    "test_path": "/session",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/session/{session_id}",
+    "test_path": "/session/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/session/{session_id}/changes",
+    "test_path": "/session/test-id/changes",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/session/{session_id}/compact",
+    "test_path": "/session/test-id/compact",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/session/{session_id}/fork",
+    "test_path": "/session/test-id/fork",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/session/{session_id}/lineage",
+    "test_path": "/session/test-id/lineage",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/session/{session_id}/resume",
+    "test_path": "/session/test-id/resume",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/session/{session_id}/share",
+    "test_path": "/session/test-id/share",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/session/{session_id}/undo",
+    "test_path": "/session/test-id/undo",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/sessions",
+    "test_path": "/sessions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/stream/execution/{execution_id}",
+    "test_path": "/stream/execution/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/stream/{session_id}",
+    "test_path": "/stream/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/threat-model/evolve",
+    "test_path": "/threat-model/evolve",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/tool",
+    "test_path": "/tool",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/tool",
+    "test_path": "/tool",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/tools/execute",
+    "test_path": "/tools/execute",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/tools/execute-parallel",
+    "test_path": "/tools/execute-parallel",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/tools/sandbox/execute",
+    "test_path": "/tools/sandbox/execute",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/tools/suggestions",
+    "test_path": "/tools/suggestions",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/tools/{tool_name}/history",
+    "test_path": "/tools/test-name/history",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/vault/pending",
+    "test_path": "/vault/pending",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/vault/secrets",
+    "test_path": "/vault/secrets",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/vault/secrets",
+    "test_path": "/vault/secrets",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/vault/tasks/{task_id}/approve",
+    "test_path": "/vault/tasks/test-id/approve",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/visualization/architecture",
+    "test_path": "/visualization/architecture",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/visualization/debugger/breakpoint",
+    "test_path": "/visualization/debugger/breakpoint",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/visualization/debugger/state",
+    "test_path": "/visualization/debugger/state",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/visualization/generate",
+    "test_path": "/visualization/generate",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/visualization/metrics",
+    "test_path": "/visualization/metrics",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/vscode/chat",
+    "test_path": "/vscode/chat",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/vscode/debug/breakpoint",
+    "test_path": "/vscode/debug/breakpoint",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/vscode/debug/start",
+    "test_path": "/vscode/debug/start",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/vscode/projects",
+    "test_path": "/vscode/projects",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/vscode/run-agent",
+    "test_path": "/vscode/run-agent",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "POST",
+    "openapi_path": "/vscode/run-stream",
+    "test_path": "/vscode/run-stream",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/vscode/session/{session_id}",
+    "test_path": "/vscode/session/test-id",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  },
+  {
+    "method": "GET",
+    "openapi_path": "/vscode/workspace-status",
+    "test_path": "/vscode/workspace-status",
+    "status": 401,
+    "response": "{\"detail\": \"\u8bf7\u5148\u767b\u5f55\"}"
+  }
+]

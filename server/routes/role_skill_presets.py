@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
@@ -24,12 +24,19 @@ class ApplyRequest(BaseModel):
     skill_ids: list[str] | None = Field(default=None, max_length=50)
 
 
-def _require_user() -> dict[str, Any]:
+def _require_user(
+    authorization: str | None = Header(None),
+    request: Request = None,
+) -> dict[str, Any]:
     """Call-time lookup so tests can monkeypatch ``auth_mod.require_user``."""
+    fn = getattr(auth_mod, "require_user")
     try:
-        return auth_mod.require_user(None)
+        return fn(authorization, request)
     except TypeError:
-        return auth_mod.require_user()
+        try:
+            return fn(authorization)
+        except TypeError:
+            return fn()
 
 
 def _registry() -> Any:
