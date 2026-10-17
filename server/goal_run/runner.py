@@ -564,9 +564,13 @@ async def _run_plan_review_gate(
         return None
     from server.goal_run.bot_identity import DEFAULT_BOT_ID
 
-    bot_turn = str(getattr(state, "bot_id", "") or DEFAULT_BOT_ID) != DEFAULT_BOT_ID
-    if bot_turn and len(state.tasks) <= 1:
-        # W11: a one-task plan in a named bot's turn (plain chat) has no ordering,
+    is_bot_turn = (
+        bool(getattr(state, "is_bot_turn", False))
+        or str(getattr(state, "bot_id", "") or DEFAULT_BOT_ID) != DEFAULT_BOT_ID
+        or any(t.assignee == "builtin" for t in state.tasks.values())
+    )
+    if is_bot_turn and len(state.tasks) <= 1:
+        # W11: a one-task plan in a bot's turn (plain chat) has no ordering,
         # dependencies or decomposition to review; reviewers reject it as "a
         # verbatim copy of the goal" and park plain chat in awaiting_user.
         # Side effects inside it still go through the action gate / approvals.
@@ -1156,6 +1160,7 @@ async def project_run_goal(
     agent_session_id: str | None = None,
     agent_instance_id: str | None = None,
     bot_id: str | None = None,
+    is_bot_turn: bool = False,
 ) -> GoalRunResponse:
     """project_run_goal 主入口（M4 规格）。
 
@@ -1395,6 +1400,8 @@ async def project_run_goal(
             state.baseline_git_state = baseline_git_state
         if state.baseline_filesystem_state is None:
             state.baseline_filesystem_state = baseline_filesystem_state
+        if is_bot_turn:
+            state.is_bot_turn = True
         # 保存 state
         save_goal_run(state, project_root)
         if _agent_identity:
@@ -2104,7 +2111,9 @@ async def _run_loop_and_finalize(
                                 elif current_task.status == TaskStatus.ready:
                                     await durable_repository.fail(
                                         claim,
-                                        {"message": "acceptance failed; retry branch remains ready"},
+                                        {
+                                            "message": "acceptance failed; retry branch remains ready"
+                                        },
                                         classification="safe_retry",
                                     )
                                 else:
@@ -2179,7 +2188,9 @@ async def _run_loop_and_finalize(
                         state.running_ids.discard(task_id)
                         if task_id not in state.unfinished_work:
                             state.unfinished_work.append(task_id)
-                        _emit_runtime_event(state, project_root, "delegate.cancelled", task_id=task_id)
+                        _emit_runtime_event(
+                            state, project_root, "delegate.cancelled", task_id=task_id
+                        )
                         response = None
                     except Exception as exc:
                         task.status = TaskStatus.blocked

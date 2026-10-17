@@ -92,14 +92,16 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
     if bot.description.strip():
         parts.append(f"Your one job: {bot.description.strip()}")
     if getattr(bot, "available_skill_ids", None):
-        import os
         import logging
+        import os
+
+        from server.skill_authority import SkillAuthorityError, canonical_skill_id
         from server.skill_progressive import is_skill_progressive_enabled, render_skills_block
-        from server.skill_authority import canonical_skill_id, SkillAuthorityError
 
         role_skills_on = False
         try:
             from server.feature_flags import enabled as _flag_enabled
+
             if _flag_enabled("VEYA_ROLE_SKILLS_RUNTIME"):
                 role_skills_on = True
         except Exception:
@@ -115,7 +117,9 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
                     canonical_skill_id(clean)
                     validated_skill_ids.append(sid)
                 except (SkillAuthorityError, Exception) as exc:
-                    logging.getLogger("server.bot_team.turns").warning(f"Invalid skill id {sid!r}: {exc}")
+                    logging.getLogger("server.bot_team.turns").warning(
+                        f"Invalid skill id {sid!r}: {exc}"
+                    )
 
             if validated_skill_ids:
                 skills_block = render_skills_block(validated_skill_ids, progressive=True)
@@ -124,7 +128,10 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
                     logging.getLogger("server.bot_team.turns").warning(
                         f"Skills block length {len(skills_block)} exceeds limit {max_len}, truncating."
                     )
-                    skills_block = skills_block[:max_len - 30] + "\n... [truncated due to length limit]\n</available_skills>"
+                    skills_block = (
+                        skills_block[: max_len - 30]
+                        + "\n... [truncated due to length limit]\n</available_skills>"
+                    )
                 if skills_block:
                     parts.append(skills_block)
         elif os.environ.get("VEYA_SKILL_INJECT_FULL", "0").lower() in ("1", "true", "yes"):
@@ -172,6 +179,21 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
                         parts.append(
                             f"<!-- veya:project-log-tail -->\n{log_tail}\n<!-- /veya:project-log-tail -->"
                         )
+    except Exception:
+        pass
+
+    try:
+        from server.feature_flags import enabled as _flag_enabled
+
+        if _flag_enabled("VEYA_EVIDENCE_REPORT"):
+            parts.append(
+                "【证据报告要求】：\n"
+                "每个论断必须标注来源（文件/URL/证据）；未经工具验证的断言或默认值单独归入【猜测】；未做或跳过的步骤单独归入【跳过】。\n"
+                "回答中必须明确包含以下三段结构：\n"
+                "【来源】\n- 列出引用的文件路径或 URL（若无则写“（无记录来源）”）\n"
+                "【猜测】\n- 列出未经工具验证的断言、假设或默认值（若无则写“（无未证实猜测）”）\n"
+                "【跳过】\n- 列出未做或跳过的步骤（若无则写“（无跳过项）”）"
+            )
     except Exception:
         pass
 
@@ -444,6 +466,19 @@ async def finish_bot_turn(
         if queue is not None:
             queue.mark_finished(bot.bot_id)
     reply = extract_reply(response, bot=bot)
+    try:
+        from server.feature_flags import enabled as _flag_enabled
+
+        if _flag_enabled("VEYA_EVIDENCE_REPORT"):
+            from server.goal_run.store import load_goal_run
+
+            goal_id = getattr(response, "goal_id", None) or (
+                response.get("goal_id") if isinstance(response, dict) else None
+            )
+            run_state = load_goal_run(workspace_id or "/repo", goal_id) if goal_id else None
+            reply = format_evidence_report(reply, state=run_state)
+    except Exception:
+        pass
     try:
         from server.feature_flags import enabled as _flag_enabled
 
@@ -786,6 +821,47 @@ async def _finish_or_await_approval(
     return task.result()
 
 
+def format_evidence_report(reply: str, state: Any = None) -> str:
+    """Ensure bot reply contains 【来源】/【猜测】/【跳过】 three sections when VEYA_EVIDENCE_REPORT is on."""
+    from server.feature_flags import enabled as _flag_enabled
+
+    try:
+        if not _flag_enabled("VEYA_EVIDENCE_REPORT"):
+            return reply
+    except Exception:
+        return reply
+
+    text = str(reply or "").strip()
+    has_src = "【来源】" in text or "来源：" in text or "来源:" in text
+    has_guess = "【猜测】" in text or "猜测：" in text or "猜测:" in text
+    has_skip = "【跳过】" in text or "跳过：" in text or "跳过:" in text
+
+    if has_src and has_guess and has_skip:
+        return text
+
+    from server.supervisor.reporting import _extract_guesses, _extract_skips, _extract_sources
+
+    sources = _extract_sources(state) if state is not None else []
+    guesses = _extract_guesses(state) if state is not None else ["（无未证实猜测）"]
+    skips = _extract_skips(state) if state is not None else ["（无跳过项）"]
+
+    sections = []
+    if not has_src:
+        src_text = ", ".join(sources) if sources else "（无记录来源）"
+        sections.append(f"【来源】\n- {src_text}")
+    if not has_guess:
+        guess_text = "; ".join(guesses) if guesses else "（无未证实猜测）"
+        sections.append(f"【猜测】\n- {guess_text}")
+    if not has_skip:
+        skip_text = ", ".join(skips) if skips else "（无跳过项）"
+        sections.append(f"【跳过】\n- {skip_text}")
+
+    suffix = "\n\n".join(sections)
+    if text:
+        return f"{text}\n\n{suffix}"
+    return suffix
+
+
 __all__ = [
     "BotTurnResult",
     "BotTurnStart",
@@ -793,6 +869,7 @@ __all__ = [
     "build_objective",
     "extract_reply",
     "finish_bot_turn",
+    "format_evidence_report",
     "parse_supervisor_phrase",
     "run_bot_turn",
 ]

@@ -385,6 +385,7 @@ class GoalRunState:
     # P3-A: the persistent bot that owns this GoalRun. Every durable object
     # derived from this run inherits it; cross-bot resume is refused.
     bot_id: str = DEFAULT_BOT_ID
+    is_bot_turn: bool = False
     status: GoalStatus = GoalStatus.planning
     # Empty means "no executor preference" — the canonical entry decides. A retired
     # executor must never be a default, so there is no literal here.
