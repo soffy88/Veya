@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -183,10 +184,13 @@ class BotCreateRequest(BaseModel):
     instructions: str | None = Field(default=None, max_length=4000)
     provider: str | None = Field(default=None, max_length=128)
     model: str | None = Field(default=None, max_length=256)
+    runner_id: str | None = Field(default=None, max_length=128)
     owner_id: str | None = Field(default=None, max_length=256)
     model_source: str | None = Field(default=None, max_length=32)
     model_source_config: dict | None = None
     public_share: bool | None = False
+    available_skill_ids: list[str] | None = None
+    available_playbook_ids: list[str] | None = None
 
 
 class BotPatchRequest(BaseModel):
@@ -327,6 +331,22 @@ async def post_group_message(
     """
 
     group = _require_group(group_id, user["user_id"])
+    from server.nano_w9.flags import flag_enabled
+    if flag_enabled("VEYA_EVENT_TRIGGERS") or flag_enabled("VEYA_ROUTINE_TRIGGERS"):
+        try:
+            from server.routes.nano_w9 import _routine_router
+            signal = {
+                "kind": "message",
+                "text": req.text,
+                "source": "group",
+                "group_id": group_id,
+                "author": str(user.get("user_id") or ""),
+                "verified": True,
+                "id": uuid.uuid4().hex,
+            }
+            await _routine_router().handle(signal)
+        except Exception:
+            pass
     if async_mode:
         ref = await start_group_turn_async(
             group=group,
@@ -420,6 +440,19 @@ async def create_bot(
             status_code=422, detail="model_source must be 'server', 'user_key', or 'cli'"
         )
 
+    requested_runner = str(req.runner_id or "local").strip() or "local"
+    if (
+        requested_runner != "local"
+        and RunnerRegistry().get(requested_runner) is None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"runner {requested_runner!r} is not registered; register it before pointing a bot at it",
+        )
+
+    available_skills = [str(item) for item in (req.available_skill_ids or [])]
+    available_playbooks = [str(item) for item in (req.available_playbook_ids or [])]
+
     spec = BotSpec(
         bot_id=bot_id,
         owner_id=user["user_id"],
@@ -428,10 +461,12 @@ async def create_bot(
         instructions=(req.instructions or "").strip(),
         provider=(req.provider or "").strip(),
         model=(req.model or "").strip(),
-        runner_id="local",
+        runner_id=requested_runner,
         model_source=model_source,
         model_source_config=dict(req.model_source_config or {}),
         public_share=bool(req.public_share or False),
+        available_skill_ids=available_skills,
+        available_playbook_ids=available_playbooks,
     )
     try:
         registry.register(spec)
@@ -880,6 +915,22 @@ async def post_bot_message(
     """
 
     spec = _require_bot(bot_registry(), bot_id, owner_id=user["user_id"])
+    from server.nano_w9.flags import flag_enabled
+    if flag_enabled("VEYA_EVENT_TRIGGERS") or flag_enabled("VEYA_ROUTINE_TRIGGERS"):
+        try:
+            from server.routes.nano_w9 import _routine_router
+            signal = {
+                "kind": "message",
+                "text": req.text,
+                "source": "bot",
+                "bot_id": bot_id,
+                "author": str(user.get("user_id") or ""),
+                "verified": True,
+                "id": req.message_id or uuid.uuid4().hex,
+            }
+            await _routine_router().handle(signal)
+        except Exception:
+            pass
     queued = _intake_through_turn_queue(spec.bot_id, req, user)
     if queued is not None:
         return queued

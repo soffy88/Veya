@@ -24,7 +24,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from server.nano_w9.flags import require_flag
 from veya.oskill.pure.trigger_match import signal_matches_triggers
 
 __all__ = [
@@ -300,7 +299,7 @@ class RoutineSignalRouter:
         Raises:
             FeatureDisabled: when ``VEYA_ROUTINE_TRIGGERS`` is off.
         """
-        from server.nano_w9.flags import flag_enabled, FeatureDisabled
+        from server.nano_w9.flags import FeatureDisabled, flag_enabled
         if not flag_enabled("VEYA_ROUTINE_TRIGGERS") and not flag_enabled("VEYA_EVENT_TRIGGERS"):
             raise FeatureDisabled("VEYA_ROUTINE_TRIGGERS")
         hits = self.match(signal)
@@ -351,12 +350,25 @@ class RoutineSignalRouter:
         """Feed the existing routine dispatch (GoalRun authority) — never a 2nd scheduler."""
         if self.dispatch is None:
             return {"status": "skipped", "reason": "no dispatcher injected"}
-        topic = str(hit["trigger"].get("dispatch_topic") or "event.arrive")
+        topic = str(
+            hit["trigger"].get("dispatch_topic")
+            or getattr(hit.get("routine"), "trigger_topic", None)
+            or "event.arrive"
+        )
         trigger_id = str(signal.get("id") or signal.get("event") or "signal")
         try:
-            out = self.dispatch(topic=topic, trigger_id=trigger_id, payload=dict(signal))
+            out = self.dispatch(
+                topic=topic,
+                trigger_id=trigger_id,
+                payload=dict(signal),
+                routine_id=hit["routine_id"],
+                routine=hit.get("routine"),
+            )
         except TypeError:
-            out = self.dispatch(topic, trigger_id, dict(signal))
+            try:
+                out = self.dispatch(topic=topic, trigger_id=trigger_id, payload=dict(signal))
+            except TypeError:
+                out = self.dispatch(topic, trigger_id, dict(signal))
         except Exception as exc:
             return {"status": "error", "reason": str(exc)}
         return {"status": "ok", "routine_id": hit["routine_id"], "result": out}

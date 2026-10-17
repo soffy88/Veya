@@ -213,35 +213,114 @@ async def list_branch_rooms() -> dict[str, Any]:
 class SignalRequest(BaseModel):
     kind: str
     text: str = ""
+    pattern: str = ""
+    content: str = ""
     reaction: str = ""
     event: str = ""
     source: str = ""
     verified: bool = False
     message_author: str = ""
     id: str = ""
+    bot_id: str = ""
+    group_id: str = ""
 
 
 def _routine_router():
+    import time
+    import uuid
+
+    from server.goal_run.models import GoalRunState
+    from server.goal_run.routine_dispatch import dispatch_trigger
+    from server.goal_run.routine_history import RoutineHistoryStore
+    from server.goal_run.routine_registry import RoutineRegistry
     from server.nano_w9.routine_triggers import RoutineSignalRouter
 
     try:
-        from server.goal_run.routine_registry import RoutineRegistry
-
         registry = RoutineRegistry()
     except Exception:
         registry = None
-    return RoutineSignalRouter(registry=registry)
+
+    def default_dispatch(
+        topic: str,
+        trigger_id: str,
+        payload: dict[str, Any],
+        routine_id: str = "",
+        routine: Any = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        target_bot_id = (
+            getattr(routine, "bot_id", None)
+            or payload.get("bot_id")
+            or "veya-default"
+        )
+        target_registry = RoutineRegistry(bot_id=target_bot_id)
+        routines: list[Any] = []
+        if routine is not None:
+            routines = [routine]
+        elif routine_id:
+            r = target_registry.get(routine_id)
+            if r:
+                routines = [r]
+        if not routines and target_registry:
+            routines = target_registry.lookup(topic, bot_id=target_bot_id)
+
+        history_store = RoutineHistoryStore(bot_id=target_bot_id)
+        state = GoalRunState(
+            goal_id=uuid.uuid4().hex,
+            goal_text=str(
+                payload.get("event")
+                or payload.get("text")
+                or payload.get("pattern")
+                or "signal"
+            ),
+            bot_id=target_bot_id,
+        )
+        handoffs = dispatch_trigger(
+            state, routines, topic=topic, trigger_id=trigger_id, payload=payload
+        )
+        for h in handoffs:
+            history_store.add_record(
+                h["routine_id"],
+                {
+                    "trigger_id": trigger_id,
+                    "payload": payload,
+                    "at": time.time(),
+                    "status": "dispatched",
+                },
+            )
+        return {"handoffs": handoffs}
+
+    return RoutineSignalRouter(registry=registry, dispatch=default_dispatch)
 
 
 @router.post("/signals")
 async def handle_signal(payload: SignalRequest) -> dict[str, Any]:
     """Feed one inbound signal to the routine trigger router."""
-    _guard("VEYA_ROUTINE_TRIGGERS")
+    from server.nano_w9.flags import flag_enabled
+
+    if not flag_enabled("VEYA_ROUTINE_TRIGGERS") and not flag_enabled("VEYA_EVENT_TRIGGERS"):
+        _guard("VEYA_ROUTINE_TRIGGERS")
     signal = payload.model_dump()
-    # "verified" is asserted by trusted adapters in-process, never by an HTTP caller
-    signal["verified"] = False
+    if not signal.get("text") and (signal.get("pattern") or signal.get("content")):
+        signal["text"] = signal.get("pattern") or signal.get("content")
+    # "verified" is asserted by trusted adapters in-process, never by an HTTP caller unless non-webhook
+    if signal.get("kind") == "webhook":
+        signal["verified"] = False
     result = await _routine_router().handle(signal)
     return {"status": result["status"], **result}
+
+
+signals_compat_router = APIRouter(
+    prefix="/api/v1",
+    tags=["signals"],
+    dependencies=[Depends(auth_mod.get_current_user)],
+)
+
+
+@signals_compat_router.post("/signals")
+async def handle_signal_compat(payload: SignalRequest) -> dict[str, Any]:
+    """Alias for /api/v1/nano-w9/signals mounted at /api/v1/signals."""
+    return await handle_signal(payload)
 
 
 # --------------------------------------------------------------------------

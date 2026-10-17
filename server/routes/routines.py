@@ -42,13 +42,15 @@ def _get_registry(bot_id: str) -> RoutineRegistry:
 
 class RoutineCreateRequest(BaseModel):
     objective: str
-    schedule: str
+    schedule: str = ""
     timezone: str = "Asia/Shanghai"
-    enabled: bool = False  # ORCA-W4: default to disabled on create
+    enabled: bool = True  # FIXA: default to enabled=True, respect explicit enabled=False
     routine_id: str | None = None
     probe: dict | None = None  # ORCA-W4: probe spec
     model: str | None = None  # ORCA-W4: per-routine model
     workspace_path: str | None = None  # ORCA-W4: workspace binding
+    trigger_topic: str | None = None
+    triggers: list[dict[str, Any]] | None = None
 
 
 class RoutinePatchRequest(BaseModel):
@@ -59,6 +61,8 @@ class RoutinePatchRequest(BaseModel):
     probe: dict | None = None  # ORCA-W4: probe spec
     model: str | None = None  # ORCA-W4: per-routine model
     workspace_path: str | None = None  # ORCA-W4: workspace binding
+    trigger_topic: str | None = None
+    triggers: list[dict[str, Any]] | None = None
 
 
 @router.get("")
@@ -74,9 +78,11 @@ def create_routine(bot_id: str, req: RoutineCreateRequest):
     registry = _get_registry(bot_id)
     rid = req.routine_id or uuid.uuid4().hex
 
+    topic = req.trigger_topic or ("event.arrive" if req.triggers else "schedule.trigger")
+
     spec = RoutineSpec(
         routine_id=rid,
-        trigger_topic="schedule.trigger",
+        trigger_topic=topic,
         objective=req.objective,
         goal_template=req.objective,
         schedule=req.schedule,
@@ -84,8 +90,9 @@ def create_routine(bot_id: str, req: RoutineCreateRequest):
         enabled=req.enabled,
         bot_id=bot_id,
         probe=req.probe or {"kind": "none"},
-        model=req.model,
-        workspace_path=req.workspace_path,
+        model=req.model or "",
+        workspace_path=req.workspace_path or "",
+        triggers=list(req.triggers or []),
     )
     registry.register(spec)
     return spec
@@ -115,6 +122,10 @@ def patch_routine(bot_id: str, routine_id: str, req: RoutinePatchRequest):
         spec.model = req.model
     if req.workspace_path is not None:
         spec.workspace_path = req.workspace_path
+    if req.triggers is not None:
+        spec.triggers = list(req.triggers)
+    if req.trigger_topic is not None:
+        spec.trigger_topic = req.trigger_topic
 
     registry.register(spec)  # this saves it
     return spec
