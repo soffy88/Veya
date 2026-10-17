@@ -17,20 +17,31 @@ from server.goal_run.routine_history import RoutineHistoryStore
 from server.goal_run.routine_registry import RoutineRegistry
 
 
-def _require_owned_bot(
+async def _require_owned_bot(
     request: Request,
     bot_id: str,
-    user: dict | None = Depends(auth_mod.get_current_user),
 ) -> None:
     """W11 D2: routines belong to the bot's owner; anyone else gets 404.
 
     Webhooks authenticate via HMAC signature in the handler rather than
-    interactive bearer token.
+    interactive bearer token. Respects FastAPI dependency_overrides on
+    ``require_user`` for test environments.
     """
     if request.url.path.endswith("/webhook"):
         return
 
-    if user is None:
+    # Check for test dependency overrides first
+    overrides = getattr(request.app, "dependency_overrides", {})
+    override = overrides.get(auth_mod.require_user) or overrides.get(auth_mod.get_current_user)
+    if override is not None:
+        user = override() if callable(override) else override
+    else:
+        user = auth_mod.require_user(
+            authorization=request.headers.get("authorization"),
+            request=request,
+        )
+
+    if not user:
         raise HTTPException(status_code=401, detail="请先登录")
 
     from server.goal_run.bot_identity import BotRegistry
