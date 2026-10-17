@@ -103,6 +103,7 @@ export interface UserGlobalResponse {
 
 export interface RoutineView {
 	id: string;
+	routine_id?: string;
 	objective: string;
 	schedule: string;
 	timezone: string;
@@ -428,28 +429,40 @@ export async function retractMemoryEntry(
 
 // ── routines (W4) ─────────────────────────────────────────────────────────
 
+function normalizeRoutine(raw: Record<string, unknown>): RoutineView {
+	const id = String(raw.id || raw.routine_id || "");
+	return {
+		...(raw as unknown as RoutineView),
+		id,
+		routine_id: id,
+	};
+}
+
 export async function listRoutines(botId: string): Promise<RoutineView[]> {
 	// The collection answers with the array itself, not a wrapper object.
-	const data = await unwrap<RoutineView[] | { routines?: RoutineView[] }>(
+	const data = await unwrap<Array<Record<string, unknown>> | { routines?: Array<Record<string, unknown>> }>(
 		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/routines`, { method: "GET" }),
 	);
-	return Array.isArray(data) ? data : (data.routines ?? []);
+	const list = Array.isArray(data) ? data : (data.routines ?? []);
+	return list.map(normalizeRoutine);
 }
 
 export async function createRoutine(botId: string, body: Record<string, unknown>): Promise<RoutineView> {
 	// The create response is the stored spec itself (not wrapped in "routine").
-	return unwrap<RoutineView>(
+	const res = await unwrap<Record<string, unknown>>(
 		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/routines`, { method: "POST", body }),
 	);
+	return normalizeRoutine(res);
 }
 
 export async function patchRoutine(botId: string, routineId: string, body: Record<string, unknown>): Promise<RoutineView> {
-	return unwrap<RoutineView>(
+	const res = await unwrap<Record<string, unknown>>(
 		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/routines/${encodeURIComponent(routineId)}`, {
 			method: "PATCH",
 			body,
 		}),
 	);
+	return normalizeRoutine(res);
 }
 
 export async function deleteRoutine(botId: string, routineId: string): Promise<void> {
