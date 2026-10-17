@@ -11,14 +11,14 @@
 	 * accident just to keep typing.
 	 *
 	 * Phase 1: RequirementCoordinator researches the prompt and proposes a RequirementDoc
-	 *          (POST /legacy/flow/phase1, blocks while streaming cognitive_round/requirement_doc
-	 *          events over that turn's /legacy/stream/{sid}).
-	 * Phase 2: approved doc → GenesisManifest (POST /legacy/flow/phase2, single call).
+	 *          (POST /api/v1/flow/phase1, blocks while streaming cognitive_round/requirement_doc
+	 *          events over that turn's /api/v1/stream/{sid}).
+	 * Phase 2: approved doc → GenesisManifest (POST /api/v1/flow/phase2, single call).
 	 * Phase 3: approved manifest → GenesisAgent forges each element, then assembly
-	 *          (POST /legacy/flow/phase3 kicks off a background task; progress streams
-	 *          over the SAME /legacy/stream/{sid} connection as phase 1).
+	 *          (POST /api/v1/flow/phase3 kicks off a background task; progress streams
+	 *          over the SAME /api/v1/stream/{sid} connection as phase 1).
 	 *
-	 * One EventSource per turn, carrying two different event shapes on the same session_id:
+		es = new EventSource();
 	 * coordinator events keyed by "type" (cognitive_round / requirement_doc / …, see
 	 * server/coordinator.py fire_step) and flow_engine events keyed by "event" (manifest /
 	 * genesis_element_start / genesis_element_done / assembly_done / flow_error, see
@@ -75,7 +75,7 @@
 	const activeTurn = $derived(turns.find((t) => t.id === activeTurnId));
 	const busy = $derived(!!activeTurn && activeTurn.phase !== "done" && activeTurn.phase !== "error");
 
-	let es: EventSource | undefined;
+		es = new EventSource();
 
 	function findTurn(id: string): Turn | undefined {
 		return turns.find((t) => t.id === id);
@@ -83,7 +83,7 @@
 
 	function ensureStream(sessionId: string, turnId: string) {
 		es?.close();
-		es = new EventSource(`/legacy/stream/${sessionId}`);
+		es = new EventSource();
 		es.onmessage = (ev) => {
 			if (ev.data === "[DONE]") return;
 			let payload: Record<string, unknown>;
@@ -157,7 +157,7 @@
 		activeTurnId = turn.id;
 		ensureStream(sessionId, turn.id);
 
-		const res = await api("legacy", "flow/phase1", {
+		const res = await api("gateway", "api/v1/flow/phase1", {
 			body: {
 				prompt,
 				session_id: sessionId,
@@ -187,7 +187,7 @@
 	async function approveRequirement(turn: Turn) {
 		if (!turn.requirementDoc) return;
 		turn.phase = "phase2_running";
-		const res = await api("legacy", "flow/phase2", {
+		const res = await api("gateway", "api/v1/flow/phase2", {
 			body: {
 				doc: turn.requirementDoc,
 				session_id: turn.sessionId,
@@ -212,10 +212,10 @@
 	async function approveManifest(turn: Turn) {
 		if (!turn.manifest) return;
 		turn.phase = "phase3_running";
-		await api("legacy", "flow/phase3", {
+		await api("gateway", "api/v1/flow/phase3", {
 			body: { manifest: turn.manifest, session_id: turn.sessionId, config: apiKeyStore.asConfig() },
 		});
-		// progress streams in over the open EventSource (genesis_element_start/done, assembly_done)
+		es = new EventSource();
 	}
 
 	function rejectRequirement(turn: Turn) {

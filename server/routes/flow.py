@@ -22,7 +22,7 @@ from server.models.execution import (
 )
 from server.schemas import GenesisManifest, RequirementDoc
 
-router = APIRouter()
+router = APIRouter(prefix="/api/v1", tags=["flow"])
 
 # asyncio only holds a weak reference to a bare create_task() result — without a strong
 # reference kept somewhere, the task can be GC'd mid-execution. Keep one here.

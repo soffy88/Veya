@@ -14,7 +14,7 @@ from server.notification_center import global_notifier
 
 logger = logging.getLogger("notifications")
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
 
 class ApproveRequest(BaseModel):

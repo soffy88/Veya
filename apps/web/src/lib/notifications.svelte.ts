@@ -54,7 +54,7 @@ class NotificationManager {
 				const token = typeof localStorage !== "undefined" ? localStorage.getItem("veya.auth.token") : null;
 				const headers: Record<string, string> = {};
 				if (token) headers.authorization = `Bearer ${token}`;
-				const res = await fetch(`${base}/legacy/notifications/stream`, {
+				const res = await fetch(`${base}/api/v1/notifications/stream`, {
 					headers,
 					signal: this.#abort?.signal,
 				});

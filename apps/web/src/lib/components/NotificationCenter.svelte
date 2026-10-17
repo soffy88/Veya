@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
 	 * NotificationCenter — global toast stack (top-right, fixed), fed by notifyStore's
-	 * SSE connection to /legacy/notifications/stream. HITL_REQUIRED toasts don't
-	 * auto-dismiss and carry approve/reject buttons that POST /legacy/notifications/{id}/approve.
+	 * SSE connection to /api/v1/notifications/stream. HITL_REQUIRED toasts don't
+	 * auto-dismiss and carry approve/reject buttons that POST /api/v1/notifications/{id}/approve.
 	 */
 	import { Bell, CheckCircle2, LineChart, ShieldAlert, X, XCircle } from "lucide-svelte";
 	import { slide } from "svelte/transition";
@@ -11,7 +11,7 @@
 	import { notifyStore, type VeyaNotification } from "$lib/notifications.svelte";
 
 	async function handleHITL(notif: VeyaNotification, approved: boolean) {
-		await api("legacy", `notifications/${notif.id}/approve`, { body: { approved } });
+		await api("gateway", `notifications/${notif.id}/approve`, { body: { approved } });
 		notifyStore.remove(notif.id);
 	}
 
