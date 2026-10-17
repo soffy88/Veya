@@ -54,7 +54,8 @@ def test_http_endpoint_gated_by_flag(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_http_endpoint_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VEYA_CAD_SALES_BOT", "1")
-    client = TestClient(app, base_url="http://localhost")
+    monkeypatch.setenv("VEYA_CAD_SALES_TOKEN", "t0k")
+    client = TestClient(app, base_url="http://localhost", headers={"X-Veya-Token": "t0k"})
 
     res = client.get("/api/v1/cad-sales/status")
     assert res.status_code == 200
@@ -153,3 +154,25 @@ def test_simulation_trainer_exam() -> None:
     assert exam["total_cases"] == 15
     assert exam["average_score"] >= 90.0
     assert exam["passed_90"] is True
+
+
+def test_http_requires_token_and_rejects_output_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEYA_CAD_SALES_BOT", "1")
+    monkeypatch.delenv("VEYA_CAD_SALES_TOKEN", raising=False)
+    client = TestClient(app, base_url="http://localhost")
+    body = {"conversation": [{"role": "buyer", "content": "画个户型图"}]}
+    assert client.post("/api/v1/cad-sales/reply", json=body).status_code == 503
+    monkeypatch.setenv("VEYA_CAD_SALES_TOKEN", "t0k")
+    assert client.post("/api/v1/cad-sales/reply", json=body).status_code == 401
+    ok = client.post("/api/v1/cad-sales/reply", json=body, headers={"Authorization": "Bearer t0k"})
+    assert ok.status_code == 200
+    bad = client.post(
+        "/api/v1/cad-sales/requirements",
+        json={**body, "output_root": "/tmp/x"},
+        headers={"X-Veya-Token": "t0k"},
+    )
+    assert bad.status_code == 400
+    with pytest.raises(ValueError):
+        from server.cad_sales.requirements import generate_order_folder
+
+        generate_order_folder(conversation=[], order_id="../etc", output_root="/tmp")

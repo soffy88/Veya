@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import re
 import os
 import uuid
 from pathlib import Path
@@ -35,6 +36,8 @@ def generate_order_folder(
             f"cad_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
         )
 
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", order_id):
+        raise ValueError("order_id must match [A-Za-z0-9_-]{1,64}")
     root = Path(output_root) if output_root else DEFAULT_ORDERS_ROOT
     order_dir = root / order_id
     order_dir.mkdir(parents=True, exist_ok=True)
