@@ -1,0 +1,5 @@
+via SvelteKit proxy: PATCH /api/v1/bots/chef -> 200 {"status":"updated","bot":{"bot_id":"chef","name":"Chef","description":"aud1 pat
+direct PATCH /api/v1/bots/chef -> 200
+--- pre-fix proxy (production build on :3105, unmodified tree) with a NON-EXISTENT bot id ---
+PATCH /api/v1/bots/aud1-nonexistent-probe via :3105 -> 405
+GET   /api/v1/bots/aud1-nonexistent-probe via :3105 -> 401

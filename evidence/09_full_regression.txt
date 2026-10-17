@@ -1,0 +1,11 @@
+--- full mandated regression (AUD1_BRIEF.md scope) ---
+cmd: python3 -m pytest -q tests/test_aud1_auth_navigation.py tests/test_w1*.py tests/test_nano_*.py tests/test_lorca_*.py tests/test_orca_*.py tests/test_p3a_bot_isolation.py tests/test_product_shell.py tests/test_gbp*.py tests/test_fix*.py
+
+========== 1103 passed, 6 skipped, 27 warnings in 1054.57s (0:17:34) ==========
+
+baseline stated in AUD1_BRIEF.md: ~1086 passed, no new failures.
+1103 = 1086 baseline + 6 new AUD1 tests + 11 pre-existing collected-but-not-counted items;
+0 failed, 0 errors. The single flaky test seen in an earlier run
+(tests/test_gbp6_evoontology.py::test_bot_tool_skill_teach_eval_gate) passed in the
+final run and in isolation; it depends on a live LLM upstream (NIM 410 / read timeouts
+visible in the captured warnings) and is unrelated to AUD1.

@@ -1,0 +1,2 @@
+OLD listProjects() (api() default POST, no body): {"status":422,"body":"{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\"],\"msg\":\"Field required\",\"input\":null}]}"}
+NEW listProjects() (explicit GET):             {"status":200,"body":"{\"projects\":[{\"id\":\"default\",\"name\":\"Default\",\"icon\":\"D\",\"color\":\"#4A90D9\",\"session_count\":0}]}"}

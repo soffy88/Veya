@@ -1,0 +1,20 @@
+=== AUD1 root-cause evidence: Projects routes with unauthenticated user ===
+
+--- BEFORE (git stash of fix, commit 0e921313) ---
+Reproduced with a FastAPI app mounting server.routes.projects and overriding
+auth_mod.get_current_user to return None (the real value when the caller has
+no valid token: server/auth.py:get_current_user returns None, SEC H1 default-deny).
+
+GET /api/v1/projects  -> 500 Internal Server Error
+  server/routes/projects.py: list_projects() line 'owner_id = str(user.get("user_id") or "anonymous")'
+  -> AttributeError: 'NoneType' object has no attribute 'get'
+
+POST /api/v1/projects -> 500 (same AttributeError at create_project)
+GET /api/v1/projects/{id}/brief|tasks -> 500 (same, inside _require_project_bot owner_id)
+
+--- AFTER (this branch) ---
+GET  /api/v1/projects          -> 200 {"projects": [...]}   (list works, anonymous bucket empty)
+POST /api/v1/projects          -> 401 {"detail":"需要登录才能创建项目"}
+GET  /api/v1/projects/{id}     -> 404 (owner-isolation, not a crash)
+GET  /api/v1/projects/{id}/brief -> 404
+GET  /api/v1/projects/{id}/tasks -> 404

@@ -1,0 +1,6 @@
+--- targeted regression (AUD1 + touched surfaces) ---
+============================= test session starts ==============================
+tests/test_aud1_auth_navigation.py ......                                [ 33%]
+tests/test_w16_routes.py ......                                          [ 66%]
+tests/runtime/test_web_api_proxy_forwarding.py ......                    [100%]
+============================== 18 passed in 3.29s ==============================
