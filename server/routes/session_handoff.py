@@ -15,7 +15,7 @@ from server.events import event_store
 from server.routes.session import _sessions
 from server.session_identity import new_session_id
 
-router = APIRouter(prefix="/api/v1/sessions", tags=["session-handoff"])
+router = APIRouter(tags=["session-handoff"])
 
 
 class HandoffRequest(BaseModel):
