@@ -1,0 +1,85 @@
+AUD3 step 4 — routine scheduling / event follow-through / approval blocking
+backend=http://127.0.0.1:8799 bot=aud3-auto-bot
+
+[setup] POST /api/v1/bots -> 409 {"detail":"bot 'aud3-auto-bot' already exists"}
+[routine] create -> 200 {"routine_id":"f6a91fc442f449ecba0487b577d4bcdd","trigger_topic":"schedule.trigger","objective":"AUD3 scheduled tick","goal_run_id":null,"timeout_s":3600,"max_steps":10,"version":1,"enabled":true,"target_skill_id":null,"
+[routine] routine_id=f6a91fc442f449ecba0487b577d4bcdd enabled=True schedule='every 1m'
+[routine] run_now -> 200 {"triggered":true,"handoff":{"routine_id":"f6a91fc442f449ecba0487b577d4bcdd","trigger_topic":"schedule.trigger","trigger_id":"run_now:adf33b9fbe454458a5fcb785b8281e2c","target":{"goal_template":"AUD3 scheduled tick"},"bo
+[routine] history after run_now -> 200 entries=1 {"status":"ok","routine_id":"f6a91fc442f449ecba0487b577d4bcdd","history":[{"trigger_id":"run_now:adf33b9fbe454458a5fcb785b8281e2c","status":"dispatched","probe":{"success":true,"kind":"none","detail":
+[routine] waiting up to 150s for the routine clock to fire on its own ...
+[routine]   t+10s entries=1
+[routine]   t+20s entries=1
+[routine]   t+30s entries=1
+[routine]   t+40s entries=1
+[routine]   t+50s entries=1
+[routine]   t+60s entries=1
+[routine]   t+70s entries=1
+[routine]   t+80s entries=1
+[routine]   t+90s entries=1
+[routine]   t+100s entries=1
+[routine]   t+110s entries=1
+[routine]   t+120s entries=1
+[routine]   t+130s entries=1
+[routine]   t+140s entries=1
+[routine]   t+150s entries=1
+[routine] clock did NOT fire within 150s (see Unfixed in report)
+[routine] routines after wait -> 200 [{"routine_id":"ecbd14fe8d1e480eba6b82b691b52af0","trigger_topic":"schedule.trigger","objective":"Check system status","goal_run_id":null,"timeout_s":3600,"max_steps":10,"version":1,"enabled":true,"target_skill_id":null,"target_playbook_id":null,"goal_template":"Check system status","evidence_requir
+[event] webhook routine -> 200 routine_id=fb3060cd7809465cba1a9d11ad899616
+[event] signed webhook (NO user token) -> 200 {"status":"ok","fired":[{"routine_id":"140aa8ff6c944a06bd37b1909634926e","trigger_index":0,"trigger":{"kind":"webhook","event":"aud3.deploy"},"routine":{"routine_id":"140aa8ff6c944a06bd37b1909634926e","trigger_topic":"event.arrive","objective":"AUD3 webhook deploy","goal_run_id":null,"timeout_s":360
+[event] dispatched=8 goal_run_ids=['0791d6f865f94c368c84e8ac52220fe8', '93b3922636e745518ac31bb94bc0b01c', '9c56eb43cc974fefafa6f5ae802455e8', '7ed4ec564165468b92f90272789a14cf', 'e7d55e48e57c4b84887553040dc1a991', '78ab59ebcc104b939a5bcfb24aea1e82', 'e59adf21870f4ddc81750fbf89279968', 'e864a40567d74fc7afbec0fe050ceade']
+[event] goal 0791d6f865f94c368c84e8ac52220fe8 -> 404 {"detail":"goal '0791d6f865f94c368c84e8ac52220fe8' not found"}
+[event] goal 0791d6f865f94c368c84e8ac52220fe8 -> 404 {"detail":"goal '0791d6f865f94c368c84e8ac52220fe8' not found"}
+[event] goal 0791d6f865f94c368c84e8ac52220fe8 -> 404 {"detail":"goal '0791d6f865f94c368c84e8ac52220fe8' not found"}
+[event] goal 0791d6f865f94c368c84e8ac52220fe8 -> 404 {"detail":"goal '0791d6f865f94c368c84e8ac52220fe8' not found"}
+[event] goal 0791d6f865f94c368c84e8ac52220fe8 -> 404 {"detail":"goal '0791d6f865f94c368c84e8ac52220fe8' not found"}
+[event] goal 0791d6f865f94c368c84e8ac52220fe8 -> 404 {"detail":"goal '0791d6f865f94c368c84e8ac52220fe8' not found"}
+[event] goal 93b3922636e745518ac31bb94bc0b01c -> 404 {"detail":"goal '93b3922636e745518ac31bb94bc0b01c' not found"}
+[event] goal 93b3922636e745518ac31bb94bc0b01c -> 404 {"detail":"goal '93b3922636e745518ac31bb94bc0b01c' not found"}
+[event] goal 93b3922636e745518ac31bb94bc0b01c -> 404 {"detail":"goal '93b3922636e745518ac31bb94bc0b01c' not found"}
+[event] goal 93b3922636e745518ac31bb94bc0b01c -> 404 {"detail":"goal '93b3922636e745518ac31bb94bc0b01c' not found"}
+[event] goal 93b3922636e745518ac31bb94bc0b01c -> 404 {"detail":"goal '93b3922636e745518ac31bb94bc0b01c' not found"}
+[event] goal 93b3922636e745518ac31bb94bc0b01c -> 404 {"detail":"goal '93b3922636e745518ac31bb94bc0b01c' not found"}
+[event] goal 9c56eb43cc974fefafa6f5ae802455e8 -> 404 {"detail":"goal '9c56eb43cc974fefafa6f5ae802455e8' not found"}
+[event] goal 9c56eb43cc974fefafa6f5ae802455e8 -> 404 {"detail":"goal '9c56eb43cc974fefafa6f5ae802455e8' not found"}
+[event] goal 9c56eb43cc974fefafa6f5ae802455e8 -> 404 {"detail":"goal '9c56eb43cc974fefafa6f5ae802455e8' not found"}
+[event] goal 9c56eb43cc974fefafa6f5ae802455e8 -> 404 {"detail":"goal '9c56eb43cc974fefafa6f5ae802455e8' not found"}
+[event] goal 9c56eb43cc974fefafa6f5ae802455e8 -> 404 {"detail":"goal '9c56eb43cc974fefafa6f5ae802455e8' not found"}
+[event] goal 9c56eb43cc974fefafa6f5ae802455e8 -> 404 {"detail":"goal '9c56eb43cc974fefafa6f5ae802455e8' not found"}
+[event] goal 7ed4ec564165468b92f90272789a14cf -> 404 {"detail":"goal '7ed4ec564165468b92f90272789a14cf' not found"}
+[event] goal 7ed4ec564165468b92f90272789a14cf -> 404 {"detail":"goal '7ed4ec564165468b92f90272789a14cf' not found"}
+[event] goal 7ed4ec564165468b92f90272789a14cf -> 404 {"detail":"goal '7ed4ec564165468b92f90272789a14cf' not found"}
+[event] goal 7ed4ec564165468b92f90272789a14cf -> 404 {"detail":"goal '7ed4ec564165468b92f90272789a14cf' not found"}
+[event] goal 7ed4ec564165468b92f90272789a14cf -> 404 {"detail":"goal '7ed4ec564165468b92f90272789a14cf' not found"}
+[event] goal 7ed4ec564165468b92f90272789a14cf -> 404 {"detail":"goal '7ed4ec564165468b92f90272789a14cf' not found"}
+[event] goal e7d55e48e57c4b84887553040dc1a991 -> 404 {"detail":"goal 'e7d55e48e57c4b84887553040dc1a991' not found"}
+[event] goal e7d55e48e57c4b84887553040dc1a991 -> 404 {"detail":"goal 'e7d55e48e57c4b84887553040dc1a991' not found"}
+[event] goal e7d55e48e57c4b84887553040dc1a991 -> 404 {"detail":"goal 'e7d55e48e57c4b84887553040dc1a991' not found"}
+[event] goal e7d55e48e57c4b84887553040dc1a991 -> 404 {"detail":"goal 'e7d55e48e57c4b84887553040dc1a991' not found"}
+[event] goal e7d55e48e57c4b84887553040dc1a991 -> 404 {"detail":"goal 'e7d55e48e57c4b84887553040dc1a991' not found"}
+[event] goal e7d55e48e57c4b84887553040dc1a991 -> 404 {"detail":"goal 'e7d55e48e57c4b84887553040dc1a991' not found"}
+[event] goal 78ab59ebcc104b939a5bcfb24aea1e82 -> 404 {"detail":"goal '78ab59ebcc104b939a5bcfb24aea1e82' not found"}
+[event] goal 78ab59ebcc104b939a5bcfb24aea1e82 -> 404 {"detail":"goal '78ab59ebcc104b939a5bcfb24aea1e82' not found"}
+[event] goal 78ab59ebcc104b939a5bcfb24aea1e82 -> 404 {"detail":"goal '78ab59ebcc104b939a5bcfb24aea1e82' not found"}
+[event] goal 78ab59ebcc104b939a5bcfb24aea1e82 -> 404 {"detail":"goal '78ab59ebcc104b939a5bcfb24aea1e82' not found"}
+[event] goal 78ab59ebcc104b939a5bcfb24aea1e82 -> 404 {"detail":"goal '78ab59ebcc104b939a5bcfb24aea1e82' not found"}
+[event] goal 78ab59ebcc104b939a5bcfb24aea1e82 -> 404 {"detail":"goal '78ab59ebcc104b939a5bcfb24aea1e82' not found"}
+[event] goal e59adf21870f4ddc81750fbf89279968 -> 404 {"detail":"goal 'e59adf21870f4ddc81750fbf89279968' not found"}
+[event] goal e59adf21870f4ddc81750fbf89279968 -> 404 {"detail":"goal 'e59adf21870f4ddc81750fbf89279968' not found"}
+[event] goal e59adf21870f4ddc81750fbf89279968 -> 404 {"detail":"goal 'e59adf21870f4ddc81750fbf89279968' not found"}
+[event] goal e59adf21870f4ddc81750fbf89279968 -> 404 {"detail":"goal 'e59adf21870f4ddc81750fbf89279968' not found"}
+[event] goal e59adf21870f4ddc81750fbf89279968 -> 404 {"detail":"goal 'e59adf21870f4ddc81750fbf89279968' not found"}
+[event] goal e59adf21870f4ddc81750fbf89279968 -> 404 {"detail":"goal 'e59adf21870f4ddc81750fbf89279968' not found"}
+[event] goal e864a40567d74fc7afbec0fe050ceade -> 404 {"detail":"goal 'e864a40567d74fc7afbec0fe050ceade' not found"}
+[event] goal e864a40567d74fc7afbec0fe050ceade -> 404 {"detail":"goal 'e864a40567d74fc7afbec0fe050ceade' not found"}
+[event] goal e864a40567d74fc7afbec0fe050ceade -> 404 {"detail":"goal 'e864a40567d74fc7afbec0fe050ceade' not found"}
+[event] goal e864a40567d74fc7afbec0fe050ceade -> 404 {"detail":"goal 'e864a40567d74fc7afbec0fe050ceade' not found"}
+[event] goal e864a40567d74fc7afbec0fe050ceade -> 404 {"detail":"goal 'e864a40567d74fc7afbec0fe050ceade' not found"}
+[event] goal e864a40567d74fc7afbec0fe050ceade -> 404 {"detail":"goal 'e864a40567d74fc7afbec0fe050ceade' not found"}
+[event] bad signature -> 401 {"detail":"Invalid webhook signature"}
+[approval] teach draft -> 0 skill_id=None approval_id=None
+[approval] pending list -> 200 count=5
+[approval] active probe skills BEFORE resolve: []
+[approval] resolve(deny) -> 404 {"detail":"approval not found"}
+[approval] active probe skills AFTER deny: []
+[approval] BLOCKED=True
+[approval] approval still pending after deny: False
