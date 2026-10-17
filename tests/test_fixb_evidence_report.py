@@ -10,22 +10,24 @@ Tests:
 from __future__ import annotations
 
 from pathlib import Path
+
 import pytest
 
+from server.bot_team.turns import build_objective, format_evidence_report
 from server.goal_run.bot_identity import DEFAULT_BOT_ID, BotSpec
-from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatus
+from server.goal_run.models import GoalRunState, TaskNode, TaskStatus
 from server.goal_run.runner import _run_plan_review_gate
-from server.supervisor.binding import SupervisorBinding
-from server.supervisor.reporting import build_progress_report, _extract_guesses
-from server.bot_team.turns import build_objective, extract_reply, format_evidence_report
-
+from server.supervisor.reporting import _extract_guesses
 
 # ---------------------------------------------------------------------------
 # Test 1: Default Bot single-task chat turn skips plan review
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-async def test_default_bot_single_task_skips_plan_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+async def test_default_bot_single_task_skips_plan_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """Ensure veya-default bot turn skips plan review gate for single task."""
     state = GoalRunState(
         goal_id="g_default_chat",
@@ -44,7 +46,9 @@ async def test_default_bot_single_task_skips_plan_review(tmp_path: Path, monkeyp
     async def mock_dual_axis_plan_review(**kwargs):
         raise AssertionError("dual_axis_plan_review must NOT be called for single-task bot turn")
 
-    monkeypatch.setattr("server.goal_run.plan_review.dual_axis_plan_review", mock_dual_axis_plan_review)
+    monkeypatch.setattr(
+        "server.goal_run.plan_review.dual_axis_plan_review", mock_dual_axis_plan_review
+    )
 
     # Should return None (allowed to proceed, not blocked into awaiting_user)
     resp = await _run_plan_review_gate(state, state.goal_text, str(tmp_path))
@@ -58,7 +62,10 @@ async def test_default_bot_single_task_skips_plan_review(tmp_path: Path, monkeyp
 # Test 2: Prompt injection in build_objective for default bot and role bots
 # ---------------------------------------------------------------------------
 
-def test_build_objective_injects_evidence_requirements_for_all_bots(monkeypatch: pytest.MonkeyPatch):
+
+def test_build_objective_injects_evidence_requirements_for_all_bots(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """When VEYA_EVIDENCE_REPORT=1, build_objective injects 来源/猜测/跳过 for any bot."""
     monkeypatch.setenv("VEYA_EVIDENCE_REPORT", "1")
 
@@ -70,7 +77,9 @@ def test_build_objective_injects_evidence_requirements_for_all_bots(monkeypatch:
     assert "【跳过】" in prompt_default
 
     # Role bot (e.g., researcher)
-    role_bot = BotSpec(bot_id="researcher", owner_id="u1", name="Researcher", description="Deep researcher")
+    role_bot = BotSpec(
+        bot_id="researcher", owner_id="u1", name="Researcher", description="Deep researcher"
+    )
     prompt_role = build_objective(bot=role_bot, text="调研报告")
     assert "【来源】" in prompt_role
     assert "【猜测】" in prompt_role
@@ -87,6 +96,7 @@ def test_build_objective_injects_evidence_requirements_for_all_bots(monkeypatch:
 # ---------------------------------------------------------------------------
 # Test 3: Structured guesses extraction from trajectory (not keyword assume)
 # ---------------------------------------------------------------------------
+
 
 def test_structured_guesses_from_trajectory(tmp_path: Path):
     """Guesses extracted from task.assertions (weak/unverified) and defaults, not 'assume' keyword."""
@@ -120,7 +130,7 @@ def test_structured_guesses_from_trajectory(tmp_path: Path):
                 "kind": "unverified_assertion",
                 "content": "Assumed timeout value 30s based on environment fallback",
             }
-        ]
+        ],
     )
 
     guesses = _extract_guesses(state)
@@ -133,6 +143,7 @@ def test_structured_guesses_from_trajectory(tmp_path: Path):
 # ---------------------------------------------------------------------------
 # Test 4: Stable 3-section output for default bot & role bot replies
 # ---------------------------------------------------------------------------
+
 
 def test_stable_three_section_bot_reply_formatting(monkeypatch: pytest.MonkeyPatch):
     """When VEYA_EVIDENCE_REPORT=1, format_evidence_report ensures 【来源】【猜测】【跳过】 sections exist."""

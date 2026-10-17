@@ -92,14 +92,16 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
     if bot.description.strip():
         parts.append(f"Your one job: {bot.description.strip()}")
     if getattr(bot, "available_skill_ids", None):
-        import os
         import logging
+        import os
+
+        from server.skill_authority import SkillAuthorityError, canonical_skill_id
         from server.skill_progressive import is_skill_progressive_enabled, render_skills_block
-        from server.skill_authority import canonical_skill_id, SkillAuthorityError
 
         role_skills_on = False
         try:
             from server.feature_flags import enabled as _flag_enabled
+
             if _flag_enabled("VEYA_ROLE_SKILLS_RUNTIME"):
                 role_skills_on = True
         except Exception:
@@ -115,7 +117,9 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
                     canonical_skill_id(clean)
                     validated_skill_ids.append(sid)
                 except (SkillAuthorityError, Exception) as exc:
-                    logging.getLogger("server.bot_team.turns").warning(f"Invalid skill id {sid!r}: {exc}")
+                    logging.getLogger("server.bot_team.turns").warning(
+                        f"Invalid skill id {sid!r}: {exc}"
+                    )
 
             if validated_skill_ids:
                 skills_block = render_skills_block(validated_skill_ids, progressive=True)
@@ -124,7 +128,10 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
                     logging.getLogger("server.bot_team.turns").warning(
                         f"Skills block length {len(skills_block)} exceeds limit {max_len}, truncating."
                     )
-                    skills_block = skills_block[:max_len - 30] + "\n... [truncated due to length limit]\n</available_skills>"
+                    skills_block = (
+                        skills_block[: max_len - 30]
+                        + "\n... [truncated due to length limit]\n</available_skills>"
+                    )
                 if skills_block:
                     parts.append(skills_block)
         elif os.environ.get("VEYA_SKILL_INJECT_FULL", "0").lower() in ("1", "true", "yes"):
@@ -468,9 +475,7 @@ async def finish_bot_turn(
             goal_id = getattr(response, "goal_id", None) or (
                 response.get("goal_id") if isinstance(response, dict) else None
             )
-            run_state = (
-                load_goal_run(workspace_id or "/repo", goal_id) if goal_id else None
-            )
+            run_state = load_goal_run(workspace_id or "/repo", goal_id) if goal_id else None
             reply = format_evidence_report(reply, state=run_state)
     except Exception:
         pass
@@ -834,7 +839,7 @@ def format_evidence_report(reply: str, state: Any = None) -> str:
     if has_src and has_guess and has_skip:
         return text
 
-    from server.supervisor.reporting import _extract_sources, _extract_guesses, _extract_skips
+    from server.supervisor.reporting import _extract_guesses, _extract_skips, _extract_sources
 
     sources = _extract_sources(state) if state is not None else []
     guesses = _extract_guesses(state) if state is not None else ["（无未证实猜测）"]

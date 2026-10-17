@@ -2111,7 +2111,9 @@ async def _run_loop_and_finalize(
                                 elif current_task.status == TaskStatus.ready:
                                     await durable_repository.fail(
                                         claim,
-                                        {"message": "acceptance failed; retry branch remains ready"},
+                                        {
+                                            "message": "acceptance failed; retry branch remains ready"
+                                        },
                                         classification="safe_retry",
                                     )
                                 else:
@@ -2186,7 +2188,9 @@ async def _run_loop_and_finalize(
                         state.running_ids.discard(task_id)
                         if task_id not in state.unfinished_work:
                             state.unfinished_work.append(task_id)
-                        _emit_runtime_event(state, project_root, "delegate.cancelled", task_id=task_id)
+                        _emit_runtime_event(
+                            state, project_root, "delegate.cancelled", task_id=task_id
+                        )
                         response = None
                     except Exception as exc:
                         task.status = TaskStatus.blocked

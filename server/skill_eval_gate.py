@@ -53,7 +53,14 @@ def compute_verifiable_metrics(
     output_str = str(output or "").strip().lower()
     if expected is None or str(expected).strip() == "":
         # No strict expected target: consistent if output is non-empty and has no failure keywords
-        fail_markers = ("fatal", "crash", "traceback", "not authorized", "policy violation", "error")
+        fail_markers = (
+            "fatal",
+            "crash",
+            "traceback",
+            "not authorized",
+            "policy violation",
+            "error",
+        )
         if output_str and not any(m in output_str for m in fail_markers):
             output_consistency = 1.0
         elif output_str:
@@ -123,14 +130,18 @@ async def build_evaluation_dataset(
     # 2. Extract primary task from trajectory objective/input
     if not eval_tasks and isinstance(trajectory, dict):
         obj = str(trajectory.get("objective") or trajectory.get("task_id") or "").strip()
-        expected = trajectory.get("expected") or trajectory.get("outcome") or trajectory.get("acceptance")
+        expected = (
+            trajectory.get("expected") or trajectory.get("outcome") or trajectory.get("acceptance")
+        )
         if obj:
-            eval_tasks.append({
-                "task_id": "eval-task-source",
-                "input": obj,
-                "expected": expected,
-                "budget": int(trajectory.get("budget", 5)),
-            })
+            eval_tasks.append(
+                {
+                    "task_id": "eval-task-source",
+                    "input": obj,
+                    "expected": expected,
+                    "budget": int(trajectory.get("budget", 5)),
+                }
+            )
 
     # 3. Augment with complementary / similar tasks if fewer than 2
     if len(eval_tasks) < 2:
@@ -158,20 +169,24 @@ async def build_evaluation_dataset(
             pass
 
         if historical_prompt:
-            eval_tasks.append({
-                "task_id": "eval-task-historical",
-                "input": f"{historical_prompt} (applied to {candidate_name})",
-                "expected": base_exp,
-                "budget": 5,
-            })
+            eval_tasks.append(
+                {
+                    "task_id": "eval-task-historical",
+                    "input": f"{historical_prompt} (applied to {candidate_name})",
+                    "expected": base_exp,
+                    "budget": 5,
+                }
+            )
         else:
             # Domain-relevant variant test case
-            eval_tasks.append({
-                "task_id": "eval-task-variant",
-                "input": f"Variant verification: {base_obj} with edge case constraints",
-                "expected": base_exp,
-                "budget": 5,
-            })
+            eval_tasks.append(
+                {
+                    "task_id": "eval-task-variant",
+                    "input": f"Variant verification: {base_obj} with edge case constraints",
+                    "expected": base_exp,
+                    "budget": 5,
+                }
+            )
 
     # Normalize tasks
     normalized = []
@@ -207,19 +222,24 @@ async def default_eval_runner(
         return {
             "completed": False,
             "tool_calls": [{"tool": "safety_check"}],
-            "tool_errors": [{"tool": "safety_check", "error": "Critical policy violation in draft skill"}],
+            "tool_errors": [
+                {"tool": "safety_check", "error": "Critical policy violation in draft skill"}
+            ],
             "output": "Execution stopped: Critical policy violation",
             "critical_error": True,
         }
 
     # Attempt live model call if available
-    llm_available = False
     try:
         from veya.llm import llm_call
 
         system_prompt = (
             "You are evaluating a candidate skill. Follow instructions accurately.\n"
-            + (f"Skill '{name}': {desc}" if skill else "Answer without additional skill instructions.")
+            + (
+                f"Skill '{name}': {desc}"
+                if skill
+                else "Answer without additional skill instructions."
+            )
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -232,7 +252,6 @@ async def default_eval_runner(
             if choices:
                 content = (choices[0].get("message") or {}).get("content") or ""
         if content and "LLM provider not configured" not in content:
-            llm_available = True
             return {
                 "completed": True,
                 "tool_calls": [{"tool": "semantic_step"}],
@@ -247,9 +266,13 @@ async def default_eval_runner(
     if skill is not None and desc:
         # Candidate has skill instructions: produces output satisfying expected criteria
         if expected is not None and str(expected).strip():
-            output = f"Executed {name} successfully: Result is {expected} based on rule {desc[:60]}."
+            output = (
+                f"Executed {name} successfully: Result is {expected} based on rule {desc[:60]}."
+            )
         else:
-            output = f"Executed {name} successfully: Output for '{task_input}' adhering to {desc[:60]}."
+            output = (
+                f"Executed {name} successfully: Output for '{task_input}' adhering to {desc[:60]}."
+            )
         return {
             "completed": True,
             "tool_calls": [{"tool": name or "execute_skill"}],
@@ -348,9 +371,7 @@ async def evaluate_skill_candidate(
         # Paired winner selection
         if cand_crit:
             winner = "parent"
-        elif parent_crit:
-            winner = "candidate"
-        elif cand_score > parent_score:
+        elif parent_crit or cand_score > parent_score:
             winner = "candidate"
         elif cand_score < parent_score:
             winner = "parent"

@@ -17,6 +17,7 @@ from server.goal_run.store import load_goal_run
 
 def _evidence_report_enabled() -> bool:
     from server.feature_flags import enabled
+
     try:
         return bool(enabled("VEYA_EVIDENCE_REPORT"))
     except Exception:
@@ -103,7 +104,10 @@ def _extract_guesses(state) -> list[str]:
 def _extract_skips(state) -> list[str]:
     skips = []
     for task in state.tasks.values():
-        if task.status.value in ("blocked", "pending", "running") and task.status.value != "completed":
+        if (
+            task.status.value in ("blocked", "pending", "running")
+            and task.status.value != "completed"
+        ):
             skips.append(task.title)
     if not skips:
         skips.append("（无跳过项）")

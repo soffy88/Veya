@@ -12,18 +12,20 @@ Tests:
 
 from __future__ import annotations
 
-import pytest
 from typing import Any
-from server.skill_eval_gate import (
-    evaluate_skill_candidate,
-    compute_verifiable_metrics,
-    build_evaluation_dataset,
-)
 
+import pytest
+
+from server.skill_eval_gate import (
+    build_evaluation_dataset,
+    compute_verifiable_metrics,
+    evaluate_skill_candidate,
+)
 
 # ---------------------------------------------------------------------------
 # Test 1: Verifiable metrics computation (task_completion, tool_success, output_consistency)
 # ---------------------------------------------------------------------------
+
 
 def test_compute_verifiable_metrics():
     """Verify metrics calculation is non-constant and follows verifiable metrics contract."""
@@ -69,6 +71,7 @@ def test_compute_verifiable_metrics():
 # Test 2: Dataset builder combines source trajectory + similar/domain tasks
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_build_evaluation_dataset():
     """Builds evaluation dataset containing source task + similar tasks."""
@@ -96,6 +99,7 @@ async def test_build_evaluation_dataset():
 # Test 3: Real paired evaluation pipeline execution (deterministic runner)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_paired_evaluation_pipeline_with_runner():
     """Runs candidate vs baseline through evaluation pipeline, computing real scores and samples."""
@@ -108,16 +112,15 @@ async def test_paired_evaluation_pipeline_with_runner():
         "expected": "92",
     }
 
-    async def mock_eval_runner(*, task: dict[str, Any], skill: dict[str, Any] | None, budget: int) -> dict[str, Any]:
+    async def mock_eval_runner(
+        *, task: dict[str, Any], skill: dict[str, Any] | None, budget: int
+    ) -> dict[str, Any]:
         """Deterministic mock runner simulating task execution with and without skill."""
         has_skill = skill is not None and "0.92" in skill.get("description", "")
         task_input = task.get("input", "")
         if has_skill:
             # Candidate produces accurate conversion
-            if "100" in task_input:
-                output = "100 USD is 92 EUR"
-            else:
-                output = "Converted amount: 92"
+            output = "100 USD is 92 EUR" if "100" in task_input else "Converted amount: 92"
             return {
                 "completed": True,
                 "tool_calls": [{"tool": "fx_rate"}],
@@ -163,6 +166,7 @@ async def test_paired_evaluation_pipeline_with_runner():
 # Test 4: Regression / critical error blocks gate
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_paired_evaluation_regression_blocks():
     """When candidate performs worse than baseline or has critical error -> gate blocks."""
@@ -175,7 +179,9 @@ async def test_paired_evaluation_regression_blocks():
         "expected": "success",
     }
 
-    async def mock_failing_runner(*, task: dict[str, Any], skill: dict[str, Any] | None, budget: int) -> dict[str, Any]:
+    async def mock_failing_runner(
+        *, task: dict[str, Any], skill: dict[str, Any] | None, budget: int
+    ) -> dict[str, Any]:
         if skill is not None:
             # Candidate crashes with critical error
             return {
