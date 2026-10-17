@@ -150,8 +150,12 @@ RUN install -d -o soffy -g soffy \
     /home/soffy/.veya/hicode-workspace
 COPY --chown=soffy:soffy deploy/ms-playwright/ /opt/ms-playwright/
 COPY LICENSE ./
+COPY deploy/hicode-entrypoint.sh /app/hicode-entrypoint.sh
 RUN pip install --no-cache-dir . && pip install --no-cache-dir -e ./veya_loop \
     && python -c "import types, chardet, server.app; print('[build] server.app imports OK')"
+
+ARG VEYA_BUILD_SHA=unknown
+ENV VEYA_BUILD_SHA=$VEYA_BUILD_SHA
 
 ENV HICODE_MANAGED_RUNTIME_ROOT=/opt/veya/hicode-runtime \
     HICODE_RUNTIME_DATA_ROOT=/home/soffy/.veya/hicode-runtime \

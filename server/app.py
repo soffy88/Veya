@@ -495,7 +495,11 @@ async def lifespan(app: FastAPI):
     automata.shutdown()
 
 
-app = FastAPI(title="veya", version="0.6.0", lifespan=lifespan)
+_APP_VERSION = "0.6.0"
+_BUILD_SHA = os.environ.get("VEYA_BUILD_SHA", "").strip()
+_HEALTH_VERSION = f"{_APP_VERSION}-{_BUILD_SHA}" if _BUILD_SHA else _APP_VERSION
+
+app = FastAPI(title="veya", version=_APP_VERSION, lifespan=lifespan)
 
 # SEC H1: 全局默认拒绝。任何不在显式公开白名单内的路由都要求有效 token,
 # 否则 401 —— 不再依赖各路由自己记得加 require_user。用纯 ASGI 中间件以
@@ -715,7 +719,7 @@ async def health():
             }
         except Exception as exc:  # a capability probe must not fail liveness
             capabilities = {"hands": False, "hands_detail": f"probe failed: {type(exc).__name__}"}
-    result = {"status": "ok", "version": "0.5.1", "capabilities": capabilities}
+    result = {"status": "ok", "version": _HEALTH_VERSION, "capabilities": capabilities}
     # B3: breaker state is read-only and secret-free.
     if flag_enabled("VEYA_BRAIN_BREAKER"):
         try:

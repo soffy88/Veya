@@ -108,7 +108,7 @@ services:
       - VEYA_PERSONAL_AGENT_EVAL=${VEYA_PERSONAL_AGENT_EVAL:-1}
       # Approved Gold benchmark projection; the database/runtime remains the
       # authority, and this file is read-only quality evidence only.
-      - VEYA_PERSONAL_AGENT_GOLD_REPORT=${VEYA_PERSONAL_AGENT_GOLD_REPORT:-/repo/evals/personal_agent_gold/results/latest.json}
+      - VEYA_PERSONAL_AGENT_GOLD_REPORT=${VEYA_PERSONAL_AGENT_GOLD_REPORT:-/home/soffy/projects/veya/evals/personal_agent_gold/results/latest.json}
       # local = process/docker (veya start / 当前单机). hosted = OpenSandbox, 禁止 process.
       - VEYA_SANDBOX_PROFILE=${VEYA_SANDBOX_PROFILE:-local}
       - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}
@@ -151,9 +151,9 @@ services:
       - HICODE_PRODUCTION_RUNTIME_MODE=MOUNTED
       - HICODE_PRODUCTION_REQUIRES_HOST_MOUNT=YES
       - HICODE_PROXY=1   # 容器内反代: 改 Host 头绕过 opencodex 来源校验
-      # Vision Toolkit 路径白名单: 主脑视觉取证可读 /repo (veya 仓库) + 同级项目
-      # + hicode 工作区 (像素差分 hicode 产物); 视觉模型走 hicode 反代 (见 oskill)
-      - VEYA_VISION_ALLOWED_DIRS=/repo:/home/soffy/projects:/home/soffy/.veya/hicode-workspace
+      # Vision Toolkit 路径白名单: 代码来自不可变镜像, 只允许宿主工作区与
+      # hicode 产物目录 (像素差分等取证)。
+      - VEYA_VISION_ALLOWED_DIRS=/home/soffy/projects:/home/soffy/.veya/hicode-workspace
       # 通用文件工具 (list_files/grep/read_file_ast) 额外允许目录: 卷已挂了同级
       # 项目 (见下方 volumes), 但读写根 VEYA_WORKSPACE 只认 /app, 之前主脑评估
       # 兄弟项目(如 hevi)时 list_files/grep 会报 escapes workspace root。
@@ -175,17 +175,9 @@ services:
       # hevi MCP 依赖 (argon2/bcrypt/pyotp/qrcode) — 镜像重建后由 requirements.txt
       # 提供; 当前阶段从宿主 deploy/hevi_deps 挂载 (容器层不可写, 镜像未含)
       - ../deploy/hevi_deps:/home/soffy/hevi_deps:ro
-      # tools/ 是镜像 COPY 目录 (无挂载则不实时) — 挂载宿主便于热更适配器
-      - ../tools:/app/tools:ro
-      - ../veya:/app/veya:ro
-      - ../platform:/app/platform:ro
-      - ../server:/app/server:ro
-      # server.feature_flags imports config.adapters; mount config/ so merges do not outrun the image
-      - ../config:/app/config:ro
-      # Execution Runtime core is mounted with server so runtime changes take
-      # effect after container recreation without an image rebuild.
-      - ../runtime:/app/runtime:ro
-      - ../veya_loop:/app/veya_loop:ro
+      # Production code is baked into the immutable image.  Do not bind-mount
+      # /app/{server,veya,runtime,platform,tools,config,veya_loop}; deploy a new
+      # SHA image instead of mutating a running container's code.
       # 多引擎 CLI (node 生态 + claude 版本) 与凭据目录
       - /home/soffy/.nvm:/home/soffy/.nvm:ro
       - /home/soffy/.local:/home/soffy/.local:ro
@@ -202,15 +194,12 @@ services:
       - /home/soffy/.opencode:/home/soffy/.opencode:ro
       # skill_hub 技能库 (宿主实时同步, 只读)
       - /home/soffy/.veya/skills:/home/soffy/.veya/skills:ro
-      # hicode-entrypoint generates the isolated Reasonix config under veya-data.
-      - ../deploy/hicode-entrypoint.sh:/app/hicode-entrypoint.sh:ro
-      # Git 面板工作区: 宿主 veya 仓库根 (git status/diff/commit 操作真实仓库)
-      - /data/soffy/projects/veya:/repo:rw
+      # hicode-entrypoint is baked into the image so the command cannot change
+      # without a new image digest.
       - ${STRATUM_NIM_KEYS_FILE:-/data/soffy/projects/stratum/aii/.pipeline_keys.json}:/home/soffy/projects/stratum/aii/.pipeline_keys.json:ro
-      # 宿主同级项目 (hemal/stratum/aegis 等) — 此前完全没挂进容器, 主脑连
-      # list_files 都会报 "escapes workspace root"。容器内路径与宿主一致
-      # (/home/soffy/projects), 便于按宿主路径直接引用/映射。
-      - /data/soffy/projects:/home/soffy/projects:rw
+      # 宿主同级项目 (hemal/stratum/aegis 等) 通过上面的
+      # /data/soffy/projects:/data/soffy/projects 与 /home/soffy/projects
+      # 符号链接访问; 不再重复挂载同一目录。
     # Chromium 无头浏览器 /dev/shm 需求 (抓取通道)
     shm_size: "1gb"
     restart: unless-stopped

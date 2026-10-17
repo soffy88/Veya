@@ -4918,12 +4918,34 @@ class DurableExecutionRepository:
                 rows = []
             if isinstance(decisions, str):
                 decisions = []
-            event_rows = [(str(row["event_type"]), int(row["count"])) for row in rows]
+
+            def _metric_value(row: Any, name: str, index: int) -> Any:
+                # asyncpg.Record is a mapping but not a dict; tuple rows from
+                # test doubles must still work.
+                try:
+                    return row[name]
+                except (KeyError, IndexError, TypeError):
+                    return row[index]
+
+            event_rows = [
+                (
+                    str(_metric_value(row, "event_type", 0)),
+                    int(_metric_value(row, "count", 1)),
+                )
+                for row in rows
+            ]
             event_rows.extend(
-                (f"recovery.decision.{row['decision']}", int(row["count"])) for row in decisions
+                (
+                    f"recovery.decision.{_metric_value(row, 'decision', 0)}",
+                    int(_metric_value(row, "count", 1)),
+                )
+                for row in decisions
             )
             event_rows.append(
-                ("recovery.decision.total", sum(int(row["count"]) for row in decisions))
+                (
+                    "recovery.decision.total",
+                    sum(int(_metric_value(row, "count", 1)) for row in decisions),
+                )
             )
             pending_result = await _fetch_with_timeout(
                 conn.fetchval("SELECT COUNT(*) FROM execution_outbox WHERE published_at IS NULL"),
