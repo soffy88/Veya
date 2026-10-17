@@ -218,3 +218,65 @@ def test_goal_status_route_reads_the_durable_goal_run(auth_client, tmp_path, mon
 
     missing = client.get(f"/api/v1/bot-runtime/{bot_id}/goals/goal_does_not_exist")
     assert missing.status_code == 404, "unknown goal must 404, not fake a status"
+
+
+def test_webhook_dispatch_runs_a_real_goal_and_reports_its_id(
+    tmp_path, monkeypatch
+):
+    """A triggered webhook must run real work, not only emit a throwaway id.
+
+    ``POST /api/v1/bots/{bot}/routines/webhook`` used to build an in-memory
+    ``GoalRunState(uuid4())`` that was never persisted or executed, so the
+    ``goal_run_id`` it returned always answered 404 on the status route.  A
+    triggered routine must hand off through the same consumer ``run_now`` and
+    the routine clock use.
+    """
+    from unittest.mock import AsyncMock
+
+    import server.routes.routines as routines_mod
+    from fastapi import FastAPI
+
+    from server.auth import AuthGateMiddleware
+    from server.routes.nano_w9 import router as nano_w9_router
+    from server.routes.routines import router as routines_router
+
+    app_i = FastAPI()
+    app_i.add_middleware(AuthGateMiddleware)
+    app_i.include_router(routines_router)
+    app_i.include_router(nano_w9_router)
+    client = TestClient(app_i)
+
+    monkeypatch.setenv("VEYA_EVENT_TRIGGERS", "1")
+    monkeypatch.setenv("VEYA_ROUTINE_TRIGGERS", "1")
+    monkeypatch.setenv("VEYA_ROUTINE_REGISTRY_PATH", str(tmp_path / "routines.json"))
+    secret = "a" * 32
+    monkeypatch.setenv("VEYA_WEBHOOK_SECRET", secret)
+
+    bot_id = "bot-webhook-real"
+    registry = RoutineRegistry(bot_id=bot_id)
+    registry.register(RoutineSpec(
+        routine_id="r-wh-real",
+        trigger_topic="event.arrive",
+        objective="real webhook work",
+        goal_template="real webhook work",
+        enabled=True,
+        bot_id=bot_id,
+        triggers=[{"kind": "webhook", "event": "aud3.real"}],
+    ))
+
+    consumer = AsyncMock(return_value=None)
+    # The route binds the consumer with ``from ... import``, so the live lookup
+    # goes through the module-level name on server.routes.routines.
+    monkeypatch.setattr(routines_mod, "_default_handoff_consumer", consumer)
+
+    body = json.dumps({"event": "aud3.real", "id": "evt_real_1"}).encode()
+    sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    resp = client.post(
+        f"/api/v1/bots/{bot_id}/routines/webhook", data=body,
+        headers={"X-Veya-Signature": sig, "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert consumer.await_count == 1, "webhook must dispatch through the real consumer"
+    handoffs = consumer.await_args.args[0]
+    assert handoffs and handoffs[0]["routine_id"] == "r-wh-real"
+    assert handoffs[0]["bot_id"] == bot_id
