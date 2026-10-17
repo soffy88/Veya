@@ -233,7 +233,9 @@ async def default_eval_runner(
 
     # Live model call is opt-in: default stays deterministic and offline.
     if not _live_llm_enabled():
-        return _deterministic_run(task_input=task_input, expected=expected, name=name, desc=desc, skill=skill)
+        return _deterministic_run(
+            task_input=task_input, expected=expected, name=name, desc=desc, skill=skill
+        )
 
     try:
         from veya.llm import llm_call
@@ -267,7 +269,9 @@ async def default_eval_runner(
     except Exception:
         pass
 
-    return _deterministic_run(task_input=task_input, expected=expected, name=name, desc=desc, skill=skill)
+    return _deterministic_run(
+        task_input=task_input, expected=expected, name=name, desc=desc, skill=skill
+    )
 
 
 def _live_llm_enabled() -> bool:

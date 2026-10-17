@@ -1,5 +1,5 @@
-import pytest
 from server.tool_registry import master_tools
+
 
 def test_skill_teach_has_large_result_limit():
     """Verify skill_teach tool is registered with sufficient result limit (>=32000) for rich eval gate payloads."""

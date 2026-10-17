@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 
+
 def test_api_v1_forwarder_exports_patch():
     """Verify apps/web/src/routes/api/v1/[...path]/+server.ts exports PATCH method."""
     p = Path("apps/web/src/routes/api/v1/[...path]/+server.ts")
@@ -10,6 +11,7 @@ def test_api_v1_forwarder_exports_patch():
         "apps/web/src/routes/api/v1/[...path]/+server.ts must export const PATCH: RequestHandler = forward"
     )
 
+
 def test_legacy_forwarder_exports_patch():
     """Verify apps/web/src/routes/legacy/[...path]/+server.ts exports PATCH method."""
     p = Path("apps/web/src/routes/legacy/[...path]/+server.ts")
@@ -18,6 +20,7 @@ def test_legacy_forwarder_exports_patch():
     assert re.search(r"export\s+const\s+PATCH\s*:\s*RequestHandler\s*=", content), (
         "apps/web/src/routes/legacy/[...path]/+server.ts must export const PATCH: RequestHandler = forward"
     )
+
 
 def test_team_api_routine_id_normalization():
     """Verify RoutineView and listRoutines handle routine_id from backend."""

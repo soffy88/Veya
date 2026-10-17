@@ -76,7 +76,9 @@ async def test_unverified_webhook_signal_never_matches(env):
 @pytest.mark.asyncio
 async def test_message_trigger_matches_on_mentions(env):
     """A message trigger with `mentions` matches — this is what the UI test button probes."""
-    RoutineRegistry(bot_id="b1").register(_routine("b1", [{"kind": "message", "mentions": ["发布"]}]))
+    RoutineRegistry(bot_id="b1").register(
+        _routine("b1", [{"kind": "message", "mentions": ["发布"]}])
+    )
 
     result = await _router("b1").handle(
         {"kind": "message", "text": "[UI 测试] 发布", "verified": False, "id": "s3"}

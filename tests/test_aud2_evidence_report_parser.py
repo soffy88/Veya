@@ -1,5 +1,5 @@
 from pathlib import Path
-import re
+
 
 def test_evidence_parser_exists():
     p = Path("apps/web/src/lib/evidenceReport.ts")
