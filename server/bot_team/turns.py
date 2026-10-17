@@ -175,6 +175,21 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
     except Exception:
         pass
 
+    try:
+        from server.feature_flags import enabled as _flag_enabled
+
+        if _flag_enabled("VEYA_EVIDENCE_REPORT"):
+            parts.append(
+                "【证据报告要求】：\n"
+                "每个论断必须标注来源（文件/URL/证据）；未经工具验证的断言或默认值单独归入【猜测】；未做或跳过的步骤单独归入【跳过】。\n"
+                "回答中必须明确包含以下三段结构：\n"
+                "【来源】\n- 列出引用的文件路径或 URL（若无则写“（无记录来源）”）\n"
+                "【猜测】\n- 列出未经工具验证的断言、假设或默认值（若无则写“（无未证实猜测）”）\n"
+                "【跳过】\n- 列出未做或跳过的步骤（若无则写“（无跳过项）”）"
+            )
+    except Exception:
+        pass
+
     if context.strip():
         parts.append(context.strip())
     parts.append(str(text or "").strip())
@@ -444,6 +459,21 @@ async def finish_bot_turn(
         if queue is not None:
             queue.mark_finished(bot.bot_id)
     reply = extract_reply(response, bot=bot)
+    try:
+        from server.feature_flags import enabled as _flag_enabled
+
+        if _flag_enabled("VEYA_EVIDENCE_REPORT"):
+            from server.goal_run.store import load_goal_run
+
+            goal_id = getattr(response, "goal_id", None) or (
+                response.get("goal_id") if isinstance(response, dict) else None
+            )
+            run_state = (
+                load_goal_run(workspace_id or "/repo", goal_id) if goal_id else None
+            )
+            reply = format_evidence_report(reply, state=run_state)
+    except Exception:
+        pass
     try:
         from server.feature_flags import enabled as _flag_enabled
 
@@ -786,6 +816,47 @@ async def _finish_or_await_approval(
     return task.result()
 
 
+def format_evidence_report(reply: str, state: Any = None) -> str:
+    """Ensure bot reply contains 【来源】/【猜测】/【跳过】 three sections when VEYA_EVIDENCE_REPORT is on."""
+    from server.feature_flags import enabled as _flag_enabled
+
+    try:
+        if not _flag_enabled("VEYA_EVIDENCE_REPORT"):
+            return reply
+    except Exception:
+        return reply
+
+    text = str(reply or "").strip()
+    has_src = "【来源】" in text or "来源：" in text or "来源:" in text
+    has_guess = "【猜测】" in text or "猜测：" in text or "猜测:" in text
+    has_skip = "【跳过】" in text or "跳过：" in text or "跳过:" in text
+
+    if has_src and has_guess and has_skip:
+        return text
+
+    from server.supervisor.reporting import _extract_sources, _extract_guesses, _extract_skips
+
+    sources = _extract_sources(state) if state is not None else []
+    guesses = _extract_guesses(state) if state is not None else ["（无未证实猜测）"]
+    skips = _extract_skips(state) if state is not None else ["（无跳过项）"]
+
+    sections = []
+    if not has_src:
+        src_text = ", ".join(sources) if sources else "（无记录来源）"
+        sections.append(f"【来源】\n- {src_text}")
+    if not has_guess:
+        guess_text = "; ".join(guesses) if guesses else "（无未证实猜测）"
+        sections.append(f"【猜测】\n- {guess_text}")
+    if not has_skip:
+        skip_text = ", ".join(skips) if skips else "（无跳过项）"
+        sections.append(f"【跳过】\n- {skip_text}")
+
+    suffix = "\n\n".join(sections)
+    if text:
+        return f"{text}\n\n{suffix}"
+    return suffix
+
+
 __all__ = [
     "BotTurnResult",
     "BotTurnStart",
@@ -793,6 +864,7 @@ __all__ = [
     "build_objective",
     "extract_reply",
     "finish_bot_turn",
+    "format_evidence_report",
     "parse_supervisor_phrase",
     "run_bot_turn",
 ]

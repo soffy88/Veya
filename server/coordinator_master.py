@@ -2090,6 +2090,7 @@ class MasterCoordinator:
             # the GoalRun this creates belongs to that bot, not to veya-default.
             bot_id=request.constraints.metadata.get("bot_id"),
             semantic_llm_kwargs=request.constraints.metadata.get("semantic_llm_kwargs", {}),
+            is_bot_turn=True,
         )
 
 

@@ -47,12 +47,57 @@ def _extract_sources(state) -> list[str]:
 
 def _extract_guesses(state) -> list[str]:
     guesses = []
-    for task in state.tasks.values():
-        if task.execute_result and "assume" in task.execute_result.lower():
-            guesses.append(task.execute_result[:100])
-    if not guesses:
-        guesses.append("（无未证实猜测）")
-    return guesses
+    if state and hasattr(state, "tasks"):
+        for task in state.tasks.values():
+            # 1. Structured assertions: unverified or weak status
+            for a in getattr(task, "assertions", []) or []:
+                if isinstance(a, dict):
+                    status = str(a.get("status", "")).lower()
+                    ev_ids = a.get("evidence_ids") or []
+                    stmt = str(a.get("statement") or a.get("claim") or "")
+                    if (status in ("weak", "unverified") or not ev_ids) and stmt:
+                        guesses.append(f"未验证断言: {stmt[:120]}")
+                elif hasattr(a, "status"):
+                    status = str(getattr(a, "status", "")).lower()
+                    ev_ids = getattr(a, "evidence_ids", []) or []
+                    stmt = str(getattr(a, "statement", ""))
+                    if (status in ("weak", "unverified") or not ev_ids) and stmt:
+                        guesses.append(f"未验证断言: {stmt[:120]}")
+
+            # 2. Structured evidence of default values or unverified claims
+            for ev in getattr(task, "evidence", []) or []:
+                if isinstance(ev, dict):
+                    kind = str(ev.get("kind", "")).lower()
+                    content = str(ev.get("content") or ev.get("statement") or "")
+                    if kind in ("unverified_assertion", "default_value", "assumption") and content:
+                        guesses.append(f"默认值/未验证: {content[:120]}")
+                elif hasattr(ev, "kind"):
+                    kind = str(getattr(ev, "kind", "")).lower()
+                    content = str(getattr(ev, "content", ""))
+                    if kind in ("unverified_assertion", "default_value", "assumption") and content:
+                        guesses.append(f"默认值/未验证: {content[:120]}")
+
+            # 3. Execution result unverified assumptions (broader than just 'assume')
+            if task.execute_result:
+                er = str(task.execute_result)
+                er_lower = er.lower()
+                for kw in ("assume", "默认", "假设", "推测", "未经验证", "未证实"):
+                    if kw in er_lower:
+                        guesses.append(er[:100])
+                        break
+
+    # Deduplicate while preserving order
+    seen = set()
+    deduped = []
+    for g in guesses:
+        clean = g.strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            deduped.append(clean)
+
+    if not deduped:
+        deduped.append("（无未证实猜测）")
+    return deduped
 
 
 def _extract_skips(state) -> list[str]:
