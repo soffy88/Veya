@@ -24,7 +24,7 @@ services:
 
   # ── Stage FastAPI Backend ──────────────────────────────────────────
   veya-stage:
-    image: veya-stage:be3aab61
+    image: veya-stage:36fcc13b
     container_name: veya-stage
     ports:
       - "127.0.0.1:8793:8765"
@@ -90,7 +90,7 @@ services:
       - HICODE_PRODUCTION_REQUIRES_HOST_MOUNT=
       - HICODE_PROXY=
       - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps
-      - VEYA_BUILD_SHA=be3aab61
+      - VEYA_BUILD_SHA=36fcc13b
       - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:?VEYA_PSEUDO_SECRET must be set}
       - INFERERA_API_KEY=${INFERERA_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
