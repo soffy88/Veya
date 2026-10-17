@@ -20,6 +20,8 @@
 		X,
 	} from "lucide-svelte";
 	import { createProject, listProjects, type ProjectView } from "$lib/projects/api";
+	import { auth } from "$lib/auth.svelte";
+	import AuthGate from "$lib/components/AuthGate.svelte";
 
 	let projects = $state<ProjectView[]>([]);
 	let loading = $state(true);
@@ -114,6 +116,7 @@
 			</div>
 
 			<div class="flex items-center gap-2">
+				<AuthGate />
 				<button
 					type="button"
 					onclick={() => void load()}
@@ -160,6 +163,19 @@
 		</div>
 
 		<!-- Error Banner -->
+		{#if !auth.token || !auth.user}
+			<div class="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200">
+				<h2 class="text-sm font-semibold text-amber-200">需要登录</h2>
+				<p class="mt-1 opacity-80">
+					访问项目主脑需要登录账号。请先登录后查看与创建项目。
+				</p>
+				<div class="mt-3 flex items-center gap-3">
+					<AuthGate />
+					<a href="/" class="text-xs text-terminal-dim hover:text-terminal-fg">← 返回控制台</a>
+				</div>
+			</div>
+		{/if}
+
 		{#if error}
 			<div class="mb-6 flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
 				<div class="flex items-center gap-2">

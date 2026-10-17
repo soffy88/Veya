@@ -21,8 +21,19 @@ function loadUser(): { user_id: string; username: string } | null {
 }
 
 function loadToken(): string {
-	if (typeof localStorage === "undefined") return "";
-	return localStorage.getItem(LS_TOKEN) ?? "";
+	if (typeof localStorage !== "undefined") {
+		const saved = localStorage.getItem(LS_TOKEN);
+		if (saved) return saved;
+	}
+	if (typeof document !== "undefined") {
+		for (const part of document.cookie.split(";")) {
+			const [k, v] = part.trim().split("=");
+			if ((k === "veya_token" || k === "veya.auth.token") && v) {
+				return decodeURIComponent(v);
+			}
+		}
+	}
+	return "";
 }
 
 /** 登录态单对象 (组件内用 $derived(auth.user && auth.token) 派生响应式)。 */
@@ -38,11 +49,25 @@ export function authHeader(): Record<string, string> {
 function persist(user: { user_id: string; username: string } | null, token: string) {
 	auth.user = user;
 	auth.token = token;
-	if (typeof localStorage === "undefined") return;
-	if (token) localStorage.setItem(LS_TOKEN, token);
-	else localStorage.removeItem(LS_TOKEN);
-	if (user) localStorage.setItem(LS_USER, JSON.stringify(user));
-	else localStorage.removeItem(LS_USER);
+	if (typeof localStorage !== "undefined") {
+		if (token) localStorage.setItem(LS_TOKEN, token);
+		else localStorage.removeItem(LS_TOKEN);
+		if (user) localStorage.setItem(LS_USER, JSON.stringify(user));
+		else localStorage.removeItem(LS_USER);
+	}
+	if (typeof document !== "undefined") {
+		if (token) {
+			document.cookie = `veya_token=${encodeURIComponent(token)}; path=/; max-age=2592000; SameSite=Lax`;
+			document.cookie = `veya.auth.token=${encodeURIComponent(token)}; path=/; max-age=2592000; SameSite=Lax`;
+		} else {
+			document.cookie = "veya_token=; path=/; max-age=0; SameSite=Lax";
+			document.cookie = "veya.auth.token=; path=/; max-age=0; SameSite=Lax";
+		}
+	}
+}
+
+export function clearAuth(): void {
+	persist(null, "");
 }
 
 async function post(path: string, body: unknown) {

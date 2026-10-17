@@ -10,6 +10,8 @@
  * VEYA_GATEWAY / VEYA_LEGACY env vars.
  */
 
+import { clearAuth } from "$lib/auth.svelte";
+
 export type Upstream = "gateway" | "legacy";
 
 /**
@@ -42,7 +44,16 @@ export async function api(
   const qs = q.size ? `?${q.toString()}` : "";
   const prefix = upstream === "legacy" ? `${API_BASE}/legacy/` : `${API_BASE}/`;
   // 登录后自动携带 token (后端按 user_id 隔离数据); 未登录保持 anonymous 行为
-  const token = typeof localStorage !== "undefined" ? localStorage.getItem("veya.auth.token") : null;
+  let token = typeof localStorage !== "undefined" ? localStorage.getItem("veya.auth.token") : null;
+  if (!token && typeof document !== "undefined") {
+    for (const part of document.cookie.split(";")) {
+      const [k, v] = part.trim().split("=");
+      if ((k === "veya_token" || k === "veya.auth.token") && v) {
+        token = decodeURIComponent(v);
+        break;
+      }
+    }
+  }
   const headers: Record<string, string> = {};
   if (opts.body !== undefined) headers["content-type"] = "application/json";
   if (token) headers.authorization = `Bearer ${token}`;
@@ -71,6 +82,10 @@ export async function api(
     } catch {
       /* keep raw text */
     }
+  }
+  if (res.status === 401 && token) {
+    // 后端鉴权失败 (Token 过期或无效) -> 清理失效登录态，避免前端处于虚假登录态
+    clearAuth();
   }
   return { ok: res.ok, status: res.status, data };
 }

@@ -36,9 +36,13 @@
 
 <div class="mx-auto w-full max-w-5xl p-6">
 	<header class="mb-6 flex items-center justify-between">
-		<div>
-			<h1 class="text-2xl font-semibold">Work 历史</h1>
-			<p class="text-sm opacity-70">查看长期工作的真实状态、阻塞原因和结果。</p>
+		<div class="flex items-center gap-3">
+			<a href="/" class="text-xs text-terminal-dim hover:text-terminal-fg">← 返回控制台</a>
+			<span class="opacity-20 text-xs">/</span>
+			<div>
+				<h1 class="text-2xl font-semibold">Work 历史</h1>
+				<p class="text-sm opacity-70">查看长期工作的真实状态、阻塞原因和结果。</p>
+			</div>
 		</div>
 		<div class="flex items-center gap-2">
 			<button class="btn" onclick={() => void store.load()} disabled={store.loading}>

@@ -131,9 +131,13 @@
 
 <div class="mx-auto w-full max-w-4xl space-y-5 p-4 pb-24">
 	<header class="flex flex-wrap items-start justify-between gap-3">
-		<div>
-			<h1 class="flex items-center gap-2 text-xl font-semibold tracking-tight"><ShieldCheck class="h-5 w-5" /> Agent publish permissions</h1>
-			<p class="mt-1 text-sm opacity-70">Owner-only, persisted permissions checked before tools execute. Unset agents are denied when the feature flag is enabled.</p>
+		<div class="flex items-center gap-3">
+			<a href="/" class="text-xs text-terminal-dim hover:text-terminal-fg">← 返回控制台</a>
+			<span class="opacity-20 text-xs">/</span>
+			<div>
+				<h1 class="flex items-center gap-2 text-xl font-semibold tracking-tight"><ShieldCheck class="h-5 w-5" /> Agent publish permissions</h1>
+				<p class="mt-1 text-sm opacity-70">Owner-only, persisted permissions checked before tools execute. Unset agents are denied when the feature flag is enabled.</p>
+			</div>
 		</div>
 		<button class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800" onclick={() => void load()} disabled={loading || busyAgent !== ""}><RefreshCw class={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} size={16} /> Refresh</button>
 	</header>

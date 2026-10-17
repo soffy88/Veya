@@ -214,12 +214,16 @@
 {#if featureEnabled}
 <div class="flex h-full w-full flex-col bg-slate-950 text-slate-100 p-6">
 	<div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-6">
-		<div>
-			<h1 class="text-2xl font-bold flex items-center gap-2">
-				<Shield class="h-6 w-6 text-indigo-400" />
-				Multi-Account Browser (MAB)
-			</h1>
-			<p class="text-sm text-slate-400">Isolated session profiles with 0700 permissions and automatic tool authorization.</p>
+		<div class="flex items-center gap-3">
+			<a href="/" class="text-xs text-slate-400 hover:text-slate-200">← 返回控制台</a>
+			<span class="opacity-20 text-xs">/</span>
+			<div>
+				<h1 class="text-2xl font-bold flex items-center gap-2">
+					<Shield class="h-6 w-6 text-indigo-400" />
+					Multi-Account Browser (MAB)
+				</h1>
+				<p class="text-sm text-slate-400">Isolated session profiles with 0700 permissions and automatic tool authorization.</p>
+			</div>
 		</div>
 		<button
 			onclick={loadProfiles}

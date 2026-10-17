@@ -72,7 +72,7 @@ export interface ProjectBriefResponse {
 }
 
 export async function listProjects(): Promise<ProjectView[]> {
-	const res = await api("gateway", "api/v1/projects");
+	const res = await api("gateway", "api/v1/projects", { method: "GET" });
 	if (!res.ok) {
 		const err = (res.data as { detail?: string })?.detail || "无法获取项目列表";
 		throw new Error(err);
@@ -101,7 +101,7 @@ export async function createProject(req: {
 }
 
 export async function getProject(id: string): Promise<ProjectView> {
-	const res = await api("gateway", `api/v1/projects/${encodeURIComponent(id)}`);
+	const res = await api("gateway", `api/v1/projects/${encodeURIComponent(id)}`, { method: "GET" });
 	if (!res.ok) {
 		const err = (res.data as { detail?: string })?.detail || "项目未找到";
 		throw new Error(err);
@@ -111,7 +111,7 @@ export async function getProject(id: string): Promise<ProjectView> {
 }
 
 export async function getProjectBrief(id: string): Promise<ProjectBriefResponse> {
-	const res = await api("gateway", `api/v1/projects/${encodeURIComponent(id)}/brief`);
+	const res = await api("gateway", `api/v1/projects/${encodeURIComponent(id)}/brief`, { method: "GET" });
 	if (!res.ok) {
 		const err = (res.data as { detail?: string })?.detail || "获取简报失败";
 		throw new Error(err);
@@ -141,7 +141,7 @@ export async function updateProjectBrief(
 }
 
 export async function getProjectMessages(id: string): Promise<BotMessage[]> {
-	const res = await api("gateway", `api/v1/projects/${encodeURIComponent(id)}/messages`);
+	const res = await api("gateway", `api/v1/projects/${encodeURIComponent(id)}/messages`, { method: "GET" });
 	if (!res.ok) {
 		const err = (res.data as { detail?: string })?.detail || "获取消息失败";
 		throw new Error(err);
@@ -171,7 +171,7 @@ export async function postProjectMessage(
 }
 
 export async function getProjectTasks(id: string): Promise<ProjectTaskView[]> {
-	const res = await api("gateway", `api/v1/projects/${encodeURIComponent(id)}/tasks`);
+	const res = await api("gateway", `api/v1/projects/${encodeURIComponent(id)}/tasks`, { method: "GET" });
 	if (!res.ok) {
 		const err = (res.data as { detail?: string })?.detail || "获取任务列表失败";
 		throw new Error(err);

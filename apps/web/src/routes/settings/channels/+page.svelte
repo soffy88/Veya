@@ -141,12 +141,16 @@
 
 <div class="mx-auto w-full max-w-3xl p-4 pb-24">
 	<header class="mb-5 flex items-center justify-between gap-3">
-		<div class="min-w-0">
-			<h1 class="text-xl font-semibold tracking-tight">聊天渠道与晨间简报</h1>
-			<p class="text-xs opacity-60">把外部群聊接到 bot / 群组，每天早上收到一份简报。</p>
-			{#if publishPermsEnabled}
-				<a href="/settings/agent-publish-perms" class="mt-2 inline-flex text-xs underline underline-offset-4 opacity-80 hover:opacity-100">Agent 发布权限 / Agent publish permissions</a>
-			{/if}
+		<div class="flex items-center gap-3">
+			<a href="/" class="text-xs text-terminal-dim hover:text-terminal-fg">← 返回控制台</a>
+			<span class="opacity-20 text-xs">/</span>
+			<div class="min-w-0">
+				<h1 class="text-xl font-semibold tracking-tight">聊天渠道与晨间简报</h1>
+				<p class="text-xs opacity-60">把外部群聊接到 bot / 群组，每天早上收到一份简报。</p>
+				{#if publishPermsEnabled}
+					<a href="/settings/agent-publish-perms" class="mt-2 inline-flex text-xs underline underline-offset-4 opacity-80 hover:opacity-100">Agent 发布权限 / Agent publish permissions</a>
+				{/if}
+			</div>
 		</div>
 		<button class={actionClass} onclick={() => void load()} disabled={loading}>
 			<RefreshCw size={16} class={loading ? "animate-spin" : ""} /> 刷新

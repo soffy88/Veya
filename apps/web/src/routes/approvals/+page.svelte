@@ -44,7 +44,11 @@
 
 <div class="mx-auto flex max-w-2xl flex-col gap-4 p-4">
 	<div class="flex items-center justify-between">
-		<h1 class="text-lg font-semibold text-terminal-fg">审批</h1>
+		<div class="flex items-center gap-3">
+			<a href="/" class="text-xs text-terminal-dim hover:text-terminal-fg">← 返回控制台</a>
+			<span class="opacity-20 text-xs">/</span>
+			<h1 class="text-lg font-semibold text-terminal-fg">审批</h1>
+		</div>
 		<button type="button" class={actionClass} onclick={() => void load()} aria-label="刷新"><RefreshCw class="size-4" /></button>
 	</div>
 

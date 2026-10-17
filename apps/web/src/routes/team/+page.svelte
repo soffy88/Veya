@@ -22,6 +22,8 @@
 	import { hasUnread, latestBotMessage, markRead } from "$lib/team/unread";
 import { actionClass, cardClass, firstLine, inputClass, primaryClass } from "$lib/team/ui";
 import { turnStore } from "$lib/team/turns.svelte";
+import { auth } from "$lib/auth.svelte";
+import AuthGate from "$lib/components/AuthGate.svelte";
 import NewBotSheet from "./NewBotSheet.svelte";
 import NeedsYouWidget from "./NeedsYouWidget.svelte";
 import RunHistoryWidget from "./RunHistoryWidget.svelte";
@@ -146,15 +148,40 @@ import RunHistoryWidget from "./RunHistoryWidget.svelte";
 <div class="mx-auto w-full max-w-3xl p-4 pb-24">
 	<NeedsYouWidget />
 	<RunHistoryWidget />
-	<header class="mb-5 flex items-center justify-between gap-3">
-		<div class="min-w-0">
-			<h1 class="text-xl font-semibold tracking-tight">Bot 团队</h1>
-			<p class="text-xs opacity-60">起 bot、1:1 聊、群聊，跑完会推送到手机。</p>
+	<header class="mb-5 flex flex-wrap items-center justify-between gap-3">
+		<div class="flex items-center gap-3">
+			<a
+				href="/"
+				class="flex items-center gap-2 text-sm opacity-70 transition hover:opacity-100"
+			>
+				<span>← 返回控制台</span>
+			</a>
+			<span class="opacity-20">/</span>
+			<div class="min-w-0">
+				<h1 class="text-xl font-semibold tracking-tight">Bot 团队</h1>
+				<p class="text-xs opacity-60">起 bot、1:1 聊、群聊，跑完会推送到手机。</p>
+			</div>
 		</div>
-		<button class={actionClass} onclick={() => void load()} disabled={loading}>
-			<RefreshCw size={16} class={loading ? "animate-spin" : ""} /> 刷新
-		</button>
+		<div class="flex items-center gap-2">
+			<AuthGate />
+			<button class={actionClass} onclick={() => void load()} disabled={loading}>
+				<RefreshCw size={16} class={loading ? "animate-spin" : ""} /> 刷新
+			</button>
+		</div>
 	</header>
+
+	{#if !auth.token || !auth.user}
+		<div class="{cardClass} mb-6 border-amber-500/30 bg-amber-500/[0.06] p-4">
+			<h2 class="text-sm font-semibold text-amber-200">需要登录</h2>
+			<p class="mt-1 text-xs opacity-80">
+				访问 Bot 团队需要登录账号。请先登录后查看团队列表与管理 Bot。
+			</p>
+			<div class="mt-3 flex items-center gap-3">
+				<AuthGate />
+				<a href="/" class="text-xs text-terminal-dim hover:text-terminal-fg">← 返回控制台</a>
+			</div>
+		</div>
+	{/if}
 
 	{#if error}
 		<div class="{cardClass} mb-4 border-red-500/40 text-sm text-red-300">{error}</div>
