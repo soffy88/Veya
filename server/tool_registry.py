@@ -4601,6 +4601,8 @@ async def _tool_skill_teach(
     description: str,
     trajectory_summary: str = "",
 ) -> dict:
+    from server.feature_flags import enabled as flag_enabled
+
     if not flag_enabled("VEYA_TEACH_SKILL"):
         return {"status": "error", "error": "VEYA_TEACH_SKILL feature flag is disabled"}
     user_id, session_id, task_id, trace_id = _personal_request_ids()
@@ -4616,21 +4618,64 @@ async def _tool_skill_teach(
         execution_ref=trajectory_summary,
         created_by=user_id,
     )
+    eval_gate_passed = None
+    eval_result = None
+    if flag_enabled("VEYA_SKILL_EVAL_GATE"):
+        from server.skill_eval_gate import evaluate_skill_candidate
+
+        eval_result = await evaluate_skill_candidate(
+            candidate={
+                "name": name,
+                "description": full_description,
+                "skill_id": created.get("skill_id"),
+                "version_id": created.get("id"),
+            },
+            trajectory={"objective": trajectory_summary, "task_id": "tool_teach"},
+            user_id=user_id,
+            scope_type="user",
+            scope_id=user_id,
+        )
+        eval_gate_passed = eval_result.get("passed", False)
+        if not eval_gate_passed:
+            return {
+                "status": "eval_rejected",
+                "skill_id": created.get("skill_id"),
+                "version_id": created.get("id"),
+                "approval_id": None,
+                "eval_gate_passed": False,
+                "eval_result": eval_result,
+                "description": full_description,
+                "reason": "Skill evaluation gate failed: candidate regressed",
+            }
+
     from server.approvals import get_approval_service
+
     approval_svc = get_approval_service()
+    approval_args = {
+        "skill_id": created.get("skill_id"),
+        "skill_version_id": created.get("id"),
+        "name": name,
+    }
+    if eval_result:
+        approval_args["eval_evidence"] = eval_result
     approval_res = await approval_svc.request(
         tool="teach_skill_draft",
-        args={"skill_id": created.get("skill_id"), "skill_version_id": created.get("id"), "name": name},
+        args=approval_args,
         user_id=user_id,
         reason=f"Approve skill draft '{name}' via bot tool",
     )
-    return {
+    res_payload = {
         "status": "draft_created",
         "skill_id": created.get("skill_id"),
         "version_id": created.get("id"),
-        "approval_id": approval_res.get("approval_id") or approval_res.get("approval", {}).get("request_id"),
+        "approval_id": approval_res.get("approval_id")
+        or approval_res.get("approval", {}).get("request_id"),
         "description": full_description,
     }
+    if eval_gate_passed is not None:
+        res_payload["eval_gate_passed"] = eval_gate_passed
+        res_payload["eval_result"] = eval_result
+    return res_payload
 
 
 async def _tool_skill_confirm(skill_version_id: str) -> dict:

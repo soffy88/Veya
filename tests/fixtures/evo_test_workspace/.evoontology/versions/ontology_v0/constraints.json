@@ -1,0 +1,1 @@
+[{"id": "const_positive_revenue", "target": "term_revenue", "constraint_type": "domain_rule", "severity": "warn", "description": "Order amount should be non-negative", "lifecycle": {"state": "active"}}]

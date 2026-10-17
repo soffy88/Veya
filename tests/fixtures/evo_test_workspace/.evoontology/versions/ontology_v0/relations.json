@@ -1,0 +1,1 @@
+[{"id": "rel_customer_orders", "source": "term_customer", "relation_type": "has_many", "target": "term_revenue", "connection_condition": "customers.id = orders.customer_id", "description": "Customer generates order revenue", "lifecycle": {"state": "active"}}]

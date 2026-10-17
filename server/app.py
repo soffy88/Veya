@@ -303,6 +303,17 @@ async def lifespan(app: FastAPI):
         import logging
 
         logging.getLogger("veya.lifespan").exception("mcp-presets wire failed")
+
+    # GBP6: EvoOntology MCP preset & semantic tools
+    try:
+        from server.evo_ontology import is_evo_ontology_enabled, wire_evo_ontology_tools
+
+        if is_evo_ontology_enabled():
+            await wire_evo_ontology_tools()
+    except Exception:
+        import logging
+
+        logging.getLogger("veya.lifespan").exception("evo-ontology wire failed")
     try:
         from server.tool_registry import master_tools
 
