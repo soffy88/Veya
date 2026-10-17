@@ -86,7 +86,7 @@
 		loading = true;
 		error = "";
 		try {
-			const res = await api("gateway", "api/v1/mab/profiles");
+			const res = await api("gateway", "api/v1/mab/profiles", { method: "GET" });
 			if (res.status === 404) { featureEnabled = false; stopStream(); window.location.replace("/"); return; }
 			featureEnabled = true;
 			if (res.ok && res.data) {

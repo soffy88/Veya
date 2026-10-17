@@ -61,14 +61,13 @@ const FEED_SECTIONS = ["routines", "goals", "goalruns", "memory", "rss"] as cons
 // ── calls ───────────────────────────────────────────────────────────────
 
 export async function getChannelsStatus(): Promise<ChannelsStatus | null> {
-	const res = await api("gateway", "api/v1/channels/status");
+	const res = await api("gateway", "api/v1/channels/status", { method: "GET" });
 	return res.ok ? ((res.data as ChannelsStatus) ?? null) : null;
 }
 
 export async function listBindings(): Promise<ChannelBindingView[]> {
-	const res = await api("gateway", "api/v1/channels/bindings");
-	if (!res.ok) return [];
-	return ((res.data as { bindings?: ChannelBindingView[] })?.bindings ?? []);
+	const res = await api("gateway", "api/v1/channels/bindings", { method: "GET" });
+	return res.ok ? ((res.data as { bindings?: ChannelBindingView[] })?.bindings ?? []) : [];
 }
 
 /** Ask the backend for a one-time code the user pastes into the external chat. */
@@ -93,7 +92,7 @@ export async function unbind(bindingId: string): Promise<boolean> {
 }
 
 export async function getFeedConfig(): Promise<FeedConfigView | null> {
-	const res = await api("gateway", "api/v1/channels/morning-feed/config");
+	const res = await api("gateway", "api/v1/channels/morning-feed/config", { method: "GET" });
 	return res.ok ? ((res.data as FeedConfigView) ?? null) : null;
 }
 
