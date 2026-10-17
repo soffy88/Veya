@@ -38,6 +38,7 @@
 	let models = $state<ModelOption[]>([]);
 	let modelChoice = $state("");
 	let defaultModel = $state("");
+	let skillIdsText = $state("");
 	let modelsLoaded = $state(false);
 	let busy = $state(false);
 	let error = $state("");
@@ -85,6 +86,10 @@
 				const picked = models.find((option) => option.id === modelChoice);
 				body.provider = picked?.provider ?? "";
 				body.model = picked?.id ?? modelChoice;
+			}
+			const skills = skillIdsText.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+			if (skills.length > 0) {
+				body.available_skill_ids = skills;
 			}
 			const bot = await createBot(body);
 			oncreated(bot.bot_id);
@@ -212,6 +217,17 @@
 							<p class="mt-1 text-[11px] opacity-50">正在读取可用模型…</p>
 						{/if}
 					{/if}
+				</div>
+
+				<div>
+					<label class="mb-1 block text-xs opacity-60" for="new-bot-skills">初始挂载技能（可选，多个用逗号或空格隔开）</label>
+					<input
+						id="new-bot-skills"
+						class={inputClass}
+						placeholder="例如：agency_design_ui_designer, preset:researcher"
+						bind:value={skillIdsText}
+						autocomplete="off"
+					/>
 				</div>
 
 				<p class="text-[11px] opacity-50">

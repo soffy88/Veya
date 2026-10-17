@@ -10,7 +10,7 @@
 	 * page does not pretend the browser is the clock.
 	 */
 	import { onMount } from "svelte";
-	import { Clock, Pause, Play, Plus, Trash2 } from "lucide-svelte";
+	import { Clock, Pause, Play, Plus, Trash2, Webhook, Copy, Check, Zap } from "lucide-svelte";
 	import {
 		createRoutine,
 		deleteRoutine,
@@ -19,6 +19,7 @@
 		runRoutineNow,
 		type RoutineView,
 	} from "$lib/team/api";
+	import { api } from "$lib/api";
 	import { describeParsedSchedule, parseScheduleFromText } from "$lib/team/routine_nl";
 	import { describeSchedule, formatNextRun, nextRunAt } from "$lib/team/routine_next";
 	import { actionClass, cardClass, inputClass, primaryClass } from "$lib/team/ui";
@@ -36,6 +37,51 @@
 	let timezone = $state("Asia/Shanghai");
 	/** What the sentence was understood as — `null` until it names a time. */
 	let parsed = $state<string | null>(null);
+
+	// Webhook triggers (GBP3 / NANO-W9)
+	let webhookCopied = $state(false);
+	let webhookTesting = $state(false);
+	let webhookTestResult = $state("");
+	let webhookEventName = $state("push");
+
+	async function copyWebhookUrl(): Promise<void> {
+		const base = typeof window !== "undefined" ? window.location.origin : "";
+		const url = `${base}/api/v1/routines/webhook?bot_id=${encodeURIComponent(botId)}`;
+		try {
+			await navigator.clipboard.writeText(url);
+			webhookCopied = true;
+			setTimeout(() => { webhookCopied = false; }, 2000);
+		} catch {
+			/* clipboard write failed */
+		}
+	}
+
+	async function sendTestSignal(): Promise<void> {
+		webhookTesting = true;
+		webhookTestResult = "";
+		try {
+			const res = await api("gateway", "api/v1/signals", {
+				method: "POST",
+				body: {
+					kind: "message",
+					bot_id: botId,
+					source: "webhook",
+					event: webhookEventName,
+					text: `测试 Webhook 触发事件: ${webhookEventName}`,
+				},
+			});
+			if (res.ok) {
+				const status = (res.data as { status?: string } | null)?.status || "received";
+				webhookTestResult = `触发信号已受理 (状态: ${status})`;
+			} else {
+				webhookTestResult = `触发失败 (HTTP ${res.status})`;
+			}
+		} catch (err) {
+			webhookTestResult = `触发异常: ${err instanceof Error ? err.message : String(err)}`;
+		} finally {
+			webhookTesting = false;
+		}
+	}
 
 	$effect(() => {
 		// Re-parse on every keystroke: the user should see what the bot will do
@@ -205,5 +251,67 @@
 				{/each}
 			</ul>
 		{/if}
+
+		<!-- Webhook & Event Triggers Section -->
+		<section class="{cardClass} space-y-3" aria-label="Webhook 事件触发">
+			<div class="flex items-center gap-2">
+				<Webhook size={16} class="text-sky-400" />
+				<h2 class="text-sm font-medium">Webhook 与外部事件触发 (Event Triggers)</h2>
+			</div>
+			<p class="text-xs opacity-60">
+				外部系统（如 GitHub / CI / 告警监控）可通过发送 POST Webhook 实时触发此 Bot 的任务。
+			</p>
+
+			<div class="space-y-1.5">
+				<label class="block text-[11px] opacity-50" for="webhook-url">Webhook 接收端点 (URL)</label>
+				<div class="flex items-center gap-2">
+					<input
+						id="webhook-url"
+						class="{inputClass} flex-1 font-mono text-[11px] py-1.5 text-sky-200"
+						readonly
+						value={`/api/v1/routines/webhook?bot_id=${botId}`}
+					/>
+					<button
+						type="button"
+						class="{actionClass} shrink-0 text-xs"
+						onclick={() => void copyWebhookUrl()}
+					>
+						{#if webhookCopied}
+							<Check size={13} class="text-emerald-400" /> 已复制
+						{:else}
+							<Copy size={13} /> 复制
+						{/if}
+					</button>
+				</div>
+			</div>
+
+			<div class="rounded-lg bg-black/40 p-2.5 text-[10px] text-white/60 font-mono space-y-1">
+				<p class="text-white/40"># cURL 触发示例 (需要 X-Veya-Secret 或 X-Hub-Signature-256):</p>
+				<p>curl -X POST "/api/v1/routines/webhook?bot_id={botId}" \</p>
+				<p>  -H "Content-Type: application/json" \</p>
+				<p>  -H "X-Hub-Signature-256: sha256=..." \</p>
+				<p>  -d '{`{"event": "deploy", "action": "run"}`}'</p>
+			</div>
+
+			<div class="border-t border-white/5 pt-2 flex items-center gap-2">
+				<input
+					class="{inputClass} flex-1 text-xs"
+					placeholder="事件名 (例如 push / alert)"
+					bind:value={webhookEventName}
+				/>
+				<button
+					type="button"
+					class="{primaryClass} text-xs py-1.5"
+					disabled={webhookTesting || !webhookEventName.trim()}
+					onclick={() => void sendTestSignal()}
+				>
+					<Zap size={13} />
+					{webhookTesting ? "触发中…" : "发送测试信号"}
+				</button>
+			</div>
+			{#if webhookTestResult}
+				<p class="text-xs text-emerald-400">{webhookTestResult}</p>
+			{/if}
+		</section>
 	{/if}
 </div>

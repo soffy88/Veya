@@ -21,8 +21,10 @@
 	 */
 	import { onDestroy, onMount } from "svelte";
 	import { tick } from "svelte";
-	import { Check, CornerUpLeft, RotateCw, Send } from "lucide-svelte";
+	import { Check, CornerUpLeft, RotateCw, Send, GraduationCap, Sparkles, X } from "lucide-svelte";
 	import WorkProcess from "$lib/components/WorkProcess.svelte";
+	import EvidenceReportBlock from "$lib/components/EvidenceReportBlock.svelte";
+	import { api } from "$lib/api";
 	import {
 		acceptProposal,
 		answerCheckpoint,
@@ -73,6 +75,60 @@
 	// second turn. The backend lands it through the item-1 steer, so there is
 	// one path, not a parallel control channel.
 	const turnRunning = $derived(pendingTaskId !== "");
+
+	// Teach skill draft state (GBP2)
+	let teachOpen = $state(false);
+	let teachSkillName = $state("");
+	let teachSkillDesc = $state("");
+	let teachTrajectory = $state<Array<{ role: string; text: string }>>([]);
+	let teachBusy = $state(false);
+	let teachSuccessNotice = $state("");
+	let teachError = $state("");
+
+	function openTeachModal(targetMsg: BotMessage): void {
+		teachError = "";
+		teachSuccessNotice = "";
+		const idx = messages.findIndex((m) => m.id === targetMsg.id);
+		const userMsg = idx > 0 ? messages.slice(0, idx).reverse().find((m) => m.role === "user") : null;
+		teachSkillName = `${botId}_skill_${Date.now().toString().slice(-4)}`;
+		teachSkillDesc = (targetMsg.text || "").slice(0, 120);
+		teachTrajectory = [
+			...(userMsg ? [{ role: "user", text: userMsg.text }] : []),
+			{ role: "bot", text: targetMsg.text },
+		];
+		teachOpen = true;
+	}
+
+	async function submitTeachDraft(): Promise<void> {
+		if (!teachSkillName.trim()) return;
+		teachBusy = true;
+		teachError = "";
+		teachSuccessNotice = "";
+		try {
+			const res = await api("gateway", "api/v1/skills/teach/draft", {
+				method: "POST",
+				body: {
+					name: teachSkillName.trim(),
+					description: teachSkillDesc.trim(),
+					trajectory: teachTrajectory,
+					scope_type: "user",
+				},
+			});
+			if (!res.ok) {
+				const detail = (res.data as { detail?: string } | null)?.detail || `提交失败 (${res.status})`;
+				throw new Error(detail);
+			}
+			teachSuccessNotice = "技能草稿已提交！请前往「审批」页面批准该草稿以正式激活技能。";
+			setTimeout(() => {
+				teachOpen = false;
+				teachSuccessNotice = "";
+			}, 3000);
+		} catch (err) {
+			teachError = err instanceof Error ? err.message : String(err);
+		} finally {
+			teachBusy = false;
+		}
+	}
 
 	function cardIdOf(message: BotMessage): string {
 		const meta = message.meta ?? {};
@@ -338,12 +394,28 @@
 			{:else}
 				<div class="flex {message.role === 'user' ? 'justify-end' : 'justify-start'}">
 					<div
-						class="max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words {message.role ===
+						class="max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm {message.role ===
 						'user'
 							? 'bg-gradient-to-br from-sky-500/90 to-violet-600/90 text-white'
 							: 'bg-white/[0.05] text-terminal-fg'}"
 					>
-						{message.text}
+						{#if message.role === "user"}
+							<div class="whitespace-pre-wrap break-words">{message.text}</div>
+						{:else}
+							<EvidenceReportBlock text={message.text} />
+							<div class="mt-2 flex items-center justify-between border-t border-white/5 pt-2 text-[11px] text-white/40">
+								<span>{botName}</span>
+								<button
+									type="button"
+									class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-sky-300 transition hover:bg-sky-500/10 hover:text-sky-200"
+									title="将此轮对话沉淀为技能"
+									onclick={() => openTeachModal(message)}
+								>
+									<GraduationCap size={13} />
+									<span>教一次</span>
+								</button>
+							</div>
+						{/if}
 					</div>
 				</div>
 			{/if}
@@ -450,5 +522,96 @@
 		<p class="border-t border-white/[0.05] px-4 py-1.5 text-[11px] text-terminal-dim">
 			这一轮还在跑 — 现在发送的内容会作为纠正送进去，而不是新开一轮。{correctionNote}
 		</p>
+	{/if}
+
+	{#if teachOpen}
+		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+			<div class="w-full max-w-lg rounded-2xl border border-white/10 bg-[#121214] p-5 shadow-2xl">
+				<div class="flex items-center justify-between border-b border-white/10 pb-3">
+					<div class="flex items-center gap-2 font-medium text-white">
+						<GraduationCap size={18} class="text-sky-400" />
+						<span>教一次：将对话沉淀为技能草稿</span>
+					</div>
+					<button
+						type="button"
+						class="text-white/40 hover:text-white"
+						onclick={() => (teachOpen = false)}
+						aria-label="关闭"
+					>
+						<X size={18} />
+					</button>
+				</div>
+
+				<form
+					class="mt-4 space-y-3"
+					onsubmit={(e) => {
+						e.preventDefault();
+						void submitTeachDraft();
+					}}
+				>
+					<div>
+						<label class="block text-xs font-medium text-white/70 mb-1" for="teach-skill-name">技能名称（标识符）</label>
+						<input
+							id="teach-skill-name"
+							class="{inputClass} text-xs font-mono"
+							bind:value={teachSkillName}
+							placeholder="例如：auto_summarizer"
+							required
+						/>
+					</div>
+
+					<div>
+						<label class="block text-xs font-medium text-white/70 mb-1" for="teach-skill-desc">技能说明 / 目标描述</label>
+						<textarea
+							id="teach-skill-desc"
+							class="{inputClass} min-h-20 text-xs py-2"
+							bind:value={teachSkillDesc}
+							placeholder="描述该技能的作用与触发条件…"
+							required
+						></textarea>
+					</div>
+
+					<div>
+						<label class="block text-xs font-medium text-white/70 mb-1">轨迹快照（前序问答）</label>
+						<pre class="max-h-28 overflow-y-auto rounded-lg bg-black/40 p-2 text-[10px] text-white/60 font-mono whitespace-pre-wrap">{JSON.stringify(teachTrajectory, null, 2)}</pre>
+					</div>
+
+					<p class="text-[11px] text-white/40">
+						提交后将生成带有触发校验规则的技能草稿，并自动发起审批。审批通过后正式入库。
+					</p>
+
+					{#if teachSuccessNotice}
+						<div class="rounded-lg bg-emerald-950/40 border border-emerald-500/30 p-2.5 text-xs text-emerald-300">
+							{teachSuccessNotice}
+							<div class="mt-1">
+								<a href="/approvals" class="underline text-sky-300 hover:text-sky-200">立即前往审批页面 →</a>
+							</div>
+						</div>
+					{/if}
+
+					{#if teachError}
+						<p class="text-xs text-rose-400">{teachError}</p>
+					{/if}
+
+					<div class="flex justify-end gap-2 pt-2 border-t border-white/5">
+						<button
+							type="button"
+							class={actionClass}
+							onclick={() => (teachOpen = false)}
+							disabled={teachBusy}
+						>
+							取消
+						</button>
+						<button
+							type="submit"
+							class={primaryClass}
+							disabled={teachBusy || !teachSkillName.trim()}
+						>
+							{teachBusy ? "提交中…" : "提交技能草稿"}
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
 	{/if}
 </div>
