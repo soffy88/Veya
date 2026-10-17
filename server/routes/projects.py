@@ -188,7 +188,7 @@ async def list_projects(
 
     # Project Brain enabled: project from BotRegistry
     registry = BotRegistry()
-    owner_id = str(user.get("user_id") or "anonymous")
+    owner_id = str((user or {}).get("user_id") or "anonymous")
     all_bots = registry.list()
     projects = []
     idx = 0
@@ -229,7 +229,7 @@ async def create_project(
     # Project Brain enabled: create dedicated project bot + .veya-project layout + empty brief
     pid = str(uuid.uuid4())[:8]
     bot_id = f"proj-{pid}"
-    owner_id = str(user.get("user_id") or "anonymous")
+    owner_id = str((user or {}).get("user_id") or "anonymous")
 
     raw_root = req.project_root or req.workspace_path
     if raw_root:
@@ -289,7 +289,7 @@ async def get_project(
             return {"project": _projects[project_id]}
         raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
 
-    spec = _require_project_bot(project_id, owner_id=str(user.get("user_id") or "anonymous"))
+    spec = _require_project_bot(project_id, owner_id=str((user or {}).get("user_id") or "anonymous"))
     return {"project": _project_view(spec)}
 
 
@@ -302,7 +302,7 @@ async def get_project_brief(
     if not project_brain_enabled():
         raise HTTPException(status_code=404, detail="project brain is not enabled")
 
-    spec = _require_project_bot(project_id, owner_id=str(user.get("user_id") or "anonymous"))
+    spec = _require_project_bot(project_id, owner_id=str((user or {}).get("user_id") or "anonymous"))
     brief = load_brief(spec.workspace_path)
     md = render_brief(brief)
     return {
@@ -323,7 +323,7 @@ async def update_project_brief(
     if not project_brain_enabled():
         raise HTTPException(status_code=404, detail="project brain is not enabled")
 
-    spec = _require_project_bot(project_id, owner_id=str(user.get("user_id") or "anonymous"))
+    spec = _require_project_bot(project_id, owner_id=str((user or {}).get("user_id") or "anonymous"))
     root = spec.workspace_path
 
     if req.markdown is not None:
@@ -361,7 +361,7 @@ async def get_project_messages(
     if not project_brain_enabled():
         raise HTTPException(status_code=404, detail="project brain is not enabled")
 
-    spec = _require_project_bot(project_id, owner_id=str(user.get("user_id") or "anonymous"))
+    spec = _require_project_bot(project_id, owner_id=str((user or {}).get("user_id") or "anonymous"))
     from server.routes.bot_team import get_bot_messages
 
     return await get_bot_messages(bot_id=spec.bot_id, include_hidden=include_hidden, user=user)
@@ -378,7 +378,7 @@ async def post_project_message(
     if not project_brain_enabled():
         raise HTTPException(status_code=404, detail="project brain is not enabled")
 
-    spec = _require_project_bot(project_id, owner_id=str(user.get("user_id") or "anonymous"))
+    spec = _require_project_bot(project_id, owner_id=str((user or {}).get("user_id") or "anonymous"))
     from server.routes.bot_team import BotMessageRequest, post_bot_message
 
     bot_req = BotMessageRequest(
@@ -401,7 +401,7 @@ async def get_project_tasks(
     if not project_brain_enabled():
         raise HTTPException(status_code=404, detail="project brain is not enabled")
 
-    spec = _require_project_bot(project_id, owner_id=str(user.get("user_id") or "anonymous"))
+    spec = _require_project_bot(project_id, owner_id=str((user or {}).get("user_id") or "anonymous"))
     tasks = list_tasks(spec.workspace_path)
     tasks_list = []
     for t in tasks:
@@ -437,7 +437,7 @@ async def project_task_action(
     if action not in ("cancel", "pause", "resume"):
         raise HTTPException(status_code=400, detail=f"invalid action {action!r}")
 
-    spec = _require_project_bot(project_id, owner_id=str(user.get("user_id") or "anonymous"))
+    spec = _require_project_bot(project_id, owner_id=str((user or {}).get("user_id") or "anonymous"))
     task = get_task(spec.workspace_path, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"task {task_id!r} not found in project")
