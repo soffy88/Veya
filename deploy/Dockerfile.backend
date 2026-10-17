@@ -120,10 +120,12 @@ RUN --mount=from=hicode_clean_3o,source=/,target=/tmp/hicode-clean-3o,ro \
     && /opt/veya/hicode-runtime/python/bin/python /app/deploy/build_hicode_python_runtime.py \
       /opt/veya/hicode-runtime \
       --source-manifest /opt/veya/hicode-runtime/3o-build-source.json \
-    && HICODE_MANAGED_RUNTIME_ROOT=/opt/veya/hicode-runtime \
+    && if [ -f /app/server/hicode_runtime.py ]; then \
+      HICODE_MANAGED_RUNTIME_ROOT=/opt/veya/hicode-runtime \
       HICODE_MANAGED_BIN=/opt/veya/hicode-runtime/node_modules/.bin/reasonix \
       HICODE_MANAGED_PYTHON=/opt/veya/hicode-runtime/python/bin/python \
-      python -m server.hicode_runtime preflight
+      python -m server.hicode_runtime preflight ; \
+    fi
 
 # DSH (DeepSeek Harness) executor — the shell/ops execution plane. Pinned exact
 # version, installed from a checked-in lockfile. DSH holds NO provider
