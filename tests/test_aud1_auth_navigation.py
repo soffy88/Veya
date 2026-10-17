@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -47,9 +47,18 @@ def test_projects_client_api_specifies_get_method():
     src = Path("apps/web/src/lib/projects/api.ts").read_text(encoding="utf-8")
     assert 'api("gateway", "api/v1/projects", { method: "GET" })' in src
     assert 'api("gateway", `api/v1/projects/${encodeURIComponent(id)}`, { method: "GET" })' in src
-    assert 'api("gateway", `api/v1/projects/${encodeURIComponent(id)}/brief`, { method: "GET" })' in src
-    assert 'api("gateway", `api/v1/projects/${encodeURIComponent(id)}/messages`, { method: "GET" })' in src
-    assert 'api("gateway", `api/v1/projects/${encodeURIComponent(id)}/tasks`, { method: "GET" })' in src
+    assert (
+        'api("gateway", `api/v1/projects/${encodeURIComponent(id)}/brief`, { method: "GET" })'
+        in src
+    )
+    assert (
+        'api("gateway", `api/v1/projects/${encodeURIComponent(id)}/messages`, { method: "GET" })'
+        in src
+    )
+    assert (
+        'api("gateway", `api/v1/projects/${encodeURIComponent(id)}/tasks`, { method: "GET" })'
+        in src
+    )
 
 
 def test_auth_client_sets_and_clears_cookie():
