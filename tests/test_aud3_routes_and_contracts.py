@@ -106,3 +106,43 @@ def test_mcp_presets_auth_dependency(auth_client, monkeypatch):
         json={"bot_id": bot_id},
     )
     assert resp.status_code != 401, "Auth dependency _require_user rejected valid bearer token"
+
+
+def test_routine_webhook_signature_auth_without_user_token(monkeypatch):
+    """External webhook with valid HMAC signature must not be rejected by AuthGateMiddleware."""
+    monkeypatch.setenv("VEYA_EVENT_TRIGGERS", "1")
+    monkeypatch.setenv("VEYA_ROUTINE_TRIGGERS", "1")
+    secret = "w" * 32
+    monkeypatch.setenv("VEYA_WEBHOOK_SECRET", secret)
+
+    bot_id = f"bot_webhook_{uuid.uuid4().hex[:6]}"
+    BotRegistry().register(BotSpec(
+        bot_id=bot_id,
+        name="Webhook Bot",
+        owner_id="webhook_user",
+        runner_id="local",
+    ))
+    RoutineRegistry(bot_id=bot_id).register(RoutineSpec(
+        routine_id="r-wh-1",
+        trigger_topic="event.arrive",
+        objective="Webhook trigger",
+        goal_template="Webhook trigger",
+        enabled=True,
+        bot_id=bot_id,
+        triggers=[{"kind": "webhook", "event": "release"}],
+    ))
+
+    body = json.dumps({"event": "release", "id": "rel_999"}).encode("utf-8")
+    sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+
+    # Unauthenticated client (NO Authorization header)
+    anon_client = TestClient(app)
+    resp = anon_client.post(
+        f"/api/v1/bots/{bot_id}/routines/webhook",
+        data=body,
+        headers={"X-Veya-Signature": sig, "Content-Type": "application/json"},
+    )
+    # Must not be blocked by AuthGateMiddleware with {"detail": "请先登录"}
+    assert resp.status_code == 200, f"Webhook rejected: {resp.status_code} {resp.text}"
+    assert resp.json()["status"] == "ok"
+

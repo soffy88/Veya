@@ -18,10 +18,20 @@ from server.goal_run.routine_registry import RoutineRegistry
 
 
 def _require_owned_bot(
+    request: Request,
     bot_id: str,
-    user: dict = Depends(auth_mod.require_user),
+    user: dict | None = Depends(auth_mod.get_current_user),
 ) -> None:
-    """W11 D2: routines belong to the bot's owner; anyone else gets 404."""
+    """W11 D2: routines belong to the bot's owner; anyone else gets 404.
+
+    Webhooks authenticate via HMAC signature in the handler rather than
+    interactive bearer token.
+    """
+    if request.url.path.endswith("/webhook"):
+        return
+
+    if user is None:
+        raise HTTPException(status_code=401, detail="请先登录")
 
     from server.goal_run.bot_identity import BotRegistry
     from server.routes.bot_team import _require_bot

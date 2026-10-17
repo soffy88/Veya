@@ -485,9 +485,9 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/assets",
 )
 
-# 公开分享的 bot 页面 (GET /api/v1/bots/{id}/public 与其消息) —— 带 token 才可见,
-# 用后缀匹配而非前缀 (路径中间有 bot_id)。
-_PUBLIC_SUFFIXES: tuple[str, ...] = ("/public", "/public/messages")
+# 公开分享的 bot 页面 (GET /api/v1/bots/{id}/public 与其消息) 以及外部 HMAC 签名的
+# 触发器 Webhook (POST /api/v1/bots/{id}/routines/webhook) —— 用后缀匹配而非前缀 (路径中间有 bot_id)。
+_PUBLIC_SUFFIXES: tuple[str, ...] = ("/public", "/public/messages", "/routines/webhook")
 
 
 def is_public_path(path: str) -> bool:
