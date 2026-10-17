@@ -182,3 +182,39 @@ def test_handoff_still_hides_other_users_durable_session(auth_client):
 
     resp = client.get(f"/api/v1/sessions/{sid}/handoff/preview?mode=focused")
     assert resp.status_code == 404, "must not leak another user's session"
+
+
+def test_goal_status_route_reads_the_durable_goal_run(auth_client, tmp_path, monkeypatch):
+    """``GET /api/v1/bot-runtime/{bot}/goals/{goal}`` must report the real
+    GoalRun status, not a hard-coded ``unknown`` stub.
+
+    GoalRun already persists every run to
+    ``<root>/.veya-project/goal-runs/<goal_id>/taskgraph.json``; the route simply
+    never read it, so callers could not observe follow-through execution.
+    """
+    import json as _json
+
+    from server.goal_run.models import GoalRunState, GoalStatus
+    from server.goal_run.store import save_goal_run
+
+    client, user, token = auth_client
+    bot_id = f"goal_probe_{uuid.uuid4().hex[:6]}"
+    BotRegistry().register(BotSpec(
+        bot_id=bot_id, name="Goal Probe", owner_id=user["user_id"], runner_id="local",
+    ))
+
+    monkeypatch.setenv("VEYA_WRITE_ROOT", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    goal_id = f"goal_aud3_{uuid.uuid4().hex[:8]}"
+    state = GoalRunState(goal_id=goal_id, goal_text="aud3 goal probe", bot_id=bot_id)
+    state.status = GoalStatus.completed
+    save_goal_run(state, str(tmp_path))
+
+    resp = client.get(f"/api/v1/bot-runtime/{bot_id}/goals/{goal_id}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "completed", f"stub status leaked: {body}"
+    assert body["goal_id"] == goal_id
+
+    missing = client.get(f"/api/v1/bot-runtime/{bot_id}/goals/goal_does_not_exist")
+    assert missing.status_code == 404, "unknown goal must 404, not fake a status"
