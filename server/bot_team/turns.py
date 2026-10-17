@@ -322,12 +322,15 @@ def extract_reply(response: Any, *, bot: BotSpec) -> str:
         response.get("reply") if isinstance(response, dict) else getattr(response, "reply", None)
     )
     dstr = str(direct or "").strip()
-    # Check if direct response is a raw tool output / tool receipt / memory update receipt
+    # Check if direct response is a raw tool output / tool receipt / memory update receipt.
+    # Note: "Source URL:" is NOT used as a standalone signal — read_html() always emits
+    # it together with the "EXTERNAL DATA:" provenance comment, which is already caught
+    # below.  Matching on "Source URL:" alone would suppress legitimate model replies
+    # that mention a URL inline (S2 regression).
     is_raw_tool_output = (
         dstr.startswith("[Channel:")
         or "EXTERNAL DATA:" in dstr
         or "✅ 永久记忆已更新" in dstr
-        or "Source URL:" in dstr
     )
     if (
         dstr

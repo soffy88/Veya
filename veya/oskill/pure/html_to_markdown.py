@@ -346,6 +346,8 @@ class _MarkdownParser(HTMLParser):
         self._title: str | None = None
         self._in_title = False
         self._bq_stack: list[int] = []
+        # Accumulate title text across multiple handle_data calls
+        self._title_parts: list[str] = []
 
         # ADDENDUM R additions
         self._node_count = 0
@@ -536,6 +538,10 @@ class _MarkdownParser(HTMLParser):
                     self._w.blocks.append(rendered)
         elif tag == "title":
             self._in_title = False
+            # Join all accumulated title text and normalise whitespace
+            raw = "".join(self._title_parts)
+            stripped = " ".join(raw.split())
+            self._title = stripped if stripped else None
         elif tag in _BLOCK_TAGS:
             self._w.flush()
 
@@ -547,8 +553,8 @@ class _MarkdownParser(HTMLParser):
             return
 
         if self._in_title:
-            if self._title is None:
-                self._title = data.strip()
+            # Accumulate across multiple chunks; resolved at </title>
+            self._title_parts.append(data)
             return
         if self._pre_depth:
             self._pre_buffer.append(data)
