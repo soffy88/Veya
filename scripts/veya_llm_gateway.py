@@ -182,8 +182,8 @@ def _is_trusted_request(request: Request) -> bool:
 
 @app.middleware("http")
 async def _gateway_auth_middleware(request: Request, call_next):
-    # 1. /health 永久免鉴权
-    if request.url.path == "/health":
+    # 1. /health 和监控指标接口永久免鉴权
+    if request.url.path in ("/health", "/metrics", "/v1/metrics"):
         return await call_next(request)
 
     # 2. 环境变量 VEYA_GATEWAY_AUTH: 未设置时默认 enforce; =off 时退回旧行为
@@ -264,9 +264,72 @@ async def _gateway_auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+_METRICS_LOCK = asyncio.Lock()
+_METRICS_START_TIME = time.time()
+_METRICS_TOTAL = 0
+_METRICS_SUCCESS = 0
+_METRICS_FAILED = 0
+_METRICS_FAILOVERS = 0
+_METRICS_STATUS_CODES: collections.Counter[int] = collections.Counter()
+_METRICS_RECENT: collections.deque[tuple[float, int, str]] = collections.deque(maxlen=2000)
+
+
+async def _record_metric(status: int, model: str, failover: bool = False) -> None:
+    global _METRICS_TOTAL, _METRICS_SUCCESS, _METRICS_FAILED, _METRICS_FAILOVERS
+    now = time.time()
+    async with _METRICS_LOCK:
+        _METRICS_TOTAL += 1
+        if 200 <= status < 400:
+            _METRICS_SUCCESS += 1
+        else:
+            _METRICS_FAILED += 1
+        if failover:
+            _METRICS_FAILOVERS += 1
+        _METRICS_STATUS_CODES[status] += 1
+        _METRICS_RECENT.append((now, status, str(model)))
+
+
 @app.get("/health")
 async def health_check() -> JSONResponse:
-    return JSONResponse({"status": "ok"})
+    now = time.time()
+    uptime = now - _METRICS_START_TIME
+    async with _METRICS_LOCK:
+        total = _METRICS_TOTAL
+        succ = _METRICS_SUCCESS
+        fail = _METRICS_FAILED
+        failovers = _METRICS_FAILOVERS
+        codes = dict(_METRICS_STATUS_CODES)
+        recent_1h_entries = [e for e in _METRICS_RECENT if e[0] >= now - 3600]
+    recent_total = len(recent_1h_entries)
+    recent_succ = sum(1 for e in recent_1h_entries if 200 <= e[1] < 400)
+    recent_rate = (recent_succ / recent_total * 100.0) if recent_total else 100.0
+    overall_rate = (succ / total * 100.0) if total else 100.0
+
+    return JSONResponse(
+        {
+            "status": "ok",
+            "uptime_seconds": round(uptime, 1),
+            "metrics": {
+                "total_requests": total,
+                "success_requests": succ,
+                "failed_requests": fail,
+                "success_rate_percent": round(overall_rate, 2),
+                "failover_count": failovers,
+                "status_codes": codes,
+                "recent_1h": {
+                    "total_requests": recent_total,
+                    "success_requests": recent_succ,
+                    "success_rate_percent": round(recent_rate, 2),
+                },
+            },
+        }
+    )
+
+
+@app.get("/metrics")
+@app.get("/v1/metrics")
+async def metrics_endpoint() -> JSONResponse:
+    return await health_check()
 
 
 # 模型目录: 静态别名/frontier + 启动时从 opencode zen 拉取的全量直连模型。
@@ -295,6 +358,31 @@ _STATIC_CATALOG: dict[str, dict[str, Any]] = {
     "veya-fllm": {"model": "veya-fllm", "pool": "freellmapi"},
     # opencodex (10100) retired 2026-10-12; ChatGPT frontier now comes via CLIProxyAPI.
     "gpt-5.6-luna": {
+        "provider": "cliproxy",
+        "model": "gpt-5.6-luna",
+        "endpoint": "http://127.0.0.1:8317/v1",
+    },
+    "cliproxy/gemini-3-flash": {
+        "provider": "cliproxy",
+        "model": "gemini-3-flash",
+        "endpoint": "http://127.0.0.1:8317/v1",
+    },
+    "cliproxy/gemini-3.1-flash-lite": {
+        "provider": "cliproxy",
+        "model": "gemini-3.1-flash-lite",
+        "endpoint": "http://127.0.0.1:8317/v1",
+    },
+    "cliproxy/gemini-3.5-flash-lite": {
+        "provider": "cliproxy",
+        "model": "gemini-3.5-flash-lite",
+        "endpoint": "http://127.0.0.1:8317/v1",
+    },
+    "cliproxy/gemini-3.8-flash-high": {
+        "provider": "cliproxy",
+        "model": "gemini-3.8-flash-high",
+        "endpoint": "http://127.0.0.1:8317/v1",
+    },
+    "cliproxy/gpt-5.6-luna": {
         "provider": "cliproxy",
         "model": "gpt-5.6-luna",
         "endpoint": "http://127.0.0.1:8317/v1",
@@ -1000,6 +1088,25 @@ def _alias_redirect(requested: str) -> str | None:
     return None
 
 
+def _get_catalog_entry(name: str | None) -> dict[str, Any] | None:
+    if not name:
+        return None
+    raw = str(name).strip()
+    entry = _CATALOG.get(raw) or _CATALOG.get(raw.lower())
+    if entry is not None:
+        return entry
+    if "/" in raw:
+        prefix, _, submodel = raw.partition("/")
+        prefix_low = prefix.lower()
+        if prefix_low in _LOCAL_UPSTREAMS and submodel:
+            return {
+                "provider": prefix_low,
+                "model": submodel,
+                "endpoint": _LOCAL_UPSTREAMS[prefix_low],
+            }
+    return None
+
+
 async def _call_entry(
     entry: dict[str, Any], messages: list[Any], tools: Any
 ) -> tuple[dict[str, Any] | None, tuple[int, str] | None]:
@@ -1041,15 +1148,16 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
     requested = body.get("model") or "veya1.2"
     # Model ids in Pi are human-readable/case-preserving; Veya aliases are
     # normalized to lowercase internally. Accept both forms at the gateway.
-    entry = _CATALOG.get(requested) or _CATALOG.get(str(requested).lower())
+    entry = _get_catalog_entry(requested)
     if entry is None:
+        await _record_metric(400, requested)
         return JSONResponse(
             {"error": {"message": f"unknown model: {requested!r}", "type": "invalid_request"}},
             status_code=400,
         )
     redirect = _alias_redirect(requested)
     if redirect:
-        redirected = _CATALOG.get(redirect) or _CATALOG.get(redirect.lower())
+        redirected = _get_catalog_entry(redirect)
         if redirected is not None:
             entry = redirected
     messages = body.get("messages") or []
@@ -1060,7 +1168,7 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
     failover_from: list[dict[str, Any]] = []
     if resp is None:
         for alt in _failover_chain(requested):
-            alt_entry = _CATALOG.get(alt) or _CATALOG.get(alt.lower())
+            alt_entry = _get_catalog_entry(alt)
             if alt_entry is None:
                 continue
             failover_from.append({"model": alt, "after_error": (err or (502, ""))[1][:200]})
@@ -1080,6 +1188,7 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
         pooled = entry.get("pool") in _POOL_ENV
         if status == 429 and pooled:
             status = 503
+        await _record_metric(status, requested, failover=bool(failover_from))
         # llm_call 把上游 HTTP 报错包成一条 assistant 文本; 对外原样当 200 返回
         # 会让 magpie 等前置路由误判成功、不做 failover。这里还原成真实错误码。
         return JSONResponse(
@@ -1087,6 +1196,7 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
             status_code=status,
             headers={"Retry-After": "5"} if pooled or status in (502, 503, 504) else None,
         )
+    await _record_metric(200, requested, failover=bool(failover_from))
     resp_id = f"{requested}-{int(time.time() * 1000)}"
     created = int(time.time())
     # The public Veya contract exposes the requested logical alias as the

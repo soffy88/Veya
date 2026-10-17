@@ -43,13 +43,18 @@ def test_health_always_exempt_from_auth():
     client_local = TestClient(app, client=("127.0.0.1", 50000))
     resp = client_local.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert "metrics" in data
+    assert "uptime_seconds" in data
 
     # 外部未受信任 IP 访问 /health 也无需 token
     client_external = TestClient(app, client=("203.0.113.195", 50000))
     resp_ext = client_external.get("/health")
     assert resp_ext.status_code == 200
-    assert resp_ext.json() == {"status": "ok"}
+    data_ext = resp_ext.json()
+    assert data_ext["status"] == "ok"
+    assert "metrics" in data_ext
 
 
 def test_local_requests_exempt_from_token():
