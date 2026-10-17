@@ -190,6 +190,8 @@ class ReconciliationReport:
     quarantined: int = 0
     manual_review: int = 0
     completed_from_evidence: int = 0
+    abandoned_closed: int = 0
+    workers_pruned: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -199,6 +201,8 @@ class ReconciliationReport:
             "quarantined": self.quarantined,
             "manual_review": self.manual_review,
             "completed_from_evidence": self.completed_from_evidence,
+            "abandoned_closed": self.abandoned_closed,
+            "workers_pruned": self.workers_pruned,
         }
 
 
@@ -2682,6 +2686,55 @@ class DurableExecutionRepository:
 
         await self._pg_tx(op_pg)
 
+    async def prune_stale_workers(
+        self,
+        stale_after_s: float = 300.0,
+        limit: int = 500,
+        now: float | None = None,
+    ) -> list[str]:
+        """Remove worker registrations whose heartbeat has expired and hold no active lease."""
+        if stale_after_s <= 0:
+            return []
+        scan_time = now if now is not None else time.time()
+        cutoff = scan_time - stale_after_s
+
+        def op(conn: Any) -> list[str]:
+            rows = conn.execute(
+                "SELECT wr.worker_id FROM worker_registry wr WHERE wr.last_seen_at < ? "
+                "AND NOT EXISTS (SELECT 1 FROM execution_leases el WHERE el.owner_id=wr.worker_id AND el.released_at IS NULL) "
+                "ORDER BY wr.last_seen_at LIMIT ?",
+                (cutoff, max(1, limit)),
+            ).fetchall()
+            pruned = [row["worker_id"] for row in rows]
+            if pruned:
+                placeholders = ",".join("?" for _ in pruned)
+                conn.execute(
+                    f"DELETE FROM worker_registry WHERE worker_id IN ({placeholders})",
+                    pruned,
+                )
+            return pruned
+
+        if self.backend == "sqlite":
+            return await asyncio.to_thread(self._sqlite_tx, op)
+
+        async def op_pg(conn: Any) -> list[str]:
+            rows = await conn.fetch(
+                "SELECT wr.worker_id FROM worker_registry wr WHERE wr.last_seen_at < $1 "
+                "AND NOT EXISTS (SELECT 1 FROM execution_leases el WHERE el.owner_id=wr.worker_id AND el.released_at IS NULL) "
+                "ORDER BY wr.last_seen_at LIMIT $2",
+                cutoff,
+                max(1, limit),
+            )
+            pruned = [row["worker_id"] for row in rows]
+            if pruned:
+                await conn.execute(
+                    "DELETE FROM worker_registry WHERE worker_id = ANY($1::text[])",
+                    pruned,
+                )
+            return pruned
+
+        return await self._pg_tx(op_pg)
+
     async def ensure_finalization_item(
         self, goal_run_id: str, *, snapshot_hash: str | None = None
     ) -> dict[str, Any]:
@@ -3559,26 +3612,38 @@ class DurableExecutionRepository:
                         (result_json, result_hash, item["id"]),
                     )
             elif effect is None or item["side_effect_policy"] in {"none", "idempotent"}:
-                decision = (
-                    "IDEMPOTENT_RETRY"
-                    if item["side_effect_policy"] == "idempotent"
-                    else "RETRY_SAFE"
-                )
-                state = "retry_wait"
+                if int(item["attempt_count"]) < int(item["max_attempts"]):
+                    decision = (
+                        "IDEMPOTENT_RETRY"
+                        if item["side_effect_policy"] == "idempotent"
+                        else "RETRY_SAFE"
+                    )
+                    state = "retry_wait"
+                else:
+                    decision = "MAX_ATTEMPTS_EXCEEDED"
+                    state = "failed"
                 recovered = 0
             elif (
                 _decode(effect["probe_result_json"], {}).get("status")
                 in {"not_found", "not_started"}
                 and item["side_effect_policy"] == "probe_required"
             ):
-                decision = "RETRY_SAFE"
-                state = "retry_wait"
+                if int(item["attempt_count"]) < int(item["max_attempts"]):
+                    decision = "RETRY_SAFE"
+                    state = "retry_wait"
+                else:
+                    decision = "MAX_ATTEMPTS_EXCEEDED"
+                    state = "failed"
                 recovered = 0
             elif item["state"] == "running" and not item["result_json"]:
                 # Running work_item with expired lease but no result yet:
                 # allow retry so it can be re-claimed with a fresh lease/token
-                decision = "RETRY_SAFE"
-                state = "retry_wait"
+                if int(item["attempt_count"]) < int(item["max_attempts"]):
+                    decision = "RETRY_SAFE"
+                    state = "retry_wait"
+                else:
+                    decision = "MAX_ATTEMPTS_EXCEEDED"
+                    state = "failed"
                 recovered = 0
             else:
                 decision = (
@@ -3869,6 +3934,32 @@ class DurableExecutionRepository:
                     report.manual_review += 1
                 elif decision["decision"] == "COMPLETED_FROM_EVIDENCE":
                     report.completed_from_evidence += 1
+            # Classify any retry_wait items that reached max_attempts
+            exhausted = conn.execute(
+                "SELECT * FROM work_items WHERE state='retry_wait' AND attempt_count >= max_attempts "
+                + (f"AND goal_run_id='{scope}' " if scope else "")
+                + "LIMIT ?",
+                (max(1, limit),),
+            ).fetchall()
+            for ex in exhausted:
+                conn.execute(
+                    "UPDATE work_items SET state='failed',recovery_state='classified',error_json=?,revision=revision+1,updated_at=? WHERE id=?",
+                    (canonical_json({"message": "max attempts exceeded in retry_wait"}), scan_time, ex["id"]),
+                )
+                self._sqlite_event(
+                    conn,
+                    aggregate_type="work_item",
+                    aggregate_id=ex["id"],
+                    goal_run_id=ex["goal_run_id"],
+                    event_type="work_item.failed",
+                    payload={"reason": "max_attempts_exceeded"},
+                    idempotency_key=f"failed:exhausted:{ex['id']}",
+                )
+                report.scanned += 1
+                report.decisions.append({
+                    "work_item_id": ex["id"],
+                    "decision": "MAX_ATTEMPTS_EXCEEDED",
+                })
             self._sqlite_event(
                 conn,
                 aggregate_type="recovery",
@@ -3957,21 +4048,27 @@ class DurableExecutionRepository:
                             item["id"],
                         )
                 elif effect is None or item["side_effect_policy"] in {"none", "idempotent"}:
-                    decision, state, recovered = (
-                        (
-                            "IDEMPOTENT_RETRY"
-                            if item["side_effect_policy"] == "idempotent"
-                            else "RETRY_SAFE"
-                        ),
-                        "retry_wait",
-                        0,
-                    )
+                    if int(item["attempt_count"]) < int(item["max_attempts"]):
+                        decision, state, recovered = (
+                            (
+                                "IDEMPOTENT_RETRY"
+                                if item["side_effect_policy"] == "idempotent"
+                                else "RETRY_SAFE"
+                            ),
+                            "retry_wait",
+                            0,
+                        )
+                    else:
+                        decision, state, recovered = "MAX_ATTEMPTS_EXCEEDED", "failed", 0
                 elif (
                     _decode(effect["probe_result_json"], {}).get("status")
                     in {"not_found", "not_started"}
                     and item["side_effect_policy"] == "probe_required"
                 ):
-                    decision, state, recovered = "RETRY_SAFE", "retry_wait", 0
+                    if int(item["attempt_count"]) < int(item["max_attempts"]):
+                        decision, state, recovered = "RETRY_SAFE", "retry_wait", 0
+                    else:
+                        decision, state, recovered = "MAX_ATTEMPTS_EXCEEDED", "failed", 0
                 else:
                     decision, state, recovered = (
                         (
@@ -4096,6 +4193,38 @@ class DurableExecutionRepository:
                     report.manual_review += 1
                 elif decision == "COMPLETED_FROM_EVIDENCE":
                     report.completed_from_evidence += 1
+            # Classify any retry_wait items that reached max_attempts
+            ex_clauses = ["state='retry_wait'", "attempt_count >= max_attempts"]
+            ex_params: list[Any] = []
+            if scope:
+                ex_clauses.append(f"goal_run_id=${len(ex_params) + 1}")
+                ex_params.append(scope)
+            ex_params.append(max(1, limit))
+            exhausted_pg = await conn.fetch(
+                f"SELECT * FROM work_items WHERE {' AND '.join(ex_clauses)} LIMIT ${len(ex_params)} FOR UPDATE SKIP LOCKED",
+                *ex_params,
+            )
+            for ex in exhausted_pg:
+                await conn.execute(
+                    "UPDATE work_items SET state='failed',recovery_state='classified',error_json=$1,revision=revision+1,updated_at=$2 WHERE id=$3",
+                    canonical_json({"message": "max attempts exceeded in retry_wait"}),
+                    scan_time,
+                    ex["id"],
+                )
+                await self._pg_event(
+                    conn,
+                    aggregate_type="work_item",
+                    aggregate_id=ex["id"],
+                    goal_run_id=ex["goal_run_id"],
+                    event_type="work_item.failed",
+                    payload={"reason": "max_attempts_exceeded"},
+                    idempotency_key=f"failed:exhausted:{ex['id']}",
+                )
+                report.scanned += 1
+                report.decisions.append({
+                    "work_item_id": ex["id"],
+                    "decision": "MAX_ATTEMPTS_EXCEEDED",
+                })
             await self._pg_event(
                 conn,
                 aggregate_type="recovery",

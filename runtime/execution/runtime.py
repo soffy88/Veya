@@ -36,7 +36,8 @@ class DurableRuntimeConfig:
     reconciliation_batch_size: int = 100
     # A non-terminal GoalRun with no live lease and no change for this long is
     # terminated as abandoned (its in-process runner is gone). 0 disables.
-    abandoned_run_after_s: float = 21600.0
+    abandoned_run_after_s: float = 300.0
+    worker_ttl_s: float = 300.0
     queue_read: bool = False
     queue_claim: bool = False
     lease_fencing: bool = True
@@ -68,7 +69,10 @@ class DurableRuntimeConfig:
                 os.environ.get("VEYA_EXECUTION_RECONCILIATION_BATCH_SIZE", "100")
             ),
             abandoned_run_after_s=float(
-                os.environ.get("VEYA_EXECUTION_ABANDONED_RUN_AFTER_S", "21600")
+                os.environ.get("VEYA_EXECUTION_ABANDONED_RUN_AFTER_S", "300")
+            ),
+            worker_ttl_s=float(
+                os.environ.get("VEYA_EXECUTION_WORKER_TTL_S", "300")
             ),
             queue_read=_env_bool("VEYA_EXECUTION_DURABLE_QUEUE_READ", enabled),
             queue_claim=_env_bool("VEYA_EXECUTION_DURABLE_QUEUE_CLAIM", enabled),
@@ -126,6 +130,7 @@ class DurableExecutionRuntime:
             batch_size=self.config.reconciliation_batch_size,
             on_report=self._record_reconciliation,
             abandon_after_s=self.config.abandoned_run_after_s,
+            worker_ttl_s=self.config.worker_ttl_s,
         )
         self._reconciler_task: asyncio.Task[Any] | None = None
         self._outbox_publisher: OutboxPublisher | None = None
