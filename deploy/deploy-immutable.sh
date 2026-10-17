@@ -147,6 +147,7 @@ compose config > "$BACKUP_ROOT/docker-compose-resolved-$STAMP.yml"
 
 sed -i -E "s#^    image: veya-backend:.*#    image: $IMAGE#" "$OVERRIDE"
 
+docker rm -f veya-backend >/dev/null 2>&1 || true
 if ! compose up -d --no-build --force-recreate backend; then
   rollback "compose recreate failed"
   exit 1
