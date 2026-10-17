@@ -40,7 +40,7 @@ async def notifications_stream(
     )
 
 
-@router.post("/{notification_id}/approve")
+@router.post("/{notification_id}/approve", dependencies=[Depends(auth_mod.require_owner)])
 async def approve_notification(notification_id: str, req: ApproveRequest) -> dict[str, Any]:
     """Record the HITL decision and tell every connected tab to drop the toast.
 

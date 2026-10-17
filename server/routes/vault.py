@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from server import auth as auth_mod
 from server.zero_trust_vault import global_vault
 
-router = APIRouter(prefix="/vault", tags=["vault"])
+router = APIRouter(
+    prefix="/vault",
+    tags=["vault"],
+    dependencies=[Depends(auth_mod.require_owner)],
+)
 
 
 class ApprovalRequest(BaseModel):
@@ -52,6 +57,9 @@ async def list_pending() -> dict[str, Any]:
 compat_router = APIRouter(tags=["vault"])
 
 
-@compat_router.post("/api/v1/tasks/{task_id}/approve")
+@compat_router.post(
+    "/api/v1/tasks/{task_id}/approve",
+    dependencies=[Depends(auth_mod.require_owner)],
+)
 async def handle_human_approval_compat(task_id: str, payload: ApprovalRequest) -> dict[str, Any]:
     return await handle_human_approval(task_id, payload)

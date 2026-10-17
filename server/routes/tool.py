@@ -5,12 +5,17 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from server import auth as auth_mod
 from server.assembly import _ALL_TOOLS
 
-router = APIRouter(prefix="/tool", tags=["tool"])
+router = APIRouter(
+    prefix="/tool",
+    tags=["tool"],
+    dependencies=[Depends(auth_mod.require_owner)],
+)
 
 # Tools that write to disk — snapshot these before execution for undo support
 _WRITE_TOOLS = {"write", "edit", "bash"}

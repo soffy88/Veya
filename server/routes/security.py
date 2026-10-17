@@ -8,10 +8,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/security", tags=["security"])
+from server import auth as auth_mod
+
+router = APIRouter(
+    prefix="/security",
+    tags=["security"],
+    dependencies=[Depends(auth_mod.require_owner)],
+)
 
 
 class AuditLogEntry(BaseModel):

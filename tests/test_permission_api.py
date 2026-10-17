@@ -8,9 +8,17 @@ pytestmark = pytest.mark.external
 
 @pytest.fixture(scope="module")
 def client():
+    import uuid
+
+    from server import auth as auth_mod
     from server.app import app
 
+    user = auth_mod.create_user(
+        f"perm_owner_{uuid.uuid4().hex[:8]}", "password_123456", is_owner=True
+    )
+    token = auth_mod.issue_token(user["user_id"])
     with TestClient(app) as c:
+        c.headers.update({"Authorization": f"Bearer {token}"})
         yield c
 
 

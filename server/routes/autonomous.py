@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from server import auth as auth_mod
 from veya.autonomous_agent import create_autonomous_agent
 
 router = APIRouter(prefix="/autonomous", tags=["autonomous"])
@@ -111,7 +112,7 @@ async def search_memory(query: str, limit: int = 5) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Memory search failed: {e!s}")
 
 
-@router.post("/execute")
+@router.post("/execute", dependencies=[Depends(auth_mod.require_owner)])
 async def execute_plan(request: ExecutePlanRequest) -> dict[str, Any]:
     """执行规划"""
     try:

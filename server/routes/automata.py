@@ -16,9 +16,10 @@ import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from server import auth as auth_mod
 from server.automata import get_automata
 
 logger = logging.getLogger("automata.routes")
@@ -36,13 +37,13 @@ class RunNowRequest(BaseModel):
     trigger: str = "manual"
 
 
-@router.get("/jobs")
+@router.get("/jobs", dependencies=[Depends(auth_mod.require_owner)])
 async def list_jobs() -> dict[str, Any]:
     automata = get_automata()
     return {"jobs": automata.get_jobs(), "recent_results": automata.get_recent_results(5)}
 
 
-@router.post("/jobs")
+@router.post("/jobs", dependencies=[Depends(auth_mod.require_owner)])
 async def create_job(req: CronJobRequest) -> dict[str, Any]:
     automata = get_automata()
     try:
@@ -52,13 +53,13 @@ async def create_job(req: CronJobRequest) -> dict[str, Any]:
         return {"status": "failed", "error": str(exc)}
 
 
-@router.delete("/jobs/{task_id}")
+@router.delete("/jobs/{task_id}", dependencies=[Depends(auth_mod.require_owner)])
 async def remove_job(task_id: str) -> dict[str, Any]:
     automata = get_automata()
     return {"status": "ok", "message": automata.remove_task(task_id)}
 
 
-@router.post("/run-now")
+@router.post("/run-now", dependencies=[Depends(auth_mod.require_owner)])
 async def run_now(req: RunNowRequest) -> dict[str, Any]:
     """立即触发一次无头执行(不等 Cron), 结果异步落盘留痕。"""
     automata = get_automata()

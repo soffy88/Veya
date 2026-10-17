@@ -318,7 +318,7 @@ async def test_master_secure_exec_full_loop(tmp_path):
     assert "BINANCE_REAL_KEY" not in out
 
 
-def test_vault_routes_reachable(tmp_path, monkeypatch):
+def test_vault_routes_reachable(tmp_path, monkeypatch, owner_headers):
     """审批端点已挂载: POST /api/v1/tasks/{id}/approve。"""
     from fastapi.testclient import TestClient
 
@@ -327,7 +327,9 @@ def test_vault_routes_reachable(tmp_path, monkeypatch):
     monkeypatch.setenv("VEYA_VAULT_DIR", str(tmp_path / "vault"))
     client = TestClient(app)
     # 未知 task_id → 404
-    resp = client.post("/api/v1/tasks/ghost/approve", json={"approved": True})
+    resp = client.post(
+        "/api/v1/tasks/ghost/approve", json={"approved": True}, headers=owner_headers
+    )
     assert resp.status_code == 404
     client.close()
 
