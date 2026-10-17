@@ -1,0 +1,137 @@
+# Veya Stage Environment Docker Compose
+# Deploy: ./stage-up.sh
+name: veya-stage
+
+services:
+  # ── Isolated Stage PostgreSQL Database ─────────────────────────────
+  veya-stage-db:
+    image: postgres:16-alpine
+    container_name: veya-stage-db
+    environment:
+      POSTGRES_USER: ${VEYA_STAGE_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${VEYA_STAGE_ADMIN_PASSWORD:?VEYA_STAGE_ADMIN_PASSWORD must be set}
+      POSTGRES_DB: ${VEYA_STAGE_ADMIN_DB:-postgres}
+    volumes:
+      - veya-stage-execution-pg-data:/var/lib/postgresql/data
+    networks:
+      - veya-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # ── Stage FastAPI Backend ──────────────────────────────────────────
+  veya-stage:
+    image: veya-stage:be3aab61
+    container_name: veya-stage
+    ports:
+      - "127.0.0.1:8793:8765"
+    command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8765"]
+    env_file:
+      - ./bot_landing_flags.env
+      - ${HOME}/.config/veya/stage.env
+    environment:
+      - VEYA_STAGE=1
+      - VEYA_ALLOWED_HOSTS=${VEYA_STAGE_ALLOWED_HOSTS:-localhost,127.0.0.1,172.18.0.1,100.86.95.70,veya-stage}
+      - VEYA_PUBLIC_SIGNUP=1
+      - VEYA_BASE_URL=http://127.0.0.1:8793
+      - VEYA_OWNER_USER_ID=${VEYA_OWNER_USER_ID:-a70d409b44534c1f83f666d1cf7f09d1}
+      - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.2}
+      - VEYA_NVIDIA_NIM_KEYS_FILE=${VEYA_NVIDIA_NIM_KEYS_FILE:-/home/soffy/projects/stratum/aii/.pipeline_keys.json}
+      - NVIDIA_NIM_API_KEY=${NVIDIA_NIM_API_KEY:-}
+      - VEYA_DURABLE_EXECUTION=1
+      - VEYA_EXECUTION_PRODUCTION=1
+      - VEYA_EXECUTION_LEASE_TTL_S=300
+      - VEYA_EXECUTION_HEARTBEAT_INTERVAL_S=20
+      - VEYA_EXECUTION_RECONCILIATION_INTERVAL_S=15
+      - VEYA_EXECUTION_RECONCILIATION_BATCH_SIZE=100
+      - VEYA_EXECUTION_DURABLE_QUEUE_READ=1
+      - VEYA_EXECUTION_DURABLE_QUEUE_CLAIM=1
+      - VEYA_EXECUTION_LEASE_FENCING=1
+      - VEYA_EXECUTION_SIDE_EFFECT_LEDGER=1
+      - VEYA_EXECUTION_RECONCILER=1
+      - VEYA_EXECUTION_FINALIZATION_RESUME=1
+      - VEYA_EXECUTION_EVENT_OUTBOX=1
+      - VEYA_EXECUTION_SHADOW_COMPARE=0
+      - VEYA_EXECUTION_DUAL_RUN_COMPARE=0
+      - VEYA_EXECUTION_REMOTE_WORKER_ADAPTER=0
+      - VEYA_MEMORY_V2=1
+      - VEYA_MEMORY_CANDIDATES=1
+      - VEYA_MEMORY_CONFLICT_DETECTION=1
+      - VEYA_SKILL_V2=1
+      - VEYA_SKILL_TEACHING=1
+      - VEYA_SKILL_TRUSTED_NAMES=officecli,answer-me-with-html
+      - VEYA_SKILL_VERSIONING=1
+      - VEYA_CONTINUITY_V1=1
+      - VEYA_PERSONAL_CONTEXT_UI=1
+      - VEYA_LONG_TERM_LEARNING=1
+      - VEYA_PERSONAL_AGENT_EVAL=1
+      - VEYA_PERSONAL_AGENT_GOLD_REPORT=/repo/evals/personal_agent_gold/results/latest.json
+      - VEYA_SANDBOX_PROFILE=local
+      - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}
+      - OPEN_SANDBOX_API_KEY=${OPEN_SANDBOX_API_KEY:-}
+      - OPEN_SANDBOX_PROTOCOL=${OPEN_SANDBOX_PROTOCOL:-http}
+      - VEYA_ARTIFACTS_DIR=/home/soffy/.veya/artifacts
+      - DSH_RUNTIME=ENABLED
+      - DSH_PROVIDER=VEYA_LOCAL_GATEWAY
+      - DSH_BASE_URL=http://veya-llm-gateway:8791/v1
+      - DSH_MODEL=${DSH_MODEL:-opencode-go/deepseek-v4.1-flash}
+      - DSH_SESSION_DIR=/home/soffy/.veya/dsh-state
+      - DEEPSEEK_API_KEY=veya-local-gateway
+      - VEYA_WEB_WORKSPACE_ROOTS=/data/soffy/projects
+      - VEYA_WORKSPACE_EXTRA_DIRS=/home/soffy/projects
+      - VEYA_VISION_ALLOWED_DIRS=/home/soffy/projects:/home/soffy/.veya/hicode-workspace
+      - HICODE_MANAGED_RUNTIME_ROOT=
+      - HICODE_RUNTIME_DATA_ROOT=
+      - HICODE_PRODUCTION=
+      - HICODE_PRODUCTION_RUNTIME_MODE=
+      - HICODE_PRODUCTION_REQUIRES_HOST_MOUNT=
+      - HICODE_PROXY=
+      - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps
+      - VEYA_BUILD_SHA=be3aab61
+      - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:?VEYA_PSEUDO_SECRET must be set}
+      - INFERERA_API_KEY=${INFERERA_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
+      - GMI_API_KEY=${GMI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - HEVI_JWT_SECRET=${HEVI_JWT_SECRET:-}
+      - HEVI_MCP_USER_ID=${HEVI_MCP_USER_ID:-}
+      - HEVI_MCP_ENDPOINT=${HEVI_MCP_ENDPOINT:-http://192.168.16.1:8201/mcp/mcp}
+      - OD_API_TOKEN=${OD_API_TOKEN:-}
+      - OD_DAEMON_URL=${OD_DAEMON_URL:-http://192.168.16.1:17456}
+      - VEYA_FRONTIER_ENDPOINT=${VEYA_FRONTIER_ENDPOINT:-http://192.168.16.1:10101/v1}
+    volumes:
+      - /data/soffy/stage-veya-data:/home/soffy/.veya:rw
+      - /data/soffy/projects:/data/soffy/projects:rw
+      - /data/soffy/projects/veya:/repo:rw
+      - /data/soffy/projects/veya/deploy/hevi_deps:/home/soffy/hevi_deps:ro
+      - /home/soffy/.veya/skills:/home/soffy/.veya/skills:ro
+      - /home/soffy/.nvm:/home/soffy/.nvm:ro
+      - /home/soffy/.local:/home/soffy/.local:ro
+      - /data/soffy/projects/stratum/aii/.pipeline_keys.json:/home/soffy/projects/stratum/aii/.pipeline_keys.json:ro
+    networks:
+      - veya-net
+    depends_on:
+      veya-stage-db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8765/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  veya-stage-execution-pg-data:
+    name: veya-stage-execution-pg-data
+    external: true
+
+networks:
+  veya-net:
+    name: veya-net
+    external: true
