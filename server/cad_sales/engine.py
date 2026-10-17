@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import re
-from typing import Any
-
 from server.cad_sales.models import CadSalesRequest, CadSalesResult
 
 #: Out-of-scope triggers (Tier C)
@@ -76,9 +73,46 @@ _PHOTO_TRAP_KEYWORDS = [
 ]
 
 #: Customer intent classifier helpers
-_INTENT_OPEN_STORE = ["商铺", "开店", "门面", "奶茶", "轻食", "服装店", "文具", "商场", "物业报备", "货架", "陈列"]
-_INTENT_HOME = ["家装", "二手房", "老房", "房子翻新", "厨房", "卫生间", "隔墙", "户型", "水电", "插座", "客厅"]
-_INTENT_STUDENT = ["学生", "作业", "同学", "学长", "大作业", "课程设计", "机械原理", "零件图", "三视图", "老师", "从动轴", "法兰盘"]
+_INTENT_OPEN_STORE = [
+    "商铺",
+    "开店",
+    "门面",
+    "奶茶",
+    "轻食",
+    "服装店",
+    "文具",
+    "商场",
+    "物业报备",
+    "货架",
+    "陈列",
+]
+_INTENT_HOME = [
+    "家装",
+    "二手房",
+    "老房",
+    "房子翻新",
+    "厨房",
+    "卫生间",
+    "隔墙",
+    "户型",
+    "水电",
+    "插座",
+    "客厅",
+]
+_INTENT_STUDENT = [
+    "学生",
+    "作业",
+    "同学",
+    "学长",
+    "大作业",
+    "课程设计",
+    "机械原理",
+    "零件图",
+    "三视图",
+    "老师",
+    "从动轴",
+    "法兰盘",
+]
 
 
 class CadSalesEngine:
@@ -118,7 +152,14 @@ class CadSalesEngine:
         # B. Rush quote trap
         is_rush_quote = any(
             rq in buyer_text
-            for rq in ["一口价多少钱", "别问东问西", "直接说多少钱", "先告诉我大概多少钱", "多少钱能做", "怎么收费"]
+            for rq in [
+                "一口价多少钱",
+                "别问东问西",
+                "直接说多少钱",
+                "先告诉我大概多少钱",
+                "多少钱能做",
+                "怎么收费",
+            ]
         ) and (not has_real_dimensions or "交付时间" in missing or "原图/底图" in missing)
 
         # If missing critical dimensions, deadline, or original materials, it is Tier B
@@ -209,11 +250,13 @@ class CadSalesEngine:
             ]
         )
         # 3. 尺寸与单位
-        # If photo trap without dimension keywords, dimension is False
-        has_photo_trap = any(p in text for p in _PHOTO_TRAP_KEYWORDS)
         has_real_dim = any(d in text for d in _DIMENSION_CONFIRMED_KEYWORDS)
         # Check if numbers without units or vague napkin drawing
-        if "餐巾纸" in text or ("毛坯房照片" in text and not has_real_dim) or ("一模一样" in text and not has_real_dim):
+        if (
+            "餐巾纸" in text
+            or ("毛坯房照片" in text and not has_real_dim)
+            or ("一模一样" in text and not has_real_dim)
+        ):
             has_dim = False
         else:
             has_dim = has_real_dim
@@ -270,18 +313,21 @@ class CadSalesEngine:
             ]
         ) and ("几天交" not in text)
         # 7. 张数
-        has_sheets = any(
-            sh in text
-            for sh in [
-                "一张",
-                "1张",
-                "两张",
-                "2张",
-                "一套",
-                "一张A3",
-                "只改厨房这一张",
-            ]
-        ) or has_scope
+        has_sheets = (
+            any(
+                sh in text
+                for sh in [
+                    "一张",
+                    "1张",
+                    "两张",
+                    "2张",
+                    "一套",
+                    "一张A3",
+                    "只改厨房这一张",
+                ]
+            )
+            or has_scope
+        )
 
         return {
             "用途与验收要求": has_usage,

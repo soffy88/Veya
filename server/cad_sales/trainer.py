@@ -12,15 +12,16 @@ Reports score per case honestly. Target >= 90.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from server.cad_sales.engine import CadSalesEngine
-from server.cad_sales.models import CadSalesRequest, CadSalesResult
+from server.cad_sales.models import CadSalesRequest
 
-CASES_PATH = Path(__file__).resolve().parents[2] / "config" / "presets" / "skills" / "cad-sales" / "cases.md"
+CASES_PATH = (
+    Path(__file__).resolve().parents[2] / "config" / "presets" / "skills" / "cad-sales" / "cases.md"
+)
 
 
 @dataclass
@@ -207,7 +208,9 @@ class CadSalesTrainer:
         if case["expected_tier"] in ("B", "C"):
             if res.quote_range is not None:
                 quote_score = 0.0
-                details.append(f"违背报价纪律: Tier {case['expected_tier']} 未齐要素却给出报价 {res.quote_range}")
+                details.append(
+                    f"违背报价纪律: Tier {case['expected_tier']} 未齐要素却给出报价 {res.quote_range}"
+                )
             elif any(q in res.reply_draft for q in ["一口价", "包干价", "元搞定", "只要"]):
                 quote_score = 5.0
                 details.append("违背报价纪律: 草稿中包含抢跑报价措辞")

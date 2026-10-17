@@ -30,10 +30,10 @@ from server.routes.bot_memory import router as bot_memory_router
 from server.routes.bot_models import router as bot_models_router
 from server.routes.bot_runtime import router as bot_runtime_router
 from server.routes.bot_team import router as bots_router
+from server.routes.cad_sales import router as cad_sales_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
 from server.routes.cli_agents import router as cli_agents_router
-from server.routes.xrt import router as xrt_router
 from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
@@ -44,6 +44,7 @@ from server.routes.flow import router as flow_router
 from server.routes.fs import router as fs_router
 from server.routes.git import router as git_router
 from server.routes.graph import router as graph_router
+from server.routes.gsk import router as gsk_router
 from server.routes.init import router as init_router
 from server.routes.integrations import router as integrations_router
 from server.routes.legacy_agent import router as legacy_agent_router
@@ -52,12 +53,12 @@ from server.routes.mcp import router as mcp_router
 
 # W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
 from server.routes.mcp_presets import router as mcp_presets_router
-from veya.tdx import router as tdx_router
 
 # W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
 from server.routes.models import router as models_router
 from server.routes.multimodal import router as multimodal_router
-from server.routes.nano_w9 import router as nano_w9_router, signals_compat_router
+from server.routes.nano_w9 import router as nano_w9_router
+from server.routes.nano_w9 import signals_compat_router
 from server.routes.nano_w10_c import router as nano_w10_c_router
 from server.routes.neuro_symbolic import router as neuro_symbolic_router
 from server.routes.notifications import router as notifications_router
@@ -77,8 +78,8 @@ from server.routes.remote_mcp import router as remote_mcp_router
 from server.routes.research import router as research_router
 from server.routes.resilient import router as resilient_router
 from server.routes.review import router as review_router
+from server.routes.rkz import router as rkz_router
 from server.routes.role_skill_presets import router as role_skill_presets_router
-from server.routes.cad_sales import router as cad_sales_router
 from server.routes.runners import router as runners_router
 from server.routes.security import router as security_router
 from server.routes.semantic_search import router as semantic_search_router
@@ -99,9 +100,9 @@ from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
 from server.routes.workbench import router as workbench_router
 from server.routes.workspace import router as workspace_router
-from server.routes.gsk import router as gsk_router
-from server.routes.rkz import router as rkz_router
+from server.routes.xrt import router as xrt_router
 from server.sse import router as sse_router
+from veya.tdx import router as tdx_router
 
 
 # 2026-08-24 (docs/dev/rfc-07-dependency-hygiene.md §3.3/§3.4): matplotlib/networkx/
@@ -668,6 +669,7 @@ app.include_router(supervised_router)
 app.include_router(channels_router)  # NANO-W7: flag-gated, 404 while off
 app.include_router(tailnet_router)  # W20: owner-only Tailnet management API
 from server.mab_router import router as mab_router
+
 app.include_router(mab_router)  # MAB: Multi-Account Browser API
 from server.routes.remote_control import router as remote_control_router
 
@@ -685,6 +687,7 @@ app.include_router(mcp_presets_router)
 app.include_router(role_skill_presets_router)
 app.include_router(cad_sales_router)
 from server.routes.skill_teach import router as skill_teach_router
+
 app.include_router(skill_teach_router)
 app.include_router(tdx_router)
 

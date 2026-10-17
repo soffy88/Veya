@@ -31,7 +31,9 @@ def generate_order_folder(
     """Analyze conversation and attachments, create 5-stage order folder, and write requirements.md."""
     attachments = attachments or []
     if not order_id:
-        order_id = f"cad_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+        order_id = (
+            f"cad_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d')}_{uuid.uuid4().hex[:8]}"
+        )
 
     root = Path(output_root) if output_root else DEFAULT_ORDERS_ROOT
     order_dir = root / order_id
@@ -59,7 +61,7 @@ def generate_order_folder(
     must_not_guess_items = _extract_must_not_guess_items(buyer_text, res)
 
     # 4. Write requirements.md
-    now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    now_str = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     md_content = f"""# 订单需求分析报告 (CAD Requirements Analysis)
 
 - **订单编号 (Order ID)**: `{order_id}`
@@ -149,7 +151,9 @@ def _extract_confirmed_items(text: str, res: CadSalesResult) -> str:
 def _extract_evidenced_items(text: str, attachments: list[str]) -> str:
     lines = []
     if attachments:
-        lines.append(f"- **原始附件资料**: 共提供 {len(attachments)} 个材料文件 ({', '.join(attachments)})")
+        lines.append(
+            f"- **原始附件资料**: 共提供 {len(attachments)} 个材料文件 ({', '.join(attachments)})"
+        )
     else:
         lines.append("- **原始附件资料**: 消息流内暂无外部文件实体附件")
 
@@ -171,7 +175,9 @@ def _extract_evidenced_items(text: str, attachments: list[str]) -> str:
             dimension_quotes.extend(matches)
 
     if dimension_quotes:
-        lines.append(f"- **明确引述尺寸**: 买家提供的数值数据包括 {', '.join(set(dimension_quotes))}")
+        lines.append(
+            f"- **明确引述尺寸**: 买家提供的数值数据包括 {', '.join(set(dimension_quotes))}"
+        )
     else:
         lines.append("- **明确引述尺寸**: 无直接数值尺寸标注，仅提供外观或非量化描述")
 
@@ -194,7 +200,9 @@ def _extract_must_not_guess_items(text: str, res: CadSalesResult) -> str:
         "- **严禁在模糊草图上脑补单位**: 当客户标注仅有孤立数字且未注单位（如‘35’、‘42’）时，严禁自行假设为米或厘米，必须与买家确认。",
     ]
     if res.tier == "B":
-        lines.append(f"- **当前阻塞项**: 必须等待客户澄清补全：{', '.join(res.missing_fields)}，在此之前严禁启动制作。")
+        lines.append(
+            f"- **当前阻塞项**: 必须等待客户澄清补全：{', '.join(res.missing_fields)}，在此之前严禁启动制作。"
+        )
     elif res.tier == "C":
         lines.append("- **业务终止**: 本单超出安全与法律边界，严禁进行任何制图作业与工程分析。")
     return "\n".join(lines)

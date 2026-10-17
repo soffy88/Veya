@@ -6,6 +6,7 @@ Gated by feature flag `VEYA_CAD_SALES_BOT` (default OFF).
 from __future__ import annotations
 
 from typing import Any
+
 from fastapi import APIRouter, HTTPException
 
 from server import feature_flags
