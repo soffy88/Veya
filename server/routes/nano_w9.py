@@ -226,13 +226,14 @@ class SignalRequest(BaseModel):
 
 
 def _routine_router():
-    from server.nano_w9.routine_triggers import RoutineSignalRouter
-    from server.goal_run.routine_registry import RoutineRegistry
-    from server.goal_run.routine_history import RoutineHistoryStore
-    from server.goal_run.routine_dispatch import dispatch_trigger
-    from server.goal_run.models import GoalRunState
     import time
     import uuid
+
+    from server.goal_run.models import GoalRunState
+    from server.goal_run.routine_dispatch import dispatch_trigger
+    from server.goal_run.routine_history import RoutineHistoryStore
+    from server.goal_run.routine_registry import RoutineRegistry
+    from server.nano_w9.routine_triggers import RoutineSignalRouter
 
     try:
         registry = RoutineRegistry()

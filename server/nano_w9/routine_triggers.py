@@ -24,7 +24,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from server.nano_w9.flags import require_flag
 from veya.oskill.pure.trigger_match import signal_matches_triggers
 
 __all__ = [
@@ -300,7 +299,7 @@ class RoutineSignalRouter:
         Raises:
             FeatureDisabled: when ``VEYA_ROUTINE_TRIGGERS`` is off.
         """
-        from server.nano_w9.flags import flag_enabled, FeatureDisabled
+        from server.nano_w9.flags import FeatureDisabled, flag_enabled
         if not flag_enabled("VEYA_ROUTINE_TRIGGERS") and not flag_enabled("VEYA_EVENT_TRIGGERS"):
             raise FeatureDisabled("VEYA_ROUTINE_TRIGGERS")
         hits = self.match(signal)

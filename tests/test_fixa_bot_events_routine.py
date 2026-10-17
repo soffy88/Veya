@@ -6,24 +6,19 @@
 
 from __future__ import annotations
 
-import asyncio
-import os
-import uuid
-from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from server import auth as auth_mod
+from server.auth import AuthGateMiddleware
 from server.goal_run.bot_identity import BotRegistry, BotSpec
 from server.goal_run.models import RoutineSpec
-from server.goal_run.routine_registry import RoutineRegistry
 from server.goal_run.routine_history import RoutineHistoryStore
+from server.goal_run.routine_registry import RoutineRegistry
 from server.routes.bot_team import router as bot_team_router
-from server.routes.routines import router as routines_router
 from server.routes.nano_w9 import router as nano_w9_router
-from server.auth import AuthGateMiddleware
-from server import auth as auth_mod
-
+from server.routes.routines import router as routines_router
 
 USER = {"user_id": "fixa-user", "username": "fixa"}
 
