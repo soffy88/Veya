@@ -73,4 +73,3 @@ export const POST: RequestHandler = forward;
 export const PUT: RequestHandler = forward;
 export const PATCH: RequestHandler = forward;
 export const DELETE: RequestHandler = forward;
-export const PATCH: RequestHandler = forward;
