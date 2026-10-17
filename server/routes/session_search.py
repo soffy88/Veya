@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from server import auth as auth_mod
 
-router = APIRouter(prefix="/api/v1/sessions", tags=["session-search"])
+router = APIRouter(tags=["session-search"])
 
 
 class SearchResult(BaseModel):

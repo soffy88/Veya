@@ -178,7 +178,20 @@ async def attach_preset(
         client = obase.StdioMcpClient(_resolve_command(preset), line_delimited=line_delimited)
     else:
         client = factory(_resolve_command(preset))
-    await client.start()
+    try:
+        await client.start()
+    except FileNotFoundError as exc:
+        return {
+            "name": preset["name"],
+            "attached": False,
+            "status": "unavailable: binary not found (" + str(exc.filename or exc) + ")",
+        }
+    except Exception as exc:
+        return {
+            "name": preset["name"],
+            "attached": False,
+            "status": f"unavailable: failed to start ({type(exc).__name__}: {exc})",
+        }
     obase.McpClientRegistry.register(preset["name"], client)
     if discovery is None:
 
@@ -282,7 +295,15 @@ async def wire_master_tools(*, path: Path | None = None) -> int:
                     max_result_chars=16000,
                     side_effect=SideEffect.PURE_READ,
                 )
-        except Exception:
+        except FileNotFoundError as exc:
+            import logging
+
+            logging.getLogger("veya.mcp_presets").info(
+                "mcp preset %r binary not installed (%s), degrading gracefully",
+                preset.get("name"),
+                exc.filename or exc,
+            )
+        except Exception as exc:
             # Missing keys already returned above, so reaching here means a
             # real spawn/collect failure. Degrade to "this preset is not
             # wired" but leave a trace — a bare `pass` hides broken
@@ -290,7 +311,10 @@ async def wire_master_tools(*, path: Path | None = None) -> int:
             import logging
 
             logging.getLogger("veya.mcp_presets").warning(
-                "mcp preset %r not wired", preset.get("name"), exc_info=True
+                "mcp preset %r not wired (%s: %s), degrading gracefully",
+                preset.get("name"),
+                type(exc).__name__,
+                exc,
             )
     return registered
 

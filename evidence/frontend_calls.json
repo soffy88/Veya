@@ -1,0 +1,751 @@
+[
+  {
+    "source": "lib/upstreamProbe.ts",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/mcp/health",
+    "options": "{ signal: ctrl.signal }"
+  },
+  {
+    "source": "lib/auth.svelte.ts",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/auth/${path}",
+    "options": "{\n\t\tmethod: \"POST\",\n\t\theaders: { \"content-type\": \"application/json\" },\n\t\tbody: JSON.stringify(body),\n\t}"
+  },
+  {
+    "source": "lib/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/agent/verify",
+    "options": "{ body: { statement } }"
+  },
+  {
+    "source": "lib/api.ts",
+    "upstream": "legacy",
+    "method": "POST",
+    "raw_path": "tools/sandbox/execute",
+    "options": "{ body: { command } }"
+  },
+  {
+    "source": "lib/notifications.svelte.ts",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/legacy/notifications/stream",
+    "options": "{\n\t\t\t\t\theaders,\n\t\t\t\t\tsignal: this.#abort?.signal,\n\t\t\t\t}"
+  },
+  {
+    "source": "lib/sessionStore.svelte.ts",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/sessions",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders,\n\t\t\t\tbody: JSON.stringify({ session_id: sid }"
+  },
+  {
+    "source": "lib/sessionStore.svelte.ts",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/sessions",
+    "options": "{\n\t\t\t\theaders: { authorization: `Bearer ${token}` },\n\t\t\t}"
+  },
+  {
+    "source": "routes/+page.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/tasks",
+    "options": "{ method: \"GET\", query: { limit: 8 } }"
+  },
+  {
+    "source": "routes/+page.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/supervision/missions",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "routes/+page.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/sessions/search?${params}",
+    "options": "{ headers }"
+  },
+  {
+    "source": "lib/remote/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/remote/hosts",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/remote/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/remote/hosts",
+    "options": "{ method: \"POST\", body: input }"
+  },
+  {
+    "source": "lib/remote/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/remote/sessions",
+    "options": "{\n\t\tmethod: \"GET\",\n\t\tquery: { active: activeOnly },\n\t}"
+  },
+  {
+    "source": "lib/remote/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/remote/sessions",
+    "options": "{ method: \"POST\", body: input }"
+  },
+  {
+    "source": "lib/remote/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/remote/pending-approvals",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/remote/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/remote/wake-policy",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/remote/api.ts",
+    "upstream": "gateway",
+    "method": "PUT",
+    "raw_path": "api/v1/remote/wake-policy",
+    "options": "{ method: \"PUT\", body: policy }"
+  },
+  {
+    "source": "lib/projects/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/projects",
+    "options": ""
+  },
+  {
+    "source": "lib/projects/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/projects",
+    "options": "{\n\t\tmethod: \"POST\",\n\t\tbody: req,\n\t}"
+  },
+  {
+    "source": "lib/components/PlanBoard.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/plan/list",
+    "options": ""
+  },
+  {
+    "source": "lib/components/AgentConsole.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/agent/stream",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders: { \"content-type\": \"application/json\" },\n\t\t\t\tbody: JSON.stringify({ text, engine, session_id: sid }"
+  },
+  {
+    "source": "lib/components/AutomationPanel.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/scheduler",
+    "options": "{ body: { action: \"list\" } }"
+  },
+  {
+    "source": "lib/components/AutomationPanel.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/scheduler",
+    "options": "{ body: { action: \"toggle\", id: s.id, enabled: !s.enabled } }"
+  },
+  {
+    "source": "lib/components/AutomationPanel.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/scheduler",
+    "options": "{ body: { action: \"delete\", id: s.id } }"
+  },
+  {
+    "source": "lib/components/AutomationPanel.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/scheduler",
+    "options": "{\n\t\t\tbody: { action: \"create\", name: newName.trim(), prompt: newPrompt.trim(), cron: newCron.trim() },\n\t\t}"
+  },
+  {
+    "source": "lib/components/PersonalContextPanel.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/memory",
+    "options": "{ method: \"GET\", query: { limit: 30 } }"
+  },
+  {
+    "source": "lib/components/PersonalContextPanel.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/skills",
+    "options": "{ method: \"GET\", query: { limit: 30, include_candidates: true } }"
+  },
+  {
+    "source": "lib/components/PersonalContextPanel.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/continuity",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/components/PersonalContextPanel.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/learning/candidates",
+    "options": "{ method: \"GET\", query: { limit: 20 } }"
+  },
+  {
+    "source": "lib/components/SearchPalette.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/tasks",
+    "options": "{ method: \"GET\", query: { limit: 100 } }"
+  },
+  {
+    "source": "lib/components/SearchPalette.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/supervision/missions",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/components/SearchPalette.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "projects",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/components/SearchPalette.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/fs/tree",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/components/PluginPanel.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/plugin/manage",
+    "options": "{ body: { action: \"marketplace\" } }"
+  },
+  {
+    "source": "lib/components/PluginPanel.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/plugin/manage",
+    "options": "{\n\t\t\tbody: { action: \"install\", name: entry.name, version: entry.version, capabilities: [], source: \"marketplace\" },\n\t\t}"
+  },
+  {
+    "source": "lib/components/PluginPanel.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/plugin/manage",
+    "options": "{ body: { action: \"toggle\", name: p.name, enabled: !p.enabled } }"
+  },
+  {
+    "source": "lib/components/PluginPanel.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/plugin/manage",
+    "options": "{ body: { action: \"uninstall\", name: p.name } }"
+  },
+  {
+    "source": "lib/components/BrowserPanel.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/design/capture",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders: { \"content-type\": \"application/json\", ...authHeader() },\n\t\t\t\tbody: JSON.stringify({\n\t\t\t\t\tcapture: capturedElement,\n\t\t\t\t\tinstruction,\n\t\t\t\t\tsession_id: sessionId,\n\t\t\t\t\ttask_id: taskId,\n\t\t\t\t}"
+  },
+  {
+    "source": "lib/components/FlowConsole.svelte",
+    "upstream": "legacy",
+    "method": "POST",
+    "raw_path": "flow/phase1",
+    "options": "{\n\t\t\tbody: {\n\t\t\t\tprompt,\n\t\t\t\tsession_id: sessionId,\n\t\t\t\tprovider: apiKeyStore.provider,\n\t\t\t\tmodel: apiKeyStore.model.trim() || undefined,\n\t\t\t\tconfig: apiKeyStore.asConfig(),\n\t\t\t},\n\t\t}"
+  },
+  {
+    "source": "lib/components/FlowConsole.svelte",
+    "upstream": "legacy",
+    "method": "POST",
+    "raw_path": "flow/phase2",
+    "options": "{\n\t\t\tbody: {\n\t\t\t\tdoc: turn.requirementDoc,\n\t\t\t\tsession_id: turn.sessionId,\n\t\t\t\tprovider: apiKeyStore.provider,\n\t\t\t\tmodel: apiKeyStore.model.trim() || undefined,\n\t\t\t\tconfig: apiKeyStore.asConfig(),\n\t\t\t},\n\t\t}"
+  },
+  {
+    "source": "lib/components/FlowConsole.svelte",
+    "upstream": "legacy",
+    "method": "POST",
+    "raw_path": "flow/phase3",
+    "options": "{\n\t\t\tbody: { manifest: turn.manifest, session_id: turn.sessionId, config: apiKeyStore.asConfig() },\n\t\t}"
+  },
+  {
+    "source": "lib/components/ProjectMap.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/graph/files?limit=300",
+    "options": ""
+  },
+  {
+    "source": "lib/components/KanbanPanel.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/board",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders: { \"content-type\": \"application/json\" },\n\t\t\t\tbody: JSON.stringify(body),\n\t\t\t}"
+  },
+  {
+    "source": "lib/components/TrajectoryReplay.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/nano-w9/trajectory/${goalId}",
+    "options": ""
+  },
+  {
+    "source": "lib/components/DiffAnnotations.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/review/attribution/file?${q}",
+    "options": ""
+  },
+  {
+    "source": "lib/components/DiffAnnotations.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/review/fix-checks",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders: { \"Content-Type\": \"application/json\" },\n\t\t\t\tbody: JSON.stringify({ repo_path: repoPath || null, branch: branch || null }"
+  },
+  {
+    "source": "lib/components/TaskCenterPanel.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/tasks",
+    "options": "{ method: \"GET\", query: { limit: 200 } }"
+  },
+  {
+    "source": "lib/components/ProductShell.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/bot",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/components/ProductShell.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/bot/tasks",
+    "options": "{\n\t\t\tmethod: \"POST\",\n\t\t\tbody: {\n\t\t\t\tobjective,\n\t\t\t\tprovider: apiKeyStore.provider,\n\t\t\t\tmodel: apiKeyStore.model.trim() || apiKeyStore.current.defaultModel || undefined,\n\t\t\t\tworkspace_id: botState?.workspace?.path || undefined,\n\t\t\t\t// Request-scoped provider config is consumed by MasterAgent and is\n\t\t\t\t// never persisted in task state or returned by this endpoint.\n\t\t\t\tconfig: apiKeyStore.asConfig(),\n\t\t\t},\n\t\t}"
+  },
+  {
+    "source": "lib/components/ProductShell.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/bot/onboarding",
+    "options": "{\n\t\t\tmethod: \"POST\",\n\t\t\tbody: { provider, model, workspace: workspace.trim() || undefined, credential_ref },\n\t\t}"
+  },
+  {
+    "source": "lib/components/NotificationCenter.svelte",
+    "upstream": "legacy",
+    "method": "POST",
+    "raw_path": "notifications/${notif.id}/approve",
+    "options": "{ body: { approved } }"
+  },
+  {
+    "source": "lib/components/GitPanel.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/git/status",
+    "options": ""
+  },
+  {
+    "source": "lib/components/GitPanel.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/git/diff${q}",
+    "options": ""
+  },
+  {
+    "source": "lib/components/GitPanel.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/agent/run",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders: { \"content-type\": \"application/json\" },\n\t\t\t\tbody: JSON.stringify({\n\t\t\t\t\ttext: \"\u6839\u636e\u5f53\u524d git \u53d8\u66f4\u5199\u4e00\u6761\u7b80\u6d01\u7684\u4e2d\u6587 commit message (\u4e00\u53e5\u8bdd, \u542b\u7c7b\u578b\u524d\u7f00\u5982 feat/fix/docs)\u3002\",\n\t\t\t\t\tengine: \"master\",\n\t\t\t\t}"
+  },
+  {
+    "source": "lib/components/GitPanel.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/git/commit",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders: { \"content-type\": \"application/json\" },\n\t\t\t\tbody: JSON.stringify({ message: commitMsg, files: picked }"
+  },
+  {
+    "source": "lib/components/XrtExternalRuntimes.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/xrt/runtimes",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/components/XrtExternalRuntimes.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/xrt/dispatch",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\tbody: { runtime: selectedRuntime, task: taskText.trim() }\n\t\t\t}"
+  },
+  {
+    "source": "lib/components/FileTree.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/fs/tree",
+    "options": ""
+  },
+  {
+    "source": "lib/components/ChatConsole.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/stream/${targetSid}",
+    "options": "{\n\t\t\t\theaders: { ...authHeader() },\n\t\t\t\tsignal,\n\t\t\t}"
+  },
+  {
+    "source": "lib/components/ChatConsole.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/agent/stream",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders: { \"content-type\": \"application/json\", ...authHeader() },\n\t\t\t\tbody: JSON.stringify({\n\t\t\t\t\ttext: text + attachPrefix,\n\t\t\t\t\timages: pendingImages,\n\t\t\t\t\tsession_id: sid,\n\t\t\t\t\tturn_id: currentTurnId,\n\t\t\t\t\tprovider: apiKeyStore.provider,\n\t\t\t\t\tmodel: apiKeyStore.model.trim() || undefined,\n\t\t\t\t\tengine: apiKeyStore.engine,\n\t\t\t\t\tconfig: apiKeyStore.asConfig(),\n\t\t\t\t\tagent_mode: planMode ? \"plan\" : \"agent\",\n\t\t\t\t\t// Agent tasks run through the backend's sandbox/tool guards without\n\t\t\t\t\t// pausing for a browser-side approval card. Plan mode remains read-only.\n\t\t\t\t\trequire_approval: false,\n\t\t\t\t}"
+  },
+  {
+    "source": "lib/components/ChatConsole.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/agent/approval",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders: { \"content-type\": \"application/json\", ...authHeader() },\n\t\t\t\tbody: JSON.stringify({ request_id: req.request_id, approved }"
+  },
+  {
+    "source": "lib/components/ChatConsole.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/agent/answer",
+    "options": "{\n\t\t\tmethod: \"POST\",\n\t\t\theaders: { \"content-type\": \"application/json\", ...authHeader() },\n\t\t\tbody: JSON.stringify({ request_id: q.request_id, answer }"
+  },
+  {
+    "source": "lib/components/ChatConsole.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/permission/profiles",
+    "options": "{ headers: { ...authHeader() } }"
+  },
+  {
+    "source": "lib/components/ChatConsole.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/permission/profile",
+    "options": "{ headers: { ...authHeader() } }"
+  },
+  {
+    "source": "lib/components/ChatConsole.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/permission/profile",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders: { \"content-type\": \"application/json\", ...authHeader() },\n\t\t\t\tbody: JSON.stringify({ profile }"
+  },
+  {
+    "source": "lib/components/ChatConsole.svelte",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "/api/v1/agent/stop",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\theaders: { \"content-type\": \"application/json\" },\n\t\t\t\tbody: JSON.stringify({ session_id: sid, turn_id: activeTurnId ?? undefined }"
+  },
+  {
+    "source": "lib/components/ModelPicker.svelte",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "/api/v1/engines",
+    "options": ""
+  },
+  {
+    "source": "lib/team/push.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/push/public_key",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/team/push.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/push/status",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/team/push.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/push/subscriptions",
+    "options": "{\n\t\tmethod: \"POST\",\n\t\tbody: {\n\t\t\tendpoint: subscription.endpoint,\n\t\t\tkeys: { p256dh: keys.p256dh ?? \"\", auth: keys.auth ?? \"\" },\n\t\t},\n\t}"
+  },
+  {
+    "source": "lib/team/push.ts",
+    "upstream": "gateway",
+    "method": "DELETE",
+    "raw_path": "api/v1/push/subscriptions",
+    "options": "{\n\t\t\tmethod: \"DELETE\",\n\t\t\tquery: { endpoint },\n\t\t}"
+  },
+  {
+    "source": "lib/team/push.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/push/status",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/team/rolePresets.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/presets/${kind}",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/bots",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/bots",
+    "options": "{ method: \"POST\", body }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/bots/groups",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/bots/groups",
+    "options": "{ method: \"POST\", body: { name, bot_ids: botIds } }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/models",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/providers",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/providers/custom",
+    "options": "{ method: \"POST\", body }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/providers/keys",
+    "options": "{ method: \"POST\", body: { provider, api_key } }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/providers/cli-agents",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/providers/bot-model-source",
+    "options": "{ method: \"POST\", body }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/runners",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/team/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/nano-w10-c/secrets",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/supervision/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "${BASE}/missions",
+    "options": "{\n      method: \"POST\",\n      body: {\n        goal: input.goal,\n        supervision_mode: input.supervision_mode,\n        workspace: input.workspace ?? \"\",\n        executor: input.executor ?? \"\",\n        acceptance_criteria: input.acceptance_criteria ?? [],\n        constraints: input.constraints ?? [],\n      },\n    }"
+  },
+  {
+    "source": "lib/supervision/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "${BASE}/missions",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/channels/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/channels/status",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/channels/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/channels/bindings",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/channels/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/channels/bind/code",
+    "options": "{\n\t\tmethod: \"POST\",\n\t\tbody: input,\n\t}"
+  },
+  {
+    "source": "lib/channels/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/channels/unbind",
+    "options": "{\n\t\tmethod: \"POST\",\n\t\tbody: { binding_id: bindingId },\n\t}"
+  },
+  {
+    "source": "lib/channels/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/channels/morning-feed/config",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/channels/api.ts",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/channels/morning-feed/config",
+    "options": "{\n\t\tmethod: \"POST\",\n\t\tbody: config,\n\t}"
+  },
+  {
+    "source": "lib/approvals/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/approvals",
+    "options": "{ method: \"GET\", query: { status } }"
+  },
+  {
+    "source": "lib/approvals/api.ts",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/grants",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "lib/approvals/api.ts",
+    "upstream": "gateway",
+    "method": "DELETE",
+    "raw_path": "api/v1/grants/${id}",
+    "options": "{ method: \"DELETE\" }"
+  },
+  {
+    "source": "routes/team/RunHistoryWidget.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/tdx/runs",
+    "options": "{ method: \"GET\", query: { limit: 30 } }"
+  },
+  {
+    "source": "routes/team/NeedsYouWidget.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/tdx/needs-you",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "routes/mab/+page.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/mab/profiles",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "routes/mab/+page.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/mab/profiles",
+    "options": "{\n\t\t\t\tmethod: \"POST\",\n\t\t\t\tbody: {\n\t\t\t\t\tname: newName,\n\t\t\t\t\tsite: newSite,\n\t\t\t\t\taccount_label: newLabel || \"default\"\n\t\t\t\t}\n\t\t\t}"
+  },
+  {
+    "source": "routes/mab/+page.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/mab/profiles/${profile.id}/${action}",
+    "options": "{\n\t\t\t\tmethod: \"POST\"\n\t\t\t}"
+  },
+  {
+    "source": "routes/mab/+page.svelte",
+    "upstream": "gateway",
+    "method": "DELETE",
+    "raw_path": "api/v1/mab/profiles/${profile.id}",
+    "options": "{\n\t\t\t\tmethod: \"DELETE\",\n\t\t\t\tquery: { confirm: true }\n\t\t\t}"
+  },
+  {
+    "source": "routes/mab/+page.svelte",
+    "upstream": "gateway",
+    "method": "POST",
+    "raw_path": "api/v1/mab/profiles/\" + profile.id + \"/stream-ticket",
+    "options": "{ method: \"POST\" }"
+  },
+  {
+    "source": "routes/health/+server.ts",
+    "upstream": "fetch",
+    "method": "GET",
+    "raw_path": "${UPSTREAM}${path}",
+    "options": "{\n      headers: { accept: \"application/json\" },\n      signal: controller.signal,\n    }"
+  },
+  {
+    "source": "routes/api/stream/+server.ts",
+    "upstream": "fetch",
+    "method": "POST",
+    "raw_path": "${UPSTREAM}/api/v1/agent/stream",
+    "options": "{\n    method: \"POST\",\n    headers: {\n      \"content-type\": \"application/json\",\n      accept: \"text/event-stream\",\n    },\n    body: JSON.stringify(body),\n  }"
+  },
+  {
+    "source": "routes/settings/agent-publish-perms/+page.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/tdx/publish-perms",
+    "options": "{ method: \"GET\" }"
+  },
+  {
+    "source": "routes/settings/channels/+page.svelte",
+    "upstream": "gateway",
+    "method": "GET",
+    "raw_path": "api/v1/tdx/publish-perms",
+    "options": "{ method: \"GET\" }"
+  }
+]

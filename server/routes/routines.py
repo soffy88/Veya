@@ -17,11 +17,32 @@ from server.goal_run.routine_history import RoutineHistoryStore
 from server.goal_run.routine_registry import RoutineRegistry
 
 
-def _require_owned_bot(
+async def _require_owned_bot(
+    request: Request,
     bot_id: str,
-    user: dict = Depends(auth_mod.require_user),
 ) -> None:
-    """W11 D2: routines belong to the bot's owner; anyone else gets 404."""
+    """W11 D2: routines belong to the bot's owner; anyone else gets 404.
+
+    Webhooks authenticate via HMAC signature in the handler rather than
+    interactive bearer token. Respects FastAPI dependency_overrides on
+    ``require_user`` for test environments.
+    """
+    if request.url.path.endswith("/webhook"):
+        return
+
+    # Check for test dependency overrides first
+    overrides = getattr(request.app, "dependency_overrides", {})
+    override = overrides.get(auth_mod.require_user) or overrides.get(auth_mod.get_current_user)
+    if override is not None:
+        user = override() if callable(override) else override
+    else:
+        user = auth_mod.require_user(
+            authorization=request.headers.get("authorization"),
+            request=request,
+        )
+
+    if not user:
+        raise HTTPException(status_code=401, detail="请先登录")
 
     from server.goal_run.bot_identity import BotRegistry
     from server.routes.bot_team import _require_bot
@@ -347,15 +368,61 @@ async def routine_webhook(
     registry = _get_registry(bot_id)
     history_store = RoutineHistoryStore(bot_id=bot_id)
 
-    from server.goal_run.routine_dispatch import dispatch_trigger
-    from server.goal_run.models import GoalRunState
+    # Monkeypatch seam: tests replace ``_default_handoff_consumer`` on
+    # this module; rebind it here so the dispatch follows the patch.
+    _consume = _default_handoff_consumer
 
+    def _asyncio_iscoroutine(obj: Any) -> bool:
+        import asyncio
+
+        return asyncio.iscoroutine(obj) or isinstance(obj, asyncio.Future)
+
+    def _run_sync_coroutine(coro: Any) -> None:
+        import asyncio
+        import concurrent.futures
+
+        try:
+            asyncio.get_event_loop().run_until_complete(coro)
+        except RuntimeError:
+            # A running loop owns this thread (the webhook handler itself is
+            # async): drive the coroutine on a private loop instead.
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                pool.submit(asyncio.run, coro).result()
+
+    # A triggered webhook must run real work.  Rebuilding a throwaway
+    # GoalRunState here (the previous behaviour) produced a ``goal_run_id``
+    # that was never persisted or executed, so callers could never observe
+    # follow-through: the status route answered 404 for it.  Handing the
+    # dispatch through the SAME consumer ``run_now`` and the routine clock use
+    # keeps one execution path — no second scheduler, no phantom goal.
     def dispatch_fn(topic: str, trigger_id: str, payload: dict[str, Any]):
-        state = GoalRunState(goal_id=uuid.uuid4().hex, goal_text=str(payload.get("event") or "webhook"), bot_id=bot_id)
         routines = registry.lookup(topic, bot_id=bot_id)
-        handoffs = dispatch_trigger(state, routines, topic=topic, trigger_id=trigger_id, payload=payload)
-        for h in handoffs:
-            history_store.add_record(h["routine_id"], {"trigger_id": trigger_id, "payload": payload, "at": time.time()})
+        handoffs = [
+            {
+                "routine_id": spec.routine_id,
+                "trigger_topic": spec.trigger_topic,
+                "trigger_id": trigger_id,
+                "target": {"goal_template": spec.goal_template or spec.objective},
+                "bot_id": bot_id,
+                "model": spec.model,
+                "workspace_path": spec.workspace_path,
+            }
+            for spec in routines
+            if spec.enabled and spec.trigger_topic == topic
+        ]
+        if not handoffs:
+            return {"handoffs": []}
+        # ``_consume`` may be sync or async (tests inject either shape);
+        # ``RoutineSignalRouter`` calls dispatch synchronously, so run the
+        # coroutine to completion on a private loop when necessary.
+        outcome = _consume(handoffs)
+        if _asyncio_iscoroutine(outcome):
+            _run_sync_coroutine(outcome)
+        for spec in routines:
+            history_store.add_record(
+                spec.routine_id,
+                {"trigger_id": trigger_id, "payload": payload, "at": time.time()},
+            )
         return {"handoffs": handoffs}
 
     router = RoutineSignalRouter(registry=registry, dispatch=dispatch_fn)

@@ -220,10 +220,10 @@ async def lifespan(app: FastAPI):
         # Layer-4 startup contract fail fast and degrade explicitly.
         await _bounded_optional_start(stratum.start)
         await wire_stratum(stratum)  # mcp_stratum_* → 主脑工具面
-    except Exception:
-        import logging
-
-        logging.getLogger("veya.lifespan").exception("stratum wire failed")
+    except (TimeoutError, asyncio.TimeoutError):
+        _lg.warning("stratum wire skipped: startup timed out (service unreachable), degrading gracefully")
+    except Exception as exc:
+        _lg.warning("stratum wire skipped (%s: %s), degrading gracefully", type(exc).__name__, exc)
     # hevi 视频管线 MCP (同 docker 网络, 不可达/密钥缺失时优雅降级)
     from server.hevi_memory import get_hevi
     from server.hevi_memory import wire_master_tools as wire_hevi
@@ -234,10 +234,10 @@ async def lifespan(app: FastAPI):
         # for its full network timeout.
         await _bounded_optional_start(hevi.start)
         await wire_hevi(hevi)  # mcp_hevi_* → 主脑工具面
-    except Exception:
-        import logging
-
-        logging.getLogger("veya.lifespan").exception("hevi wire failed")
+    except (TimeoutError, asyncio.TimeoutError):
+        _lg.warning("hevi wire skipped: startup timed out (service unreachable), degrading gracefully")
+    except Exception as exc:
+        _lg.warning("hevi wire skipped (%s: %s), degrading gracefully", type(exc).__name__, exc)
     # Open Design MCP (设计/渲染层; daemon 不可达/无 token 时优雅降级)
     from server.open_design import get_open_design
     from server.open_design import wire_master_tools as wire_od
@@ -301,10 +301,8 @@ async def lifespan(app: FastAPI):
 
     try:
         await wire_w14()  # mcp_markitdown / mcp_mineru / … → 主脑工具面
-    except Exception:
-        import logging
-
-        logging.getLogger("veya.lifespan").exception("mcp-presets wire failed")
+    except Exception as exc:
+        _lg.warning("mcp-presets wire skipped (%s: %s), degrading gracefully", type(exc).__name__, exc)
 
     # GBP6: EvoOntology MCP preset & semantic tools
     try:

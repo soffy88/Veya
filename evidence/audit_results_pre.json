@@ -1,0 +1,206 @@
+{
+  "phase": "pre",
+  "timestamp": "2026-10-17T02:22:37.982Z",
+  "results": [
+    {
+      "page": "Root (/)",
+      "operation": "Initial Unauthenticated Load",
+      "api": "GET /",
+      "status": "PASS",
+      "notes": "Loads root page with ChatConsole and AuthGate",
+      "screenshot": "pre_01_root_unauth.png"
+    },
+    {
+      "page": "Root (/)",
+      "operation": "Logged In View",
+      "api": "GET /api/v1/sessions",
+      "status": "PASS",
+      "notes": "User session active, user badge displayed",
+      "screenshot": "pre_02_root_logged_in.png"
+    },
+    {
+      "page": "Root (/)",
+      "operation": "Switch to Work view",
+      "api": "GET /api/v1/product/state",
+      "status": "PASS",
+      "notes": "ProductShell loaded in Work mode",
+      "screenshot": "pre_03_view_work.png"
+    },
+    {
+      "page": "Root (/)",
+      "operation": "Open Search Palette",
+      "api": "UI / Client Search",
+      "status": "PASS",
+      "notes": "SearchPalette modal opened",
+      "screenshot": "pre_04_search_palette.png"
+    },
+    {
+      "page": "Root (/)",
+      "operation": "Open Settings Panel",
+      "api": "GET /auth/providers, GET /api/v1/mcp-presets",
+      "status": "PASS",
+      "notes": "Settings dialog with API keys and MCP presets",
+      "screenshot": "pre_05_settings_panel.png"
+    },
+    {
+      "page": "Root (/)",
+      "operation": "Open More Menu",
+      "api": "UI Navigation",
+      "status": "PASS",
+      "notes": "More menu opened with Workspace & Dev tools items",
+      "screenshot": "pre_06_more_menu.png"
+    },
+    {
+      "page": "Personal Context",
+      "operation": "Open Personal Context Panel",
+      "api": "GET /api/v1/personal/context, GET /api/v1/memories",
+      "status": "PASS",
+      "notes": "PersonalContextPanel loaded",
+      "screenshot": "pre_07_personal_context.png"
+    },
+    {
+      "page": "Team (/team)",
+      "operation": "Load Team Page",
+      "api": "GET /api/v1/bots, GET /api/v1/groups",
+      "status": "PASS",
+      "notes": "Team page loads bots and groups",
+      "screenshot": "pre_08_team_page.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Load Chat Tab",
+      "api": "GET /api/v1/bots/chef/messages",
+      "status": "PASS",
+      "notes": "Bot chat tab loads transcript",
+      "screenshot": "pre_11_bot_tab_chat.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Load Memory Tab",
+      "api": "GET /api/v1/bots/chef/memory",
+      "status": "PASS",
+      "notes": "Memory tab loaded with memory editor",
+      "screenshot": "pre_13_bot_tab_memory.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Load Routines Tab",
+      "api": "GET /api/v1/bots/chef/routines",
+      "status": "PASS",
+      "notes": "Routines tab loaded",
+      "screenshot": "pre_14_bot_tab_routines.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Create Routine",
+      "api": "POST /api/v1/bots/chef/routines",
+      "status": "PASS",
+      "notes": "Routine created",
+      "screenshot": "pre_15_routine_added.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Toggle Routine (PATCH)",
+      "api": "PATCH /api/v1/bots/chef/routines/{id}",
+      "status": "PASS",
+      "notes": "Routine pause/play toggled successfully",
+      "screenshot": "pre_16_routine_toggle_patch.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Load Settings Tab",
+      "api": "GET /api/v1/bots/chef",
+      "status": "PASS",
+      "notes": "Bot settings form loaded",
+      "screenshot": "pre_17_bot_tab_settings.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Save Bot Settings (PATCH)",
+      "api": "PATCH /api/v1/bots/chef",
+      "status": "PASS",
+      "notes": "Bot settings saved successfully via PATCH",
+      "screenshot": "pre_18_bot_settings_save_patch.png"
+    },
+    {
+      "page": "Approvals (/approvals)",
+      "operation": "Load Approvals Page",
+      "api": "GET /api/v1/approvals, GET /api/v1/approvals/grants",
+      "status": "PASS",
+      "notes": "Approvals page loads pending approvals & grants",
+      "screenshot": "pre_19_approvals_page.png"
+    },
+    {
+      "page": "Projects (/projects)",
+      "operation": "Load Projects Page",
+      "api": "GET /api/v1/projects",
+      "status": "PASS",
+      "notes": "Projects page loaded (auth managed by AUD1)",
+      "screenshot": "pre_20_projects_page.png"
+    },
+    {
+      "page": "Missions (/missions)",
+      "operation": "Load Missions Page",
+      "api": "GET /api/v1/supervision/missions",
+      "status": "PASS",
+      "notes": "Missions supervision overview loaded",
+      "screenshot": "pre_21_missions_page.png"
+    },
+    {
+      "page": "Remote (/remote)",
+      "operation": "Load Remote Control Page",
+      "api": "GET /api/v1/remote/hosts, GET /api/v1/remote/sessions",
+      "status": "PASS",
+      "notes": "Remote host management interface loaded",
+      "screenshot": "pre_22_remote_page.png"
+    },
+    {
+      "page": "MAB (/mab)",
+      "operation": "Load MAB Page",
+      "api": "GET /api/v1/mab/profiles",
+      "status": "PASS",
+      "notes": "Multi-account browser console loaded",
+      "screenshot": "pre_23_mab_page.png"
+    },
+    {
+      "page": "Settings Channels (/settings/channels)",
+      "operation": "Load Channels Page",
+      "api": "GET /api/v1/channels/status",
+      "status": "PASS",
+      "notes": "Channels status & bindings loaded",
+      "screenshot": "pre_24_settings_channels.png"
+    },
+    {
+      "page": "Settings Perms (/settings/agent-publish-perms)",
+      "operation": "Load Agent Perms",
+      "api": "GET /api/v1/tdx/publish-perms",
+      "status": "PASS",
+      "notes": "Permissions page loaded with honest owner guard",
+      "screenshot": "pre_25_settings_perms.png"
+    },
+    {
+      "page": "Mobile Root (390x844)",
+      "operation": "Viewport Layout Check",
+      "api": "GET /",
+      "status": "PASS",
+      "notes": "Mobile header, chat input, hamburger menu fit properly",
+      "screenshot": "pre_26_mobile_root.png"
+    },
+    {
+      "page": "Mobile Sidebar (390x844)",
+      "operation": "Drawer Navigation",
+      "api": "UI Navigation",
+      "status": "PASS",
+      "notes": "Mobile drawer opens with links to Team, Remote, Projects",
+      "screenshot": "pre_27_mobile_sidebar.png"
+    },
+    {
+      "page": "Mobile Bot (390x844)",
+      "operation": "Bot Tabs Navigation",
+      "api": "GET /api/v1/bots/chef",
+      "status": "PASS",
+      "notes": "Bottom navigation tabs fit iPhone viewport with safe-area padding",
+      "screenshot": "pre_28_mobile_bot.png"
+    }
+  ]
+}

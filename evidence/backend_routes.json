@@ -1,0 +1,12 @@
+[
+  {
+    "method": "GET",
+    "path": "/health",
+    "auth_deps": []
+  },
+  {
+    "method": "GET",
+    "path": "/health/execution-runtime",
+    "auth_deps": []
+  }
+]

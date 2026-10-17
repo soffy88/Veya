@@ -1,0 +1,222 @@
+{
+  "phase": "post",
+  "timestamp": "2026-10-17T03:12:58.338Z",
+  "results": [
+    {
+      "page": "Root (/)",
+      "operation": "Initial Unauthenticated Load",
+      "api": "GET /",
+      "status": "PASS",
+      "notes": "Loads root page with ChatConsole and AuthGate",
+      "screenshot": "post_01_root_unauth.png"
+    },
+    {
+      "page": "Root (/)",
+      "operation": "Logged In View",
+      "api": "GET /api/v1/sessions",
+      "status": "PASS",
+      "notes": "User session active, user badge displayed",
+      "screenshot": "post_02_root_logged_in.png"
+    },
+    {
+      "page": "Root (/)",
+      "operation": "Switch to Work view",
+      "api": "GET /api/v1/product/state",
+      "status": "PASS",
+      "notes": "ProductShell loaded in Work mode",
+      "screenshot": "post_03_view_work.png"
+    },
+    {
+      "page": "Root (/)",
+      "operation": "Open Search Palette",
+      "api": "UI / Client Search",
+      "status": "PASS",
+      "notes": "SearchPalette modal opened",
+      "screenshot": "post_04_search_palette.png"
+    },
+    {
+      "page": "Root (/)",
+      "operation": "Open Settings Panel",
+      "api": "GET /auth/providers, GET /api/v1/mcp-presets",
+      "status": "PASS",
+      "notes": "Settings dialog with API keys and MCP presets",
+      "screenshot": "post_05_settings_panel.png"
+    },
+    {
+      "page": "Root (/)",
+      "operation": "Open More Menu",
+      "api": "UI Navigation",
+      "status": "PASS",
+      "notes": "More menu opened with Workspace & Dev tools items",
+      "screenshot": "post_06_more_menu.png"
+    },
+    {
+      "page": "Personal Context",
+      "operation": "Open Personal Context Panel",
+      "api": "GET /api/v1/personal/context, GET /api/v1/memories",
+      "status": "PASS",
+      "notes": "PersonalContextPanel loaded",
+      "screenshot": "post_07_personal_context.png"
+    },
+    {
+      "page": "Team (/team)",
+      "operation": "Load Team Page",
+      "api": "GET /api/v1/bots, GET /api/v1/groups",
+      "status": "PASS",
+      "notes": "Team page loads bots and groups",
+      "screenshot": "post_08_team_page.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Chat Tab & Evidence Report UI",
+      "api": "GET /api/v1/bots/chef/messages",
+      "status": "PASS",
+      "notes": "Chat transcript loaded, 3-tier evidence block rendered with colored badges",
+      "screenshot": "post_12_bot_chat_evidence.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Open Teach Skill Modal",
+      "api": "UI / Teach Draft",
+      "status": "PASS",
+      "notes": "Teach Once modal opened with skill name, desc and trajectory",
+      "screenshot": "post_13_teach_skill_modal.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Submit Teach Skill Draft",
+      "api": "POST /api/v1/skills/teach/draft",
+      "status": "PASS",
+      "notes": "Skill draft created, approval request generated, link to approvals displayed",
+      "screenshot": "post_14_teach_skill_submitted.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Routines Tab & Webhook UI",
+      "api": "GET /api/v1/bots/chef/routines",
+      "status": "PASS",
+      "notes": "Routines list loaded, Webhook Event Triggers card displayed with curl instructions",
+      "screenshot": "post_15_bot_routines_webhook.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Test Event Trigger Signal",
+      "api": "POST /api/v1/signals",
+      "status": "PASS",
+      "notes": "Event trigger signal sent and acknowledged by backend router",
+      "screenshot": "post_16_webhook_signal_tested.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Toggle Routine (PATCH)",
+      "api": "PATCH /api/v1/bots/chef/routines/{id}",
+      "status": "PASS",
+      "notes": "Routine enabled state updated via PATCH without 405 error",
+      "screenshot": "post_17_routine_toggle_ok.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Settings Tab & Role Skills Manager",
+      "api": "GET /api/v1/bots/chef, GET /api/v1/skills",
+      "status": "PASS",
+      "notes": "Role skills manager renders attached chips, preset picker and custom skill adder",
+      "screenshot": "post_18_bot_settings_skills.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Attach Custom Role Skill",
+      "api": "PATCH /api/v1/bots/chef",
+      "status": "PASS",
+      "notes": "New skill attached to available_skill_ids and persisted",
+      "screenshot": "post_19_skill_attached.png"
+    },
+    {
+      "page": "Bot (/team/bot/chef)",
+      "operation": "Save Bot Settings (PATCH)",
+      "api": "PATCH /api/v1/bots/chef",
+      "status": "PASS",
+      "notes": "Bot settings updated successfully via PATCH without 405 error",
+      "screenshot": "post_20_bot_settings_saved.png"
+    },
+    {
+      "page": "Approvals (/approvals)",
+      "operation": "Load Approvals with Teach Skill Draft",
+      "api": "GET /api/v1/approvals, GET /api/v1/skills/teach/drafts",
+      "status": "PASS",
+      "notes": "Approvals page renders dedicated teach_skill_draft badge and draft list",
+      "screenshot": "post_21_approvals_with_teach_skill.png"
+    },
+    {
+      "page": "Projects (/projects)",
+      "operation": "Load Projects Page",
+      "api": "GET /api/v1/projects",
+      "status": "PASS",
+      "notes": "Projects page loaded (auth managed by AUD1, reported honestly)",
+      "screenshot": "post_23_projects_page.png"
+    },
+    {
+      "page": "Missions (/missions)",
+      "operation": "Load Missions Page",
+      "api": "GET /api/v1/supervision/missions",
+      "status": "PASS",
+      "notes": "Missions supervision overview loaded",
+      "screenshot": "post_24_missions_page.png"
+    },
+    {
+      "page": "Remote (/remote)",
+      "operation": "Load Remote Control Page",
+      "api": "GET /api/v1/remote/hosts, GET /api/v1/remote/sessions",
+      "status": "PASS",
+      "notes": "Remote host management interface loaded",
+      "screenshot": "post_25_remote_page.png"
+    },
+    {
+      "page": "MAB (/mab)",
+      "operation": "Load MAB Page",
+      "api": "GET /api/v1/mab/profiles",
+      "status": "PASS",
+      "notes": "Multi-account browser console loaded",
+      "screenshot": "post_26_mab_page.png"
+    },
+    {
+      "page": "Settings Channels (/settings/channels)",
+      "operation": "Load Channels Page",
+      "api": "GET /api/v1/channels/status",
+      "status": "PASS",
+      "notes": "Channels status & bindings loaded",
+      "screenshot": "post_27_settings_channels.png"
+    },
+    {
+      "page": "Settings Perms (/settings/agent-publish-perms)",
+      "operation": "Load Agent Perms",
+      "api": "GET /api/v1/tdx/publish-perms",
+      "status": "PASS",
+      "notes": "Permissions page loaded with honest owner guard",
+      "screenshot": "post_28_settings_perms.png"
+    },
+    {
+      "page": "Mobile Root (390x844)",
+      "operation": "Viewport Layout Check",
+      "api": "GET /",
+      "status": "PASS",
+      "notes": "Mobile header, chat input, hamburger menu fit properly without overflow",
+      "screenshot": "post_29_mobile_root.png"
+    },
+    {
+      "page": "Mobile Sidebar (390x844)",
+      "operation": "Drawer Navigation",
+      "api": "UI Navigation",
+      "status": "PASS",
+      "notes": "Mobile drawer opens with links to Team, Remote, Projects",
+      "screenshot": "post_30_mobile_sidebar.png"
+    },
+    {
+      "page": "Mobile Bot (390x844)",
+      "operation": "Bot Tabs Navigation",
+      "api": "GET /api/v1/bots/chef",
+      "status": "PASS",
+      "notes": "Bottom navigation tabs fit iPhone viewport with safe-area padding",
+      "screenshot": "post_31_mobile_bot.png"
+    }
+  ]
+}

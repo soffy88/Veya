@@ -1,0 +1,38 @@
+AUD3 Playwright evidence — real Chromium, real backend, no mocks
+web=http://127.0.0.1:3109 backend=127.0.0.1:8799
+
+login: HTTP 200 user=aud3test
+token in localStorage: present
+team page: bots endpoint visible=true
+GET /api/v1/sessions/search -> 200
+POST /api/v1/sessions -> 200 sid=sess_01a147c3-7d89-74f1-83ef-6ce30f4acd08
+GET /api/v1/sessions/{sid}/handoff/preview -> 200
+PATCH /api/v1/bots/test-bot -> 200
+GET /api/v1/channels/status -> 200
+GET /api/v1/mcp-presets -> 200
+POST /api/v1/mcp-presets/markitdown/attach -> 503 (401 would be the old bug)
+POST /api/v1/bots/test-bot/presets/apply -> 422 (401 would be the old bug)
+
+Observed API traffic (method path -> status):
+GET /api/v1/bots -> 200
+GET /api/v1/bots/chef/messages -> 200
+GET /api/v1/bots/groups -> 200
+GET /api/v1/bots/proj-8146d237/messages -> 200
+GET /api/v1/bots/proj-a944912e/messages -> 200
+GET /api/v1/bots/proj-b943aa77/messages -> 200
+GET /api/v1/bots/proj-e16846e9/messages -> 200
+GET /api/v1/bots/test-bot/messages -> 200
+GET /api/v1/models -> 200
+GET /api/v1/permission/profile -> 200
+GET /api/v1/permission/profile -> 401
+GET /api/v1/permission/profiles -> 200
+GET /api/v1/permission/profiles -> 401
+GET /api/v1/sessions -> 200
+GET /api/v1/supervision/missions -> 200
+GET /api/v1/supervision/missions -> 401
+GET /api/v1/tasks -> 200
+GET /api/v1/tasks -> 401
+GET /api/v1/tdx/needs-you -> 200
+GET /api/v1/tdx/runs -> 200
+GET /legacy/notifications/stream -> 404
+POST /api/v1/projects -> 422
