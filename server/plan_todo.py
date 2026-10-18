@@ -23,7 +23,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from server.tool_registry import SideEffect
+# deferred SideEffect import
+SideEffect = None
 
 _PLANS_ROOT = Path.home() / ".veya" / "plans"
 
@@ -313,6 +314,7 @@ def wire_master_tools() -> int:
     for name, desc, params, _ph, limit in tools:
         if master_tools.has(name):
             continue
+        from server.tool_registry import SideEffect;
         side_effect = SideEffect.PURE_READ if name == "plan_status" else None
         master_tools.register(
             name, desc, params, funcs[name], max_result_chars=limit, side_effect=side_effect
