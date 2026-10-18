@@ -192,4 +192,32 @@ mypy server/coordinator_master.py server/tool_registry.py      # 与 main 基线
   对照复跑确认）。
 - `ruff check server/tool_registry.py` 的 `RUF059`/`RUF100` 在 `main` 上同样存在。
 
-DONE
+## 8. 默认开启（Default-On Transition）
+
+### 8.1 改动内容
+- **翻转默认行为**：`server/lazy_tools.py::enabled()` 现在默认返回 `True`。两段式按需加载（常驻核心工具 + `search_tools`）成为 MasterAgent 的默认行为。
+- **一键回退开关**：保留并明确 `VEYA_LAZY_TOOLS=0`（或 `false`, `off`, `no`）作为一键回退到完整工具面的杠杆。当设置 `=0` 时，系统自动回退至全量工具面与原始 prompt，字节级对齐冻结架构基线。
+- **常驻集补全**：在 `DEFAULT_RESIDENT_TOOLS` 中追加了计划三件套 `create_plan` / `plan_status` / `update_todo`，确保多步任务规划和进度管理在常驻面中直接可用，减少不必要的 discovery round-trip。
+
+### 8.2 测试结果
+- **单元与架构测试**：
+  - `.venv/bin/python -m pytest -q tests/test_lazy_tools.py tests/architecture/test_single_intelligence_authority.py`：24 passed。
+  - 核心契约、直接调用兜底、指标收集、回退校验全部通过。
+- **静态检查与格式化**：
+  - `ruff check server/lazy_tools.py server/coordinator_master.py tests/test_lazy_tools.py`：pass。
+  - `ruff format --check`：pass。
+
+### 8.3 回退方法
+如需在任意环境或单次运行中完全恢复旧版的全量工具面：
+```bash
+export VEYA_LAZY_TOOLS=0
+```
+或在调用前置于环境变量中。重启或重载后即恢复至改动前的 174/175 工具全量形态。
+
+### 8.4 合并到 main 前的检查清单
+1. 默认状态验证：未设 `VEYA_LAZY_TOOLS` 时 `lazy_tools.enabled()` 为 `True`。
+2. 回退状态验证：`VEYA_LAZY_TOOLS=0` 时 `get_all_tool_schemas()` 与原始全量面逐字节一致。
+3. 护栏与契约测试全绿（`tests/test_lazy_tools.py` + `tests/architecture/test_single_intelligence_authority.py`）。
+4. 确保未修改 `~/projects/veya` 主工作区，且本分支无任何 `git push`。
+
+DONE2

@@ -1,9 +1,9 @@
-"""Two-stage lazy tool loading — opt-in, session-scoped, default off.
+"""Two-stage lazy tool loading — session-scoped and enabled by default.
 
-Every test here exercises the ``VEYA_LAZY_TOOLS=1`` path against an injected
+Every test here exercises the default lazy path against an injected
 registry/surface and asserts the three invariants the design promises:
 
-1. disabled by default: the surface is byte-identical to the frozen full one;
+1. ``VEYA_LAZY_TOOLS=0`` restores the frozen full surface byte for byte;
 2. discovery is model-triggered (``search_tools``), never programmatic;
 3. growth is append-only, so an already-sent prefix never moves (prompt cache).
 """
@@ -22,7 +22,6 @@ from server.tool_registry import (
     SideEffect,
     _current_master_session,
     master_tools,
-    register_lazy_search_tool,
 )
 
 
@@ -92,24 +91,61 @@ def _make_coordinator(
 
 
 # ---------------------------------------------------------------------------
-# 1. Default off == frozen full surface
+# 1. Default-on contract and VEYA_LAZY_TOOLS=0 rollback
 # ---------------------------------------------------------------------------
 
 
+def test_lazy_loading_is_enabled_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("VEYA_LAZY_TOOLS", raising=False)
+    assert lazy_tools.enabled() is True
+
+
+def test_explicit_zero_disables_lazy_loading(monkeypatch) -> None:
+    monkeypatch.setenv("VEYA_LAZY_TOOLS", "0")
+    assert lazy_tools.enabled() is False
+
+
 @pytest.mark.asyncio
-async def test_disabled_surface_is_identical_to_frozen_full_surface() -> None:
-    coord = _make_coordinator(enabled=False, tools=[])
+async def test_default_surface_is_resident_plus_discovery(monkeypatch) -> None:
+    monkeypatch.delenv("VEYA_LAZY_TOOLS", raising=False)
+    monkeypatch.setenv("VEYA_LAZY_RESIDENT_TOOLS", "alpha")
+    registry = MasterToolRegistry()
+    registry.register("alpha", "alpha", {"type": "object", "properties": {}}, lambda: "ok")
+    registry.register("gamma", "gamma", {"type": "object", "properties": {}}, lambda: "ok")
+
+    coord = _coordinator(tools=registry, llm_fn=lambda *_a, **_k: None)
+
+    assert coord._lazy_tools_enabled is True
+    assert registry.has("search_tools")
+    names = _names(coord.get_all_tool_schemas())
+    assert names[: len(coord._system_tool_names)] == list(coord._system_tool_names)
+    assert names[len(coord._system_tool_names) :] == ["search_tools", "alpha"]
+    assert "gamma" not in names
+
+
+@pytest.mark.asyncio
+async def test_disabled_surface_is_identical_to_frozen_full_surface(monkeypatch) -> None:
+    monkeypatch.setenv("VEYA_LAZY_TOOLS", "0")
+    registry = MasterToolRegistry()
+    registry.register("alpha", "alpha", {"type": "object", "properties": {}}, lambda: "ok")
+    registry.register("gamma", "gamma", {"type": "object", "properties": {}}, lambda: "ok")
+
+    coord = _coordinator(tools=registry, llm_fn=lambda *_a, **_k: None)
     full = coord._raw_get_all_tool_schemas()
+
+    assert coord._lazy_tools_enabled is False
+    assert not registry.has("search_tools")
     assert coord.get_all_tool_schemas() == full
     assert "search_tools" not in _names(full)
+    assert {"alpha", "gamma"} <= set(_names(full))
     # The prompt path is untouched as well.
     assert coord.get_system_prompt() == coord._agent.get_system_prompt()
 
 
-def test_disabled_does_not_register_discovery_tool() -> None:
+def test_disabled_does_not_register_discovery_tool(monkeypatch) -> None:
+    monkeypatch.setenv("VEYA_LAZY_TOOLS", "0")
     registry = MasterToolRegistry()
-    registry.register("probe", "probe", {"type": "object", "properties": {}}, lambda: "ok")
-    register_lazy_search_tool(registry) if lazy_tools.enabled() else None
+    _coordinator(tools=registry, llm_fn=lambda *_a, **_k: None)
     assert not registry.has("search_tools")
 
 
@@ -360,7 +396,8 @@ async def test_metrics_compare_full_against_sent_surface(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_metrics_without_flag() -> None:
+async def test_no_metrics_without_flag(monkeypatch) -> None:
+    monkeypatch.setenv("VEYA_LAZY_TOOLS", "0")
     coord = _make_coordinator(enabled=False, tools=[])
     coord.get_all_tool_schemas()
     assert coord._lazy_schema_metrics == {}
@@ -383,7 +420,11 @@ def test_estimate_tokens_counts_cjk_aware() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_global_registry_unchanged_without_flag() -> None:
+def test_global_registry_unchanged_when_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("VEYA_LAZY_TOOLS", "0")
+    # If search_tools was registered by previous test, unregister for this check
+    if master_tools.has("search_tools"):
+        master_tools.unregister("search_tools")
     assert not master_tools.has("search_tools")
 
 

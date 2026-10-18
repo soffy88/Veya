@@ -1,10 +1,14 @@
-"""Opt-in, session-scoped lazy tool loading.
+"""Session-scoped lazy tool loading (default on).
 
-The default Veya path keeps the canonical full tool surface.  When
-``VEYA_LAZY_TOOLS=1`` is set, the MasterAgent receives a small resident set
-plus tools that the model explicitly discovered (or directly called) in the
-current session.  Discovery is always model-triggered; this module contains no
-semantic routing or task classification.
+The MasterAgent receives a small resident set plus tools that the model
+explicitly discovered (or directly called) in the current session.  Discovery
+is always model-triggered; this module contains no semantic routing or task
+classification.
+
+``VEYA_LAZY_TOOLS=0`` restores the canonical full tool surface byte for byte:
+the schema list, the system prompt inventory, the registry and the execution
+path are exactly what the frozen architecture documented before lazy loading
+existed.  The switch is the rollback lever, not a second behavior to maintain.
 """
 
 from __future__ import annotations
@@ -19,9 +23,11 @@ from typing import Any
 _ENABLED_ENV = "VEYA_LAZY_TOOLS"
 _RESIDENT_ENV = "VEYA_LAZY_RESIDENT_TOOLS"
 _METRICS_ENV = "VEYA_TOOL_SCHEMA_METRICS"
+_DISABLED_VALUES = frozenset({"0", "false", "off", "no"})
 
 # Initial resident set based on real tool-call frequency in local trajectories
-# plus the canonical coding/execution path.  Operators can override it with a
+# (~/.veya/trajectories, 3,216 files / 2,300 recorded tool calls) plus the
+# canonical coding/execution path.  Operators can override it with a
 # comma-separated VEYA_LAZY_RESIDENT_TOOLS value.
 # Ordered by observed tool-call frequency (~/.veya/trajectories) and by the
 # canonical coding path (docs/harness2-integration.md section 1.2).  The
@@ -46,6 +52,14 @@ DEFAULT_RESIDENT_TOOLS: tuple[str, ...] = (
     "run_skill",
     "memory_search",
     "skill_search",
+    # Multi-step work is a first-class master path (host SOP: create_plan ->
+    # execute -> update_todo with evidence) and plan_status is one of the most
+    # called read-only planning tools in the trajectories.  The trio costs
+    # ~1,344 schema chars (~515 estimated tokens) and keeps the plan ledger
+    # reachable without a discovery round trip.
+    "create_plan",
+    "plan_status",
+    "update_todo",
 )
 
 
@@ -68,7 +82,8 @@ def _truthy(value: str | None) -> bool:
 
 
 def enabled() -> bool:
-    return _truthy(os.environ.get(_ENABLED_ENV))
+    """Lazy loading is the default; only an explicit off value disables it."""
+    return str(os.environ.get(_ENABLED_ENV, "")).strip().lower() not in _DISABLED_VALUES
 
 
 def metrics_enabled() -> bool:
