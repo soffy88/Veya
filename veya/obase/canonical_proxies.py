@@ -350,7 +350,7 @@ def _free_pool_allowed_providers() -> frozenset[str]:
     """
     raw = os.environ.get("VEYA_FREE_POOL_PROVIDERS", "").strip()
     if not raw:
-        return frozenset({"opencode-go", "openrouter", "flatkey", "gmi", "bai"})
+        return frozenset({"opencode-go", "openrouter", "flatkey", "gmi", "bai", "nvidia-nim"})
     return frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
 
 

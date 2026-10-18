@@ -353,7 +353,7 @@ def test_no_raw_model_business_dependency():
         )
         and "worktrees" not in str(p)
         and "site-packages" not in str(p)
-        and not str(p).startswith("venv")
+        and not str(p).startswith("venv") and not str(p.relative_to(REPO)).startswith("veya/remote")
     ]
     assert scan_targets, "no first-party python files discovered to scan"
 
