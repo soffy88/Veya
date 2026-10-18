@@ -4171,18 +4171,32 @@ def _lazy_search_tools(query: str, top_k: int = 8) -> str:
         hits = scored[:top_k]
     names = [row[1] for row in hits]
     loaded = lazy_tools.load_tools(session_id, names)
-    return json.dumps(
-        {
-            "loaded": names,
-            "session_loaded_count": len(loaded),
-            "tools": [row[2] for row in hits],
-            "note": (
-                "These full schemas are now available on the next round and remain "
-                "loaded for this session."
-            ),
-        },
-        ensure_ascii=False,
-    )
+    payload: dict[str, Any] = {
+        "loaded": names,
+        "session_loaded_count": len(loaded),
+        "tools": [row[2] for row in hits],
+        "note": (
+            "These full schemas are now available on the next round and remain "
+            "loaded for this session."
+        ),
+    }
+
+    # ── Phase 0: read-only Claude-BugHunter security SKILL.md index ──────
+    # Opt-in (VEYA_BUGHUNTER_INDEX=1) and read-only: these knowledge files are
+    # NOT registered as tools and never enter the resident/lazy tool surface,
+    # so the master tool list is byte-identical when disabled. They are surfaced
+    # here only as reference matches the model can read on demand via the path.
+    from server import bughunter_index as _bughunter_index
+
+    if _bughunter_index.enabled():
+        skill_hits = _bughunter_index.search_bughunter_skills(q, top_k=top_k)
+        if skill_hits:
+            payload["security_skills"] = skill_hits
+            payload["note"] += (
+                " Read-only security SKILL.md matches (Claude-BugHunter) are listed "
+                "under 'security_skills' for on-demand reference; they are not callable tools."
+            )
+    return json.dumps(payload, ensure_ascii=False)
 
 
 # ── Personal Runtime Memory capabilities ───────────────────────────────
