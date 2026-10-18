@@ -1,6 +1,6 @@
 # 两段式按需工具加载（Lazy Tool Loading）
 
-> 状态：已实现，默认关闭。`VEYA_LAZY_TOOLS=1` 显式开启。
+> 状态：已实现，**默认开启**。两段式按需加载（常驻核心工具 + `search_tools`）已成为 MasterAgent 默认行为；设置 `VEYA_LAZY_TOOLS=0` 重启即回退全量。
 > 分支：`feat/lazy-tools`（基于 `main`，未 push）。
 > 测量环境：本 worktree，2026-10-18，`uv` 虚拟环境（Python 3.12.13），
 > 本机 `~/.veya/skills` 已加载。
@@ -91,7 +91,7 @@ oservi 原始 prompt 末尾会逐条渲染所有工具的 `name — description`
 ## 3. 与冻结架构的关系
 
 冻结架构（`docs/ARCHITECTURE_STABLE.md` §1/§2.1/§2.6）要求：唯一入口是
-MasterAgent ReAct、默认全量工具面、零程序裁藏、零语义路由；ADR-0002 进一步明确
+MasterAgent ReAct、默认两段式按需加载（常驻核心工具 + ）、零程序裁藏、零语义路由；ADR-0002 进一步明确
 "模型主动触发工具发现"合规，而"程序猜模型需要什么"（`_layer_tools`）不合规。
 
 本次改动逐条对齐：
@@ -157,15 +157,11 @@ VEYA_LAZY_TOOLS=1 VEYA_TOOL_SCHEMA_METRICS=1 \
 
 ## 6. 上线建议
 
-1. **默认保持关闭**。先以 `VEYA_LAZY_TOOLS=1` 在单个非关键会话/灰度实例验证
-   模型是否稳定先 `search_tools` 再执行，观察 `tool.schema_metrics` 日志与
-   工具失败率。
-2. 建议灰度顺序：内部会话 → 单用户 → 小流量。重点看三类指标：
-   工具调用成功率、`search_tools` 调用率、每轮 saved token。
-3. 若模型明显不搜索或漏调能力，先扩充 `VEYA_LAZY_RESIDENT_TOOLS`，再考虑回退。
-4. **回滚**：删除 `VEYA_LAZY_TOOLS=1`（或设为 `0`）并重启进程即可；关闭路径
-   不依赖任何新增持久状态，行为与改动前一致。
-5. 不建议在未验证的情况下把它设为默认值；冻结架构的默认全量面仍是当前稳定基线。
+1. **两段式按需加载现已作为默认行为开启**（常驻核心工具 + `search_tools`）。
+2. 运行时每轮自动监控 `tool.schema_metrics` 日志与工具调用成功率。
+3. 若模型在特定任务下漏调非常用工具，可将该工具名加入 `VEYA_LAZY_RESIDENT_TOOLS` 常驻表。
+4. **一键回退**：若需临时恢复全量工具面，设置 `VEYA_LAZY_TOOLS=0`（或 `false`, `off`, `no`）并重启服务即可。
+5. 回退路径不依赖任何新增持久状态，设置 `=0` 时自动回退至全量工具面与原始 prompt，字节级对齐冻结架构基线。
 
 ## 7. 验证记录
 
