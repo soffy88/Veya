@@ -20,7 +20,6 @@ from server.coordinator_master import MasterCoordinator
 from server.tool_registry import (
     MasterToolRegistry,
     SideEffect,
-    ToolExecutionError,
     _current_master_session,
     master_tools,
     register_lazy_search_tool,
@@ -154,9 +153,7 @@ async def test_search_tools_returns_full_schemas_and_loads_session(monkeypatch) 
     def _noop(*_a: Any, **_k: Any) -> str:
         return "ok"
 
-    registry.register(
-        "alpha", "alpha tool", {"type": "object", "properties": {}}, _noop
-    )
+    registry.register("alpha", "alpha tool", {"type": "object", "properties": {}}, _noop)
     registry.register(
         "crop_image",
         "Crop an image to the given pixel rectangle.",
@@ -209,12 +206,8 @@ async def test_loaded_tools_are_session_scoped(monkeypatch) -> None:
     monkeypatch.setenv("VEYA_LAZY_TOOLS", "1")
     monkeypatch.setenv("VEYA_LAZY_RESIDENT_TOOLS", "alpha")
     registry = MasterToolRegistry()
-    registry.register(
-        "alpha", "alpha", {"type": "object", "properties": {}}, lambda: "ok"
-    )
-    registry.register(
-        "gamma", "gamma", {"type": "object", "properties": {}}, lambda: "ok"
-    )
+    registry.register("alpha", "alpha", {"type": "object", "properties": {}}, lambda: "ok")
+    registry.register("gamma", "gamma", {"type": "object", "properties": {}}, lambda: "ok")
     coord = _coordinator(tools=registry, llm_fn=lambda *_a, **_k: None)
 
     lazy_tools.load_tools("session-a", ("gamma",))
@@ -267,9 +260,7 @@ async def test_direct_call_to_unloaded_tool_loads_and_executes(monkeypatch) -> N
     monkeypatch.setenv("VEYA_LAZY_RESIDENT_TOOLS", "alpha")
     registry = MasterToolRegistry()
     calls: list[str] = []
-    registry.register(
-        "alpha", "alpha", {"type": "object", "properties": {}}, lambda: "ok"
-    )
+    registry.register("alpha", "alpha", {"type": "object", "properties": {}}, lambda: "ok")
     registry.register(
         "write_note",
         "Write a note file.",
@@ -302,7 +293,7 @@ async def test_direct_call_to_unregistered_tool_still_errors(monkeypatch) -> Non
     coord = _make_coordinator(monkeypatch, tools=[])
     token = _current_master_session.set("s-hallucination")
     try:
-        with pytest.raises(Exception, match="not loaded|not a registered tool"):
+        with pytest.raises(Exception, match=r"not loaded|not a registered tool"):
             await coord.handle_tool_call("no_such_tool", {})
         # A hallucinated name never enters the session surface.
         assert "no_such_tool" not in _names(coord.get_all_tool_schemas())
