@@ -80,6 +80,12 @@ def manager(
     return BotManager(bot_registry, definition_store)
 
 
+from veya.remote.executor_adapters import register_default_adapters
+
+@pytest.fixture(autouse=True)
+def auto_register_adapters():
+    register_default_adapters()
+
 class TestBotRuntime:
     """L0-3: Independent Bot entry. L0-4: Tool execution."""
 

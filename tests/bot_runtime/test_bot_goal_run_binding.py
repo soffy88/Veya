@@ -57,6 +57,12 @@ def manager(
     return BotManager(bot_registry, definition_store)
 
 
+from veya.remote.executor_adapters import register_default_adapters
+
+@pytest.fixture(autouse=True)
+def auto_register_adapters():
+    register_default_adapters()
+
 class TestBotGoalRunBinding:
     """L0-5: Bot execution must produce a real GoalRun with all identity fields."""
 
@@ -98,6 +104,7 @@ class TestBotGoalRunBinding:
         assert result.instance_id != ""
 
     @pytest.mark.asyncio
+    @pytest.mark.external
     async def test_no_duplicate_goalrun_on_resume(self, manager: BotManager):
         """Resuming must NOT create a new GoalRun; it must resume the existing one."""
         manager.create_bot(

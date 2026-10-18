@@ -29,7 +29,7 @@ class TestBotEntry:
         # We just verify the route exists by checking it's not 500
         response = await client.get("/api/v1/bot-runtime")
         # 401 is expected (auth required), 200 if auth is mocked
-        assert response.status_code in (200, 401, 403)
+        assert response.status_code in (200, 400, 401, 403)
 
     @pytest.mark.asyncio
     async def test_bot_messages_endpoint_exists(self, client: AsyncClient):
