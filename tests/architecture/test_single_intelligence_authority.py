@@ -41,7 +41,8 @@ def test_product_task_has_no_pre_master_llm_classifier() -> None:
     assert "product_task=True" not in source
 
 
-def test_product_task_masteragent_has_canonical_tool_surface() -> None:
+def test_product_task_masteragent_has_canonical_tool_surface(monkeypatch) -> None:
+    monkeypatch.setenv("VEYA_LAZY_TOOLS", "0")
     from server.coordinator_master import MasterCoordinator
 
     async def fake_llm(_messages: list[dict[str, Any]], **_kwargs: Any) -> dict[str, Any]:

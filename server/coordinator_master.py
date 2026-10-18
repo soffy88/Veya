@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 from runtime.provider_reliability import ReliableProviderAdapter
 from server import graft_autocontext as _graft_autocontext
+from server import lazy_tools as _lazy_tools
 from server.events import (
     _on_step_ctx,
     _task_id_ctx,
@@ -46,7 +47,12 @@ from server.session_identity import new_session_id
 from server.skill_hub import VeyaSkillHub
 from server.skill_hub import skill_hub as _default_skill_hub
 from server.swarm_manager import SwarmOrchestrator
-from server.tool_registry import ToolExecutionError, master_tools, parse_optional_timeout
+from server.tool_registry import (
+    ToolExecutionError,
+    _current_master_session,
+    master_tools,
+    parse_optional_timeout,
+)
 from server.workspace_rag import get_rag_engine as _default_rag_factory
 from veya.history_store import default_history_store
 from veya.llm import get_provider_config, llm_call
@@ -514,6 +520,17 @@ class MasterCoordinator:
         self._tool_timeout_s = parse_optional_timeout(
             os.environ.get("VEYA_TOOL_TIMEOUT_S"), source="VEYA_TOOL_TIMEOUT_S"
         )
+        # Opt-in lazy tool surface. Off by default: every path below falls back
+        # to the canonical full-surface behavior (docs/ARCHITECTURE_STABLE.md).
+        self._lazy_tools_enabled = _lazy_tools.enabled()
+        self._lazy_metrics_enabled = _lazy_tools.metrics_enabled()
+        self._lazy_schema_metrics: dict[str, Any] = {}
+        if self._lazy_tools_enabled:
+            from server.tool_registry import register_lazy_search_tool
+
+            # Register into the same registry this agent already holds, so the
+            # model never sees a discovery tool that is not executable.
+            register_lazy_search_tool(self.tools)
 
         # 用户侧 Key 只注入本实例 config,不影响全局环境
         self._llm_config: dict[str, Any] = {}
@@ -546,8 +563,14 @@ class MasterCoordinator:
         # introduced; the raw methods remain the single source for schemas.
         self._raw_get_system_schemas = self._agent.get_system_schemas
         self._raw_get_all_tool_schemas = self._agent.get_all_tool_schemas
+        # Snapshot the engine's original prompt builder before any override.
+        # Lazy mode reuses this exact builder for the stable prompt prefix and
+        # swaps only the trailing tool-inventory block.
+        self._raw_get_system_prompt = self._agent.get_system_prompt
         self._agent.get_system_schemas = self.get_system_schemas
         self._agent.get_all_tool_schemas = self.get_all_tool_schemas
+        if self._lazy_tools_enabled:
+            self._agent.get_system_prompt = self.get_system_prompt
 
         # 零信任金库物理工具接线: 大模型只传 vault_id + 意图, 审批通过后
         # 真实密钥经 _injected_secret 隐式注入物理回调(feishu_webhook 等)。
@@ -601,6 +624,10 @@ class MasterCoordinator:
                 parameters = spec.get("parameters") or {}
             if name:
                 self._system_tool_parameters[str(name)] = parameters
+        # Names the engine marks non-unloadable (oservi get_system_schemas).
+        # They are part of the surface in every mode; lazy mode keeps them
+        # pinned instead of treating them as optional residents.
+        self._system_tool_names: tuple[str, ...] = tuple(self._system_tool_parameters)
         self._agent.handle_tool_call = self._guarded_handle_tool_call
 
     # ── 宿主注入 ─────────────────────────────────────────────────────
@@ -639,6 +666,12 @@ class MasterCoordinator:
 
     async def _guarded_handle_tool_call(self, tool_name: str, tool_args: dict) -> str:
         """补齐 MasterAgent system_* 直通分支的 schema 与 ToolGuard。"""
+        if self._lazy_tools_enabled and self.tools.has(tool_name):
+            # Direct-call fallback: the model invoked a registered tool that this
+            # session had not loaded yet.  Load it (so it stays visible) and let
+            # the normal execution path run.  No name that cannot execute is
+            # recorded, so a hallucinated tool never occupies the surface.
+            _lazy_tools.load_tools(_current_master_session.get(), (tool_name,))
         args = dict(tool_args or {})
         replan_state = _REPLAN_STATE_CTX.get()
 
@@ -887,6 +920,7 @@ class MasterCoordinator:
             histories = getattr(self._agent, "_histories", None)
             if histories is not None:
                 histories.pop(sid, None)
+            _lazy_tools.clear_session(sid)
         self._history_owners[sid] = owner
 
     def enqueue_steering_message(self, sid: str, text: str) -> bool:
@@ -915,6 +949,24 @@ class MasterCoordinator:
         req_provider = kwargs.pop("provider", None)
         req_endpoint = kwargs.pop("endpoint", None)
         tools = kwargs.pop("tools", None)
+        if self._lazy_metrics_enabled:
+            with contextlib.suppress(Exception):
+                from server import lazy_tools
+
+                full = lazy_tools.schema_metrics(self._raw_get_all_tool_schemas())
+                sent = lazy_tools.schema_metrics(tools)
+                metrics = {
+                    "enabled": self._lazy_tools_enabled,
+                    "session_id": _current_master_session.get(),
+                    "full": full.as_dict(),
+                    "sent": sent.as_dict(),
+                    "saved_chars": full.chars - sent.chars,
+                    "saved_estimated_tokens": full.estimated_tokens - sent.estimated_tokens,
+                }
+                self._lazy_schema_metrics = metrics
+                logger.info(
+                    "[lazy-tools] schema metrics %s", json.dumps(metrics, ensure_ascii=False)
+                )
         replan_state = _REPLAN_STATE_CTX.get()
         failure_evidence = (
             replan_state.get("failure_evidence", []) if isinstance(replan_state, dict) else []
@@ -1114,16 +1166,51 @@ class MasterCoordinator:
 
     # ── 主脑 API(委托主库引擎) ──────────────────────────────────────
     def get_system_prompt(self) -> str:
-        return str(self._agent.get_system_prompt())
+        raw = str(self._raw_get_system_prompt())
+        if not self._lazy_tools_enabled:
+            return raw
+        # The engine appends a per-tool description dump as the final block.
+        # Keep the stable SOP/subconscious prefix byte-identical and replace
+        # only that inventory with the compact name-only catalog.
+        marker = "# AVAILABLE TOOLS"
+        index = raw.rfind(marker)
+        prefix = raw[:index].rstrip() if index >= 0 else raw.rstrip()
+        return (
+            prefix
+            + "\n\n"
+            + _lazy_tools.compact_inventory(
+                self._raw_get_all_tool_schemas(),
+                resident_names=_lazy_tools.resident_tool_names(),
+                always_names=self._system_tool_names,
+            )
+        )
 
     def get_system_schemas(self) -> list[dict]:
         return cast(list[dict], self._raw_get_system_schemas())
 
     def get_all_tool_schemas(self) -> list[dict]:
-        # The canonical MasterAgent always receives the complete registered
-        # surface. Tool selection is its ReAct decision, never a host-side
-        # semantic capability projection.
-        return cast(list[dict], self._raw_get_all_tool_schemas())
+        all_schemas = cast(list[dict], self._raw_get_all_tool_schemas())
+        if not self._lazy_tools_enabled:
+            # Default behavior is the frozen canonical full surface.
+            return all_schemas
+        selected = _lazy_tools.select_schemas(
+            all_schemas,
+            session_id=_current_master_session.get(),
+            resident_names=_lazy_tools.resident_tool_names(),
+            always_names=self._system_tool_names,
+        )
+        if self._lazy_metrics_enabled:
+            full = _lazy_tools.schema_metrics(all_schemas)
+            sent = _lazy_tools.schema_metrics(selected)
+            self._lazy_schema_metrics = {
+                "enabled": True,
+                "session_id": _current_master_session.get(),
+                "full": full.as_dict(),
+                "sent": sent.as_dict(),
+                "saved_chars": full.chars - sent.chars,
+                "saved_estimated_tokens": full.estimated_tokens - sent.estimated_tokens,
+            }
+        return selected
 
     def register_secure_tool(self, tool_name: str, callback: Callable) -> None:
         self._agent.register_secure_tool(tool_name, callback)
@@ -1370,6 +1457,11 @@ class MasterCoordinator:
             write_root_token = _tr.bind_write_root(
                 getattr(task, "workspace_id", None) if task is not None else None
             )
+            catalog_token = (
+                _lazy_tools.bind_catalog(self._raw_get_all_tool_schemas())
+                if self._lazy_tools_enabled
+                else None
+            )
             if requested_task_id is not None:
                 governance_token = bind_task_governance(
                     task_id=str(requested_task_id),
@@ -1398,6 +1490,8 @@ class MasterCoordinator:
                 if governance_token is not None:
                     reset_task_governance(governance_token)
                 _tr.reset_write_root(write_root_token)
+                if catalog_token is not None:
+                    _lazy_tools.reset_catalog(catalog_token)
                 _tr._current_master_session.reset(_lite_token)
                 ckpt_task.cancel()
                 # CancelledError 是 BaseException, 不被 suppress(Exception) 捕获 → 显式列出
