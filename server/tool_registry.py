@@ -4134,6 +4134,57 @@ def _tool_search(query: str, top_k: int = 5) -> str:
     )
 
 
+# ============ search_tools: opt-in two-stage lazy loading ============
+def _lazy_search_tools(query: str, top_k: int = 8) -> str:
+    """Model-triggered discovery for VEYA_LAZY_TOOLS sessions.
+
+    Returns complete OpenAI tool schemas and records the hits in the current
+    session's stable loaded set.  The catalog is request-bound by the host so
+    this function never reads or mutates a second tool surface.
+    """
+    from server import lazy_tools
+
+    top_k = max(1, min(int(top_k or 8), 20))
+    q = (query or "").lower().strip()
+    q_tokens = _search_tokens(q)
+    catalog = lazy_tools.current_catalog() or list(master_tools._schemas)
+    session_id = _current_master_session.get()
+    already = set(lazy_tools.loaded_tools(session_id))
+    resident = set(lazy_tools.resident_tool_names())
+    scored: list[tuple[int, str, dict]] = []
+    for schema in catalog:
+        function = schema["function"]
+        name = function["name"]
+        if name == "search_tools":
+            continue
+        hay = f"{name} {function.get('description', '')}".lower()
+        score = 5 if q and q in hay else 0
+        score += len(q_tokens & _search_tokens(hay))
+        # Prefer tools that are not already visible without letting relevance
+        # disappear entirely.
+        if name in already or name in resident:
+            score = max(0, score - 1)
+        scored.append((score, name, function))
+    scored.sort(key=lambda row: (-row[0], row[1]))
+    hits = [row for row in scored if row[0] > 0][:top_k]
+    if not hits:
+        hits = scored[:top_k]
+    names = [row[1] for row in hits]
+    loaded = lazy_tools.load_tools(session_id, names)
+    return json.dumps(
+        {
+            "loaded": names,
+            "session_loaded_count": len(loaded),
+            "tools": [row[2] for row in hits],
+            "note": (
+                "These full schemas are now available on the next round and remain "
+                "loaded for this session."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
 # ── Personal Runtime Memory capabilities ───────────────────────────────
 # These callbacks remain model-invoked capabilities.  They do not pre-search
 # or inject memory into the MasterAgent context.
@@ -5059,6 +5110,56 @@ if not master_tools.has("tool_search"):
         func=_tool_search,
         max_result_chars=8000,
     )
+
+
+def _lazy_tools_enabled() -> bool:
+    """Read the lazy-tool switch without importing the module at import time."""
+    from server import lazy_tools
+
+    return lazy_tools.enabled()
+
+
+def register_lazy_search_tool(registry: MasterToolRegistry | None = None) -> None:
+    """Register the opt-in discovery tool once (no-op when already present).
+
+    ``registry`` is injectable so tests (and any host-bound coordinator) can
+    register into their own surface; production passes nothing and gets the
+    canonical global registry, which is the same single object the MasterAgent
+    already holds.
+    """
+    target = registry if registry is not None else master_tools
+    if target.has("search_tools"):
+        return
+    target.register(
+        name="search_tools",
+        description=(
+            "Find and load tools on demand. The default surface contains only a small "
+            "resident set; call this with a natural-language capability query to retrieve "
+            "complete schemas and make matching tools directly callable on the next round. "
+            "Loaded tools stay available for the rest of the session."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Capability or keyword query, e.g. 'image crop OCR' or '量化 回测'.",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Maximum tools to return and load (default 8, max 20).",
+                },
+            },
+            "required": ["query"],
+        },
+        func=_lazy_search_tools,
+        max_result_chars=16000,
+        side_effect=SideEffect.PURE_READ,
+    )
+
+
+if _lazy_tools_enabled():
+    register_lazy_search_tool()
 
 
 # PR-01..04 local coding product surface.  This is an additive capability
