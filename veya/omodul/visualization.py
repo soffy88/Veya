@@ -7,17 +7,23 @@ from __future__ import annotations
 
 import json
 
-import matplotlib
 import networkx as nx
+try:
+    import matplotlib
+    
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
 
-matplotlib.use("Agg")  # 不显示 GUI
+if HAS_MATPLOTLIB:
+    matplotlib.use("Agg")
 import base64
 import hashlib
 from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any
 
-import matplotlib.pyplot as plt
+
 
 
 @dataclass
