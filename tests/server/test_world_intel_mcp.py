@@ -222,3 +222,45 @@ async def test_startup_failure_degrades_and_closes_client(
     )
     assert not registry.has(world_intel_mcp.GATEWAY_NAME)
     assert client.closed is True
+
+
+def test_command_uses_module_entry_not_host_venv_script(tmp_path: Path) -> None:
+    """The host .venv script cannot run in the container; always use -m.
+
+    A checkout with an executable .venv/bin/world-intel-mcp must still launch
+    the module under the current interpreter (sys.executable), because the
+    script's shebang points at the host venv.
+    """
+    import sys
+
+    script = tmp_path / ".venv" / "bin" / "world-intel-mcp"
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/host/venv/bin/python\n")
+    script.chmod(0o755)
+
+    command = world_intel_mcp._command(tmp_path)
+    assert command == [sys.executable, "-m", "world_intel_mcp.server"]
+    assert str(script) not in command
+
+
+async def test_wire_failure_logs_exception_detail(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv(world_intel_mcp.FLAG_NAME, "1")
+    monkeypatch.setenv(world_intel_mcp.ROOT_ENV, str(tmp_path))
+    registry = MasterToolRegistry()
+
+    class _BrokenClient(_FakeClient):
+        async def start(self) -> None:
+            raise RuntimeError("upstream unavailable")
+
+    with caplog.at_level("WARNING", logger="veya.world_intel_mcp"):
+        assert (
+            await world_intel_mcp.wire_master_tools(
+                registry=registry, client_factory=lambda _root: _BrokenClient()
+            )
+            == 0
+        )
+    record = next(r for r in caplog.records if "not wired" in r.getMessage())
+    assert record.exc_info is not None
+    assert "upstream unavailable" in record.getMessage()

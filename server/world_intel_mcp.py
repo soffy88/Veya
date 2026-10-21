@@ -57,10 +57,14 @@ def root_path() -> Path:
 
 
 def _command(root: Path) -> list[str]:
-    """Launch the upstream console script, falling back to its module entry."""
-    script = root / ".venv" / "bin" / "world-intel-mcp"
-    if script.is_file():
-        return [str(script)]
+    """Launch the upstream server as a module under this interpreter.
+
+    The host checkout's ``.venv/bin/world-intel-mcp`` script hard-codes the
+    host interpreter path, so it cannot run inside the backend container.
+    ``python -m world_intel_mcp.server`` works in both places as long as the
+    checkout's ``src`` is on PYTHONPATH (see :func:`_child_env`).
+    """
+    del root  # kept for signature compatibility with the root-aware caller
     return [sys.executable, "-m", "world_intel_mcp.server"]
 
 
@@ -253,10 +257,13 @@ async def wire_master_tools(
         )
         return 0
     except Exception as exc:
+        # Full detail (traceback) for wire failures: a bare class name made
+        # container startup failures impossible to diagnose.
         logger.warning(
             "world-intel MCP not wired (%s: %s), degrading gracefully",
             type(exc).__name__,
             exc,
+            exc_info=True,
         )
         return 0
     finally:
