@@ -265,6 +265,11 @@ def main(argv: list[str] | None = None) -> int:
 
         return ops_main(argv[1:])
 
+    if argv and argv[0] == "auth":
+        from cli.auth_cli import run_auth_cli
+
+        return run_auth_cli(argv[1:])
+
     # 产品化子命令: veya init / start / doctor / upgrade / migrate / code
     if argv and argv[0] in _PRODUCT_COMMANDS:
         from cli import product
