@@ -5293,3 +5293,11 @@ if not master_tools.has("read_skill"):
 from server.project_brain.tools import register_tools as _register_project_brain_tools  # noqa: E402
 
 _register_project_brain_tools(master_tools)
+
+# Hark parity Phase 0: stateful browser session. Opt-in and lazy-only: with the
+# flag OFF nothing is registered, so the tool surface is byte-identical.
+from server.browser_session_tools import (  # noqa: E402
+    register_tools as _register_browser_session_tools,
+)
+
+_register_browser_session_tools(master_tools)
