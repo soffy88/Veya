@@ -341,3 +341,20 @@ def test_canonical_registry_has_no_browser_session_when_flag_off() -> None:
     assert not master_tools.has(bst.TOOL_NAME)
     names = [schema["function"]["name"] for schema in master_tools.get_all_schemas()]
     assert bst.TOOL_NAME not in names
+
+
+def test_browser_computer_adapter_constructs_without_optional_design_capture(
+    monkeypatch, tmp_path
+) -> None:
+    """Regression: binding a missing 3O op made every adapter construction fail.
+
+    ``oprim`` exposes no ``browser_design_capture``; Design Mode capture is
+    served by server/routes/design.py. The adapter must construct without it
+    and report the action as unknown rather than raising AttributeError.
+    """
+    from server.browser_computer_adapter import BrowserComputerAdapter
+
+    monkeypatch.setenv("VEYA_OUTPUT_DIR", str(tmp_path))
+    adapter = BrowserComputerAdapter(output_dir=tmp_path)
+    assert "design_capture" not in adapter._browser_actions
+    assert {"navigate", "snapshot", "click", "type", "screenshot"} <= set(adapter._browser_actions)
