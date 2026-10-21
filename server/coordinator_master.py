@@ -235,6 +235,41 @@ class _SteeringLongTaskDriver:
             await self._inner.post_round(outcome)
 
 
+class _RoundCompactionDriver:
+    """Wrap a long-task driver so every round can compact the transcript.
+
+    Opt-in through ``VEYA_ROUND_COMPACTION`` (default OFF).  ``pre_round`` is
+    the only hook the MasterAgent loop calls on every iteration, so a ReAct
+    run longer than ``VEYA_ROUND_COMPACTION_EVERY`` rounds folds the older
+    rounds into one summary message.  Summarisation is delegated to the
+    coordinator's existing compaction path; with the flag off this class is
+    never constructed.
+    """
+
+    def __init__(self, coordinator: Any, sid: str, inner: Any | None) -> None:
+        self._coordinator = coordinator
+        self._sid = sid
+        self._inner = inner
+        self.rounds = 0
+
+    async def pre_round(self) -> Any:
+        self.rounds += 1
+        every = self._coordinator._round_compaction_every
+        if every > 0 and self.rounds > every and (self.rounds - 1) % every == 0:
+            await self._coordinator._maybe_compact_rounds(self._sid, rounds=self.rounds)
+        if self._inner is not None:
+            return await self._inner.pre_round()
+        from oservi.long_task_driver import RoundContext
+
+        return RoundContext(
+            next_action=None, goal_summary="", quota_ok=True, remaining_usd=None, prompt_suffix=""
+        )
+
+    async def post_round(self, outcome: Any) -> None:
+        if self._inner is not None:
+            await self._inner.post_round(outcome)
+
+
 def _slim_master_prompt(text: str) -> str:
     """① 去自吹: 移除污染回答的身份夸耀 (模型会把「工业级系统/量化研究核心」
     夹进答复 = 用户不满的"回答夹带系统介绍")。只删纯自我标榜, 全部功能性指令保留。
@@ -520,6 +555,20 @@ class MasterCoordinator:
         self._tool_timeout_s = parse_optional_timeout(
             os.environ.get("VEYA_TOOL_TIMEOUT_S"), source="VEYA_TOOL_TIMEOUT_S"
         )
+        # Opt-in per-round compaction for long ReAct loops (default OFF).
+        # OFF keeps the canonical path: only the token-budget compaction runs.
+        try:
+            from server.feature_flags import enabled as _flag_enabled
+
+            self._round_compaction_enabled = _flag_enabled("VEYA_ROUND_COMPACTION")
+        except KeyError:
+            self._round_compaction_enabled = False
+        try:
+            self._round_compaction_every = max(
+                1, int(os.environ.get("VEYA_ROUND_COMPACTION_EVERY", "6"))
+            )
+        except ValueError:
+            self._round_compaction_every = 6
         # Opt-in lazy tool surface. Off by default: every path below falls back
         # to the canonical full-surface behavior (docs/ARCHITECTURE_STABLE.md).
         self._lazy_tools_enabled = _lazy_tools.enabled()
@@ -1433,6 +1482,8 @@ class MasterCoordinator:
                         topic="turn.started",
                     )
             lt = _SteeringLongTaskDriver(sid, self._agent, lt)  # 总是包一层, 接住运行中的 steering
+            if self._round_compaction_enabled:
+                lt = _RoundCompactionDriver(self, sid, lt)
             self._bind_history_owner(sid)
             await self._restore_history(sid)
             # P0: 结构化压缩 (token 预算超阈值 → 摘要+保留尾部, 替换硬截断丢弃)
@@ -1794,6 +1845,69 @@ class MasterCoordinator:
             tail=tail,
             after_msgs=msgs,
             reasoning=f"tokens~{before_tokens} >= {budget}*{ratio}",
+        )
+
+    async def _maybe_compact_rounds(self, sid: str, *, rounds: int) -> None:
+        """Fold earlier ReAct rounds into one summary (flag-gated).
+
+        Only runs when ``VEYA_ROUND_COMPACTION`` is on and the loop has passed
+        the configured round interval.  It reuses the token-budget compaction
+        primitives but triggers on round count rather than tokens, so a long
+        run with many small tool results still sheds its older middle.  Any
+        failure is silent: the live conversation must never be lost to a
+        housekeeping step.
+        """
+        if not self._round_compaction_enabled:
+            return
+        hist = getattr(self._agent, "_histories", None)
+        if hist is None:
+            return
+        msgs = hist.get(sid)
+        if not msgs or len(msgs) < 4:
+            return
+        try:
+            tail_n = max(2, int(os.environ.get("VEYA_ROUND_COMPACTION_TAIL_MSGS", "8")))
+        except ValueError:
+            tail_n = 8
+        try:
+            head, to_compact, tail = split_compaction_window(msgs, keep_tail_messages=tail_n)
+        except Exception:
+            logger.exception("[round-compact %s] window split failed, skip", sid)
+            return
+        if not to_compact:
+            return
+        try:
+            summary = await self._summarize_for_compaction(to_compact)
+        except Exception as exc:
+            logger.warning("[round-compact %s] summary failed: %s", sid, type(exc).__name__)
+            return
+        if not summary.strip():
+            return
+        new_msgs = build_compacted_messages(
+            head, summary, tail, summary_prefix="[ROUND SUMMARY — earlier rounds condensed]"
+        )
+        before_tokens = estimate_messages_tokens(msgs)
+        msgs[:] = new_msgs
+        self._record_compaction_decision(
+            sid,
+            outcome="round_compacted",
+            before_count=len(to_compact) + len(head) + len(tail),
+            before_tokens=before_tokens,
+            budget=0,
+            ratio=0.0,
+            tail_n=tail_n,
+            to_compact=to_compact,
+            tail=tail,
+            after_msgs=msgs,
+            reasoning=f"round interval {self._round_compaction_every} reached at round {rounds}",
+        )
+        fire_step(
+            {
+                "type": "round_compaction",
+                "session_id": sid,
+                "rounds": rounds,
+                "compacted_messages": len(to_compact),
+            }
         )
 
     async def _summarize_for_compaction(self, messages: list[dict[str, Any]]) -> str:
