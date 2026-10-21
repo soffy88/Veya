@@ -182,11 +182,19 @@ class PlaywrightBackend:
         return os.environ.get(CDP_ENV, "").strip()
 
     async def _ensure_browser(self) -> Any:
-        if self._browser is not None:
+        if self._browser is not None and self._browser.is_connected():
             return self._browser
+        if self._browser is not None:
+            # A CDP sidecar restarted under us: drop the dead handles and
+            # reconnect on the next session instead of failing forever.
+            logger.info("browser disconnected; reconnecting")
+            self._browser = None
+            self._contexts.clear()
+            self._pages.clear()
         from playwright.async_api import async_playwright
 
-        self._playwright = await async_playwright().start()
+        if self._playwright is None:
+            self._playwright = await async_playwright().start()
         cdp_url = self.cdp_url()
         if cdp_url:
             # The remote browser outlives this process; never close it.
@@ -209,13 +217,13 @@ class PlaywrightBackend:
 
     async def _page(self, key: str, *, create: bool = True) -> Any:
         page = self._pages.get(key)
-        if page is not None:
+        if page is not None and self._browser is not None and self._browser.is_connected():
             return page
         if not create:
             raise KeyError(f"browser session not open: {key}")
         async with self._lock:
             page = self._pages.get(key)
-            if page is not None:
+            if page is not None and self._browser is not None and self._browser.is_connected():
                 return page
             browser = await self._ensure_browser()
             state = self.state_path(key)

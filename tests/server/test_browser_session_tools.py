@@ -405,6 +405,10 @@ class _FakeBrowser:
     def __init__(self) -> None:
         self.contexts: list[_FakeContext] = []
         self.closed = False
+        self.connected = True
+
+    def is_connected(self) -> bool:
+        return self.connected
 
     async def new_context(self, **_kwargs: Any) -> _FakeContext:
         context = _FakeContext()
@@ -545,3 +549,25 @@ def test_cdp_url_defaults_empty(monkeypatch) -> None:
     assert bst.PlaywrightBackend.cdp_url() == ""
     monkeypatch.setenv(bst.CDP_ENV, "  http://veya-browser:9222  ")
     assert bst.PlaywrightBackend.cdp_url() == "http://veya-browser:9222"
+
+
+@pytest.mark.asyncio
+async def test_cdp_reconnects_after_sidecar_restart(monkeypatch, tmp_path) -> None:
+    """A restarted sidecar must not poison every later session."""
+    fake = _install_fake_playwright(monkeypatch)
+    monkeypatch.setenv(bst.CDP_ENV, "http://veya-browser:9222")
+    backend = bst.PlaywrightBackend(state_dir=tmp_path)
+    await backend.open(
+        "s::default", "https://example.com", storage_state_path=None, timeout_ms=1000
+    )
+
+    fake.instance.chromium.browser.connected = False
+
+    reopened = await backend.open(
+        "s::default", "https://example.com", storage_state_path=None, timeout_ms=1000
+    )
+    assert reopened["title"] == "Example Domain"
+    assert len(fake.instance.chromium.cdp_calls) == 2
+    # The dead context is dropped and replaced by a fresh one.
+    assert len(fake.instance.chromium.browser.contexts) == 2
+    assert len(backend._contexts) == 1
