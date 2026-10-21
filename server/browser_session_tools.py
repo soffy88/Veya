@@ -38,6 +38,11 @@ ROUND_ENV = "VEYA_BROWSER_SESSION_TIMEOUT_MS"
 DEFAULT_TIMEOUT_MS = 30_000
 MAX_TEXT_CHARS = 8_000
 
+#: Remote Chromium DevTools endpoint (e.g. ``http://veya-browser:9222``).
+#: When set the backend attaches to that browser; when unset it launches a
+#: local Chromium exactly as before.
+CDP_ENV = "VEYA_BROWSER_CDP_URL"
+
 #: Element text/type markers that make a click an irreversible commitment.
 SENSITIVE_CLICK_MARKERS = (
     "pay",
@@ -149,6 +154,10 @@ class PlaywrightBackend:
 
     Cookies/localStorage are written to ``storage_state_path`` when a session
     closes, so a later session with the same key resumes the login.
+
+    With ``VEYA_BROWSER_CDP_URL`` set the shared browser is a remote Chromium
+    reached over CDP (a sidecar container); otherwise a local Chromium is
+    launched.  Either way each session gets its own isolated context.
     """
 
     def __init__(self, *, state_dir: str | Path | None = None) -> None:
@@ -159,6 +168,7 @@ class PlaywrightBackend:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self._playwright: Any = None
         self._browser: Any = None
+        self._owns_browser = False
         self._contexts: dict[str, Any] = {}
         self._pages: dict[str, Any] = {}
         self._lock = asyncio.Lock()
@@ -167,12 +177,25 @@ class PlaywrightBackend:
         digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
         return str(self.state_dir / f"{digest}.json")
 
+    @staticmethod
+    def cdp_url() -> str:
+        return os.environ.get(CDP_ENV, "").strip()
+
     async def _ensure_browser(self) -> Any:
         if self._browser is not None:
             return self._browser
         from playwright.async_api import async_playwright
 
         self._playwright = await async_playwright().start()
+        cdp_url = self.cdp_url()
+        if cdp_url:
+            # The remote browser outlives this process; never close it.
+            self._browser = await self._playwright.chromium.connect_over_cdp(
+                cdp_url,
+                timeout=float(os.environ.get("VEYA_BROWSER_CDP_TIMEOUT_MS", "30000") or 30000),
+            )
+            self._owns_browser = False
+            return self._browser
         launch: dict[str, Any] = {"headless": True}
         executable = os.environ.get("VEYA_BROWSER_EXECUTABLE", "").strip()
         if executable:
@@ -181,6 +204,7 @@ class PlaywrightBackend:
             launch["chromium_sandbox"] = False
             launch["args"] = ["--no-sandbox", "--disable-dev-shm-usage"]
         self._browser = await self._playwright.chromium.launch(**launch)
+        self._owns_browser = True
         return self._browser
 
     async def _page(self, key: str, *, create: bool = True) -> Any:
@@ -311,9 +335,10 @@ class PlaywrightBackend:
                 await self.close(key)
             except Exception:
                 logger.debug("browser session close failed during shutdown", exc_info=True)
-        if self._browser is not None:
+        if self._browser is not None and self._owns_browser:
             await self._browser.close()
-            self._browser = None
+        self._browser = None
+        self._owns_browser = False
         if self._playwright is not None:
             await self._playwright.stop()
             self._playwright = None

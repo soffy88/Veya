@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -358,3 +359,189 @@ def test_browser_computer_adapter_constructs_without_optional_design_capture(
     adapter = BrowserComputerAdapter(output_dir=tmp_path)
     assert "design_capture" not in adapter._browser_actions
     assert {"navigate", "snapshot", "click", "type", "screenshot"} <= set(adapter._browser_actions)
+
+
+# ── CDP sidecar: attach when configured, launch locally otherwise ─────────
+
+
+class _FakeContext:
+    def __init__(self) -> None:
+        self.pages: list[Any] = []
+        self.closed = False
+        self.storage_state_writes: list[str] = []
+
+    async def new_page(self) -> Any:
+        page = _FakePage()
+        self.pages.append(page)
+        return page
+
+    async def storage_state(self, *, path: str) -> None:
+        self.storage_state_writes.append(path)
+        Path(path).write_text("{}")
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _FakePage:
+    def __init__(self) -> None:
+        self.url = "about:blank"
+
+    async def goto(self, url: str, **_kwargs: Any) -> Any:
+        self.url = url
+        return type("Response", (), {"status": 200})()
+
+    async def title(self) -> str:
+        return "Example Domain"
+
+    async def evaluate(self, _script: str) -> list[dict[str, Any]]:
+        return [{"ref": "e1", "tag": "a", "text": "More information"}]
+
+    async def inner_text(self, _selector: str) -> str:
+        return "Example Domain"
+
+
+class _FakeBrowser:
+    def __init__(self) -> None:
+        self.contexts: list[_FakeContext] = []
+        self.closed = False
+
+    async def new_context(self, **_kwargs: Any) -> _FakeContext:
+        context = _FakeContext()
+        self.contexts.append(context)
+        return context
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _FakeChromium:
+    def __init__(self) -> None:
+        self.launch_calls: list[dict[str, Any]] = []
+        self.cdp_calls: list[tuple[str, dict[str, Any]]] = []
+        self.browser = _FakeBrowser()
+
+    async def launch(self, **kwargs: Any) -> _FakeBrowser:
+        self.launch_calls.append(kwargs)
+        return self.browser
+
+    async def connect_over_cdp(self, url: str, **kwargs: Any) -> _FakeBrowser:
+        self.cdp_calls.append((url, kwargs))
+        return self.browser
+
+
+class _FakePlaywright:
+    def __init__(self) -> None:
+        self.chromium = _FakeChromium()
+        self.stopped = False
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+
+class _FakePlaywrightManager:
+    def __init__(self) -> None:
+        self.instance = _FakePlaywright()
+
+    async def start(self) -> _FakePlaywright:
+        return self.instance
+
+
+def _install_fake_playwright(monkeypatch) -> _FakePlaywrightManager:
+    """Install a stub ``playwright.async_api``; the package is optional locally."""
+    import sys
+    import types
+
+    manager = _FakePlaywrightManager()
+    package = types.ModuleType("playwright")
+    async_api = types.ModuleType("playwright.async_api")
+    async_api.async_playwright = lambda: manager  # type: ignore[attr-defined]
+    package.async_api = async_api  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "playwright", package)
+    monkeypatch.setitem(sys.modules, "playwright.async_api", async_api)
+    return manager
+
+
+@pytest.mark.asyncio
+async def test_cdp_env_attaches_instead_of_launching(monkeypatch, tmp_path) -> None:
+    fake = _install_fake_playwright(monkeypatch)
+    monkeypatch.setenv(bst.CDP_ENV, "http://veya-browser:9222")
+    backend = bst.PlaywrightBackend(state_dir=tmp_path)
+
+    opened = await backend.open(
+        "s::default", "https://example.com", storage_state_path=None, timeout_ms=1000
+    )
+
+    assert opened["title"] == "Example Domain"
+    assert fake.instance.chromium.cdp_calls == [("http://veya-browser:9222", {"timeout": 30000.0})]
+    assert fake.instance.chromium.launch_calls == []
+    # Each session still gets its own isolated context inside the remote browser.
+    assert len(fake.instance.chromium.browser.contexts) == 1
+    await backend.open("s::other", "https://example.com", storage_state_path=None, timeout_ms=1000)
+    assert len(fake.instance.chromium.browser.contexts) == 2
+
+
+@pytest.mark.asyncio
+async def test_unset_cdp_env_launches_local_chromium(monkeypatch, tmp_path) -> None:
+    fake = _install_fake_playwright(monkeypatch)
+    monkeypatch.delenv(bst.CDP_ENV, raising=False)
+    backend = bst.PlaywrightBackend(state_dir=tmp_path)
+
+    await backend.open(
+        "s::default", "https://example.com", storage_state_path=None, timeout_ms=1000
+    )
+
+    assert fake.instance.chromium.cdp_calls == []
+    assert fake.instance.chromium.launch_calls == [{"headless": True}]
+
+
+@pytest.mark.asyncio
+async def test_cdp_browser_is_not_closed_on_shutdown(monkeypatch, tmp_path) -> None:
+    """The sidecar owns its browser process; the backend only detaches."""
+    fake = _install_fake_playwright(monkeypatch)
+    monkeypatch.setenv(bst.CDP_ENV, "http://veya-browser:9222")
+    backend = bst.PlaywrightBackend(state_dir=tmp_path)
+    await backend.open(
+        "s::default", "https://example.com", storage_state_path=None, timeout_ms=1000
+    )
+
+    await backend.shutdown()
+
+    assert fake.instance.chromium.browser.closed is False
+    assert fake.instance.chromium.browser.contexts[0].closed is True
+    assert fake.instance.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_local_browser_is_closed_on_shutdown(monkeypatch, tmp_path) -> None:
+    fake = _install_fake_playwright(monkeypatch)
+    monkeypatch.delenv(bst.CDP_ENV, raising=False)
+    backend = bst.PlaywrightBackend(state_dir=tmp_path)
+    await backend.open(
+        "s::default", "https://example.com", storage_state_path=None, timeout_ms=1000
+    )
+
+    await backend.shutdown()
+
+    assert fake.instance.chromium.browser.closed is True
+
+
+@pytest.mark.asyncio
+async def test_cdp_timeout_is_configurable(monkeypatch, tmp_path) -> None:
+    fake = _install_fake_playwright(monkeypatch)
+    monkeypatch.setenv(bst.CDP_ENV, "http://veya-browser:9222")
+    monkeypatch.setenv("VEYA_BROWSER_CDP_TIMEOUT_MS", "5000")
+    backend = bst.PlaywrightBackend(state_dir=tmp_path)
+
+    await backend.open(
+        "s::default", "https://example.com", storage_state_path=None, timeout_ms=1000
+    )
+
+    assert fake.instance.chromium.cdp_calls == [("http://veya-browser:9222", {"timeout": 5000.0})]
+
+
+def test_cdp_url_defaults_empty(monkeypatch) -> None:
+    monkeypatch.delenv(bst.CDP_ENV, raising=False)
+    assert bst.PlaywrightBackend.cdp_url() == ""
+    monkeypatch.setenv(bst.CDP_ENV, "  http://veya-browser:9222  ")
+    assert bst.PlaywrightBackend.cdp_url() == "http://veya-browser:9222"
