@@ -304,6 +304,19 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _lg.warning("mcp-presets wire skipped (%s: %s), degrading gracefully", type(exc).__name__, exc)
 
+    # world-intel-mcp Phase 0: opt-in, lazy discovery only.  The gateway is
+    # registered but never added to the resident tool surface.
+    try:
+        from server.world_intel_mcp import wire_master_tools as wire_world_intel
+
+        await wire_world_intel()
+    except Exception as exc:
+        _lg.warning(
+            "world-intel MCP wire skipped (%s: %s), degrading gracefully",
+            type(exc).__name__,
+            exc,
+        )
+
     # GBP6: EvoOntology MCP preset & semantic tools
     try:
         from server.evo_ontology import is_evo_ontology_enabled, wire_evo_ontology_tools
@@ -486,6 +499,12 @@ async def lifespan(app: FastAPI):
         await get_connector().close()
     except Exception:
         pass
+    try:
+        from server.world_intel_mcp import close_world_intel
+
+        await close_world_intel()
+    except Exception:
+        _lg.exception("world-intel MCP shutdown failed")
     try:
         from server.acp_mcp_delivery import get_acp_mcp_delivery
 
