@@ -4829,7 +4829,7 @@ async def _tool_skill_teach(
 
     if not flag_enabled("VEYA_TEACH_SKILL"):
         return {"status": "error", "error": "VEYA_TEACH_SKILL feature flag is disabled"}
-    user_id, session_id, task_id, trace_id = _personal_request_ids()
+    user_id, _, _, _ = _personal_request_ids()
     judgment_suffix = "\n\n[需要你补的判断规则]\n请补充触发该技能的条件、边界与预期校验规则。"
     full_description = description.strip() + judgment_suffix
     runtime = get_personal_runtime()
@@ -5352,7 +5352,7 @@ _register_github_pr_tools(master_tools)
 
 # MAB is opt-in and additive; preserve the canonical GitHub PR registration above.
 if os.environ.get("VEYA_MAB_BROWSER", "OFF").strip().upper() in {"1", "TRUE", "ON", "YES"}:
-    from server.mab_router import register_mab_tools as _register_mab_tools  # noqa: E402
+    from server.mab_router import register_mab_tools as _register_mab_tools
 
     for _mab_tool in _register_mab_tools():
         master_tools.register(

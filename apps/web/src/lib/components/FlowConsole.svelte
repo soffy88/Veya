@@ -18,14 +18,20 @@
 	 *          (POST /api/v1/flow/phase3 kicks off a background task; progress streams
 	 *          over the SAME /api/v1/stream/{sid} connection as phase 1).
 	 *
-		es = new EventSource();
+	 * One stream per turn, carrying two different event shapes on the same session_id:
 	 * coordinator events keyed by "type" (cognitive_round / requirement_doc / …, see
-	 * server/coordinator.py fire_step) and flow_engine events keyed by "event" (manifest /
-	 * genesis_element_start / genesis_element_done / assembly_done / flow_error, see
-	 * server/sse.py emit()).
+	 * server/coordinator.py fire_step) and flow_engine events keyed by "event"
+	 * (manifest / genesis_element_start / genesis_element_done / assembly_done /
+	 * flow_error, see server/sse.py emit()).
+	 *
+	 * The stream is read with ``fetch`` rather than ``EventSource`` because
+	 * /api/v1/stream/{sid} is an authenticated endpoint and EventSource cannot send
+	 * an Authorization header — the same reason $lib/supervision/events.ts and
+	 * $lib/notifications.svelte.ts use a reader. Frames are split on the SSE
+	 * blank-line separator, and a "[DONE]" data line ends the connection.
 	 */
 	import { Bot, Code2, Loader2, Search, Sparkles } from "lucide-svelte";
-	import { api } from "$lib/api";
+	import { api, API_BASE } from "$lib/api";
 	import { artifactStore } from "$lib/artifacts.svelte";
 	import { apiKeyStore } from "$lib/settings.svelte";
 	import RequirementCard from "./RequirementCard.svelte";
@@ -71,38 +77,104 @@
 	let input = $state("");
 	let turns = $state<Turn[]>([]);
 	let activeTurnId = $state("");
+	/** Abort handle for the turn's stream reader; one per open turn. */
+	let streamAbort: AbortController | undefined;
 
 	const activeTurn = $derived(turns.find((t) => t.id === activeTurnId));
 	const busy = $derived(!!activeTurn && activeTurn.phase !== "done" && activeTurn.phase !== "error");
-
-		es = new EventSource();
 
 	function findTurn(id: string): Turn | undefined {
 		return turns.find((t) => t.id === id);
 	}
 
+	/** Same credential resolution as $lib/api: localStorage first, then cookie. */
+	function authToken(): string | null {
+		if (typeof localStorage !== "undefined") {
+			const saved = localStorage.getItem("veya.auth.token");
+			if (saved) return saved;
+		}
+		if (typeof document !== "undefined") {
+			for (const part of document.cookie.split(";")) {
+				const [k, v] = part.trim().split("=");
+				if ((k === "veya_token" || k === "veya.auth.token") && v) return decodeURIComponent(v);
+			}
+		}
+		return null;
+	}
+
 	function ensureStream(sessionId: string, turnId: string) {
-		es?.close();
-		es = new EventSource();
-		es.onmessage = (ev) => {
-			if (ev.data === "[DONE]") return;
-			let payload: Record<string, unknown>;
-			try {
-				payload = JSON.parse(ev.data);
-			} catch {
+		// One reader per turn: closing the previous one first keeps a re-submitted
+		// turn from leaking its connection.
+		streamAbort?.abort();
+		streamAbort = new AbortController();
+		void readTurnStream(sessionId, turnId, streamAbort.signal);
+	}
+
+	async function readTurnStream(sessionId: string, turnId: string, signal: AbortSignal) {
+		// Same credential resolution api() uses (localStorage, then the cookie),
+		// because EventSource cannot send an Authorization header.
+		const headers: Record<string, string> = { accept: "text/event-stream" };
+		const token = authToken();
+		if (token) headers.authorization = `Bearer ${token}`;
+		try {
+			const res = await fetch(`${API_BASE}/api/v1/stream/${sessionId}`, {
+				headers,
+				signal,
+			});
+			if (!res.ok || !res.body) {
+				const turn = findTurn(turnId);
+				if (turn) {
+					turn.errorMessage = `stream ${res.status}`;
+					turn.phase = "error";
+				}
 				return;
 			}
-			const kind = (payload.type ?? payload.event) as string | undefined;
-			if (!kind) return;
-			const turn = findTurn(turnId);
-			if (!turn) return;
-
-			if (kind === "manifest" || kind === "genesis_element_start" || kind === "genesis_element_done" || kind === "assembly_done" || kind === "flow_error") {
-				handleFlowEvent(turn, kind, payload);
-			} else {
-				turn.researchTrail = [...turn.researchTrail, { type: kind, ...payload }];
+			const reader = res.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			for (;;) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				let sep = buffer.indexOf("\n\n");
+				while (sep >= 0) {
+					const frame = buffer.slice(0, sep);
+					buffer = buffer.slice(sep + 2);
+					handleStreamFrame(frame, turnId);
+					sep = buffer.indexOf("\n\n");
+				}
 			}
-		};
+		} catch (e) {
+			// Aborting is a deliberate close (newFlow / a newer turn), not a failure.
+			if (signal.aborted) return;
+			console.error("[Veya] flow stream lost", e);
+		}
+	}
+
+	function handleStreamFrame(frame: string, turnId: string) {
+		const dataLines: string[] = [];
+		for (const line of frame.split("\n")) {
+			if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+		}
+		if (!dataLines.length) return;
+		const data = dataLines.join("\n");
+		if (data === "[DONE]") return;
+		let payload: Record<string, unknown>;
+		try {
+			payload = JSON.parse(data);
+		} catch {
+			return;
+		}
+		const kind = (payload.type ?? payload.event) as string | undefined;
+		if (!kind) return;
+		const turn = findTurn(turnId);
+		if (!turn) return;
+
+		if (kind === "manifest" || kind === "genesis_element_start" || kind === "genesis_element_done" || kind === "assembly_done" || kind === "flow_error") {
+			handleFlowEvent(turn, kind, payload);
+		} else {
+			turn.researchTrail = [...turn.researchTrail, { type: kind, ...payload }];
+		}
 	}
 
 	function handleFlowEvent(turn: Turn, kind: string, payload: Record<string, unknown>) {
@@ -128,8 +200,8 @@
 
 	/** Sidebar "新对话" — clears the whole visible history. Not called between turns. */
 	export function newFlow() {
-		es?.close();
-		es = undefined;
+		streamAbort?.abort();
+		streamAbort = undefined;
 		turns = [];
 		activeTurnId = "";
 		input = "";
@@ -215,7 +287,7 @@
 		await api("gateway", "api/v1/flow/phase3", {
 			body: { manifest: turn.manifest, session_id: turn.sessionId, config: apiKeyStore.asConfig() },
 		});
-		es = new EventSource();
+		// progress streams in over the turn's open reader (genesis_element_start/done, assembly_done)
 	}
 
 	function rejectRequirement(turn: Turn) {
