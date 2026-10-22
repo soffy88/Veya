@@ -920,6 +920,12 @@ async def _veya12_rr_call(
                 or resp.get("error") is True
             ):
                 last_err = f"{cand_provider}/{cand_model} 返回无效/错误内容: {content!r}"
+                if resp.get("error") is True:
+                    # A nested proxy that walked all its upstream models and
+                    # still has nothing is dead for this turn; re-probing it in
+                    # the next retry round costs another full tier timeout. An
+                    # empty reply stays retryable: it is often transient.
+                    failed_this_turn.add(cand_provider)
                 continue
             resp.setdefault("usage", {})
             resp["router"] = {

@@ -139,6 +139,35 @@ def test_timed_out_tier_is_not_retried_in_the_same_turn(pool_env, monkeypatch):
     assert result["router"]["provider"] == "openrouter"
 
 
+def test_dead_nested_proxy_tier_is_not_reprobed_in_the_same_turn(pool_env, monkeypatch):
+    """veya-nim swallows its own upstream failures and answers error=True.
+
+    Re-probing it in the next retry round paid another full tier timeout on
+    every round of a multi-round turn.
+    """
+    monkeypatch.setattr(hllm, "_workbuddy_candidates", lambda: [])
+    monkeypatch.setattr(hllm, "_veya_gateway_candidates", lambda: [])
+    monkeypatch.setattr(hllm, "_frognano_candidate", lambda: None)
+    original = hllm.llm_call
+    nim_calls: list[int] = []
+
+    async def fake(messages, **kwargs):
+        provider = kwargs.get("provider", "")
+        if provider == "opencode-go":
+            raise _http_error(401)
+        if provider == "veya-nim":
+            nim_calls.append(1)
+            return {"choices": [{"message": {"content": "nested proxy failed"}}], "error": True}
+        return _ok("live")
+
+    monkeypatch.setattr(hllm, "llm_call", fake)
+    result = asyncio.run(
+        original([{"role": "user", "content": "hi"}], provider="veya1.2", model="veya1.2")
+    )
+    assert len(nim_calls) == 1, "the dead nested tier was re-probed in this turn"
+    assert result["router"]["provider"] == "openrouter"
+
+
 def test_turn_budget_stops_retry_rounds(pool_env, monkeypatch):
     monkeypatch.setattr(hllm, "_workbuddy_candidates", lambda: [])
     monkeypatch.setattr(hllm, "_veya_gateway_candidates", lambda: [])
