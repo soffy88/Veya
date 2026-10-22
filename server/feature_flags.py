@@ -113,6 +113,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     # a read-only status module and an optional status route; no tool surface,
     # no process spawn, no OLV dependency (docs/open-llm-vtuber-integration.md).
     FeatureFlag("VEYA_OLV", False, "runtime", "2027-01-01"),
+    # dsh-decision-review Phase 0 (default OFF; lazy tool slot only)
+    FeatureFlag("VEYA_DSH_DECISION_REVIEW", False, "safety", "2027-06-01"),
 )
 
 
