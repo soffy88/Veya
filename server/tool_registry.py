@@ -1275,7 +1275,16 @@ async def _tool_browser_run(
     gateway = ActionGatewayAdapter()
     session = BrowserSession(headless=True)
     try:
-        await session.start()
+        try:
+            await session.start()
+        except RuntimeError as exc:
+            # No usable browser backend: tell the model which tool to use
+            # instead so it does not spend a round on a guaranteed failure.
+            raise ToolExecutionError(
+                f"browser_run unavailable: {exc}. "
+                "Use browser_session (open → snapshot) when VEYA_BROWSER_CDP_URL is set, "
+                "or fetch_url for plain page text."
+            ) from exc
 
         async def governed(
             name: str,

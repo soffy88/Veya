@@ -101,16 +101,27 @@ def _gateway_description(adapters: list[dict[str, Any]]) -> str:
 
 
 def _gateway(adapters: list[dict[str, Any]]) -> Any:
-    action_map = {adapter["name"]: adapter["func"] for adapter in adapters}
+    action_map: dict[str, Any] = {}
+    for adapter in adapters:
+        action_map[adapter["name"]] = adapter["func"]
+        legacy = adapter.get("legacy_name")
+        if legacy:
+            action_map[legacy] = adapter["func"]
 
     async def call(action: str, args: dict[str, Any] | None = None) -> Any:
-        fn = action_map.get(action)
+        # Accept the canonical short action and the historical double-prefixed
+        # one (P3-1), so prompts written against either keep working.
+        key = str(action or "").strip()
+        fn = action_map.get(key)
+        if fn is None and key.startswith(f"{GATEWAY_NAME}_"):
+            fn = action_map.get(key[len(GATEWAY_NAME) + 1 :])
         if fn is None:
             from server.tool_registry import ToolExecutionError
 
+            canonical = sorted(a["name"] for a in adapters)
             raise ToolExecutionError(
                 f"{GATEWAY_NAME}: unknown action '{action}'. "
-                f"Available: {', '.join(sorted(action_map))}"
+                f"Use a short action name from the catalog. Available: {', '.join(canonical)}"
             )
         result = fn(**(args or {}))
         return await result if hasattr(result, "__await__") else result
@@ -153,6 +164,22 @@ def status() -> dict[str, Any]:
     return {"name": SERVER_NAME, "available": True, "reason": "ready", "root": str(root)}
 
 
+def _action_names(upstream_name: str) -> tuple[str, str]:
+    """Canonical gateway action plus the legacy double-prefixed name.
+
+    The gateway tool is already named ``mcp_world_intel``, so its ``action``
+    values must not repeat the server prefix: upstream ``intel_earthquakes``
+    becomes ``earthquakes`` (one prefix in total, ``mcp_world_intel``).  The
+    earlier build produced ``mcp_world_intel_earthquakes`` as the action, which
+    every caller that read the catalog or the docs got wrong once; that string
+    is kept as a legacy alias so existing prompts and scripts keep working.
+    """
+    short_name = upstream_name.removeprefix("intel_").replace(".", "_")
+    canonical = short_name
+    legacy = f"{GATEWAY_NAME}_{short_name}"
+    return canonical, legacy
+
+
 async def _collect_adapters(client: Any) -> list[dict[str, Any]]:
     from tools import make_mcp_tool_adapter
 
@@ -165,8 +192,8 @@ async def _collect_adapters(client: Any) -> list[dict[str, Any]]:
         upstream_name = str(spec.get("name") or "")
         if not upstream_name:
             continue
-        short_name = upstream_name.removeprefix("intel_").replace(".", "_")
-        name = f"{GATEWAY_NAME}_{short_name}"
+        canonical, legacy = _action_names(upstream_name)
+        name = canonical
         if name in seen:
             continue
         seen.add(name)
@@ -175,6 +202,7 @@ async def _collect_adapters(client: Any) -> list[dict[str, Any]]:
         adapters.append(
             {
                 "name": name,
+                "legacy_name": legacy if legacy != name else None,
                 "description": (
                     f"{adapter.description} Upstream tool: {upstream_name}. {UNTRUSTED_NOTE}"
                 ),
@@ -231,7 +259,11 @@ async def wire_master_tools(
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": f"Which {SERVER_NAME} action (from catalog).",
+                        "description": (
+                            f"Which {SERVER_NAME} action (short name from the catalog, "
+                            f"e.g. 'earthquakes'). The legacy '{GATEWAY_NAME}_' prefix "
+                            "is also accepted."
+                        ),
                     },
                     "args": {"type": "object", "description": "Arguments for the action."},
                 },

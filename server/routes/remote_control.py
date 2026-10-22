@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
+from server.feature_gate import feature_disabled
 from server.remote_control import approval as approval_mod
 from server.remote_control import executor as executor_mod
 from server.remote_control import files as files_mod
@@ -35,12 +36,16 @@ router = APIRouter(
 
 
 async def require_remote_control() -> None:
-    """Dependency: 404 unless VEYA_REMOTE_CONTROL is on (fail-closed)."""
+    """Dependency: 404 unless VEYA_REMOTE_CONTROL is on (fail-closed).
+
+    The body carries the shared ``feature_disabled`` discriminator so a client
+    can tell this apart from a route that does not exist (P3-3).
+    """
 
     if not flags.enabled():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="VEYA_REMOTE_CONTROL is not enabled",
+        raise feature_disabled(
+            flags.FLAG_NAME,
+            message="VEYA_REMOTE_CONTROL is not enabled",
         )
 
 

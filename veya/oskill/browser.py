@@ -66,6 +66,7 @@ class BrowserSession:
 
         self._playwright = None
         self._browser = None
+        self._owns_browser = False
         self._context = None
         self._page = None
         self._started = False
@@ -98,6 +99,32 @@ class BrowserSession:
                 roots.append(candidate)
         return roots
 
+    @staticmethod
+    def _installed_executable() -> Path | None:
+        """The Chromium binary this Playwright install can actually run.
+
+        The package's own ``executable_path`` is the version it was installed
+        for; an older/newer bundle elsewhere on disk does not match it and
+        Playwright rejects it.  Resolve a real file from a known root instead,
+        so a deployment whose browsers differ from the package revision still
+        launches instead of reporting "Executable doesn't exist".
+        """
+        for root in BrowserSession._browser_roots():
+            for pattern in ("chromium-*/chrome-linux64/chrome", "chromium-*/chrome-*/chrome"):
+                for candidate in sorted(root.glob(pattern), reverse=True):
+                    if candidate.is_file():
+                        return candidate
+        return None
+
+    @staticmethod
+    def cdp_url() -> str:
+        """Remote Chromium DevTools endpoint, when one is configured.
+
+        A sidecar browser is reachable from anywhere and carries its own
+        sandbox flags, so it is preferred over a local launch.
+        """
+        return os.environ.get("VEYA_BROWSER_CDP_URL", "").strip()
+
     @classmethod
     def _configure_playwright_browsers(cls) -> Path | None:
         """Point Playwright at the already-installed Browser Computer bundle."""
@@ -109,7 +136,15 @@ class BrowserSession:
         return root
 
     async def start(self) -> None:
-        """Start the browser session."""
+        """Start the browser session.
+
+        With ``VEYA_BROWSER_CDP_URL`` set the session attaches to that remote
+        Chromium over CDP (the shared sidecar) instead of launching a local
+        browser.  Attaching is the more reliable of the two when both are
+        available: the sidecar is a long-lived, sandbox-hardened Chromium that
+        does not depend on this container shipping a matching binary, and it
+        never leaves an orphaned browser process behind when the session ends.
+        """
         if self._started:
             return
 
@@ -123,21 +158,17 @@ class BrowserSession:
 
         self._playwright = await async_playwright().start()
 
-        browser_launcher = getattr(self._playwright, self._browser_type)
-        launch_kwargs: dict[str, Any] = {"headless": self._config["headless"]}
-        executable = Path(browser_launcher.executable_path)
-        if executable.is_file():
-            # Pass the path resolved by the installed Playwright package. This
-            # keeps browser_run on the one existing Browser Computer runtime
-            # even when a stale/missing default cache path is present.
-            launch_kwargs["executable_path"] = str(executable)
-        # 容器/打包/CI 环境 (无 user namespace 或 /dev/shm 受限):
-        # Chromium 自身 sandbox 会报 "Failed to move to new namespace" /
-        # "cannot write to /dev/shm" → 显式关闭并禁用 dev-shm
-        if os.environ.get("VEYA_BROWSER_NO_SANDBOX"):
-            launch_kwargs["chromium_sandbox"] = False
-            launch_kwargs["args"] = ["--no-sandbox", "--disable-dev-shm-usage"]
-        self._browser = await browser_launcher.launch(**launch_kwargs)
+        cdp_url = self.cdp_url()
+        if cdp_url:
+            self._browser = await self._playwright.chromium.connect_over_cdp(
+                cdp_url,
+                timeout=float(os.environ.get("VEYA_BROWSER_CDP_TIMEOUT_MS", "30000") or 30000),
+            )
+            # The remote browser outlives this process; never close it.
+            self._owns_browser = False
+        else:
+            self._browser = await self._launch_local()
+            self._owns_browser = True
 
         context_kwargs = {
             "viewport": self._config["viewport"],
@@ -155,6 +186,26 @@ class BrowserSession:
         self._page = await self._context.new_page()
         self._started = True
 
+    async def _launch_local(self) -> Any:
+        """Launch a local Chromium, or raise a diagnostic error when none exists."""
+        browser_launcher = getattr(self._playwright, self._browser_type)
+        executable = self._installed_executable()
+        if executable is None:
+            raise RuntimeError(
+                "no local Chromium is installed for this Playwright build; "
+                "set VEYA_BROWSER_CDP_URL to use a remote browser, or install "
+                "the matching chromium build"
+            )
+        launch_kwargs: dict[str, Any] = {"headless": self._config["headless"]}
+        launch_kwargs["executable_path"] = str(executable)
+        # 容器/打包/CI 环境 (无 user namespace 或 /dev/shm 受限):
+        # Chromium 自身 sandbox 会报 "Failed to move to new namespace" /
+        # "cannot write to /dev/shm" → 显式关闭并禁用 dev-shm
+        if os.environ.get("VEYA_BROWSER_NO_SANDBOX"):
+            launch_kwargs["chromium_sandbox"] = False
+            launch_kwargs["args"] = ["--no-sandbox", "--disable-dev-shm-usage"]
+        return await browser_launcher.launch(**launch_kwargs)
+
     async def stop(self) -> None:
         """Stop the browser session."""
         if self._storage_state_path and self._context:
@@ -168,8 +219,10 @@ class BrowserSession:
 
         if self._context:
             await self._context.close()
-        if self._browser:
+        if self._browser and self._owns_browser:
+            # A CDP-attached browser is shared and outlives this process.
             await self._browser.close()
+        self._owns_browser = False
         if self._playwright:
             await self._playwright.stop()
         self._started = False

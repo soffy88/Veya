@@ -322,7 +322,12 @@ def client(rc_env):
 
 def test_routes_404_when_flag_off(client, monkeypatch):
     monkeypatch.setenv("VEYA_REMOTE_CONTROL", "0")
-    assert client.get("/api/v1/remote/hosts").status_code == 404
+    response = client.get("/api/v1/remote/hosts")
+    assert response.status_code == 404
+    # P3-3: feature-disabled carries a machine-readable discriminator.
+    detail = response.json()["detail"]
+    assert detail["code"] == "feature_disabled"
+    assert detail["feature"] == "VEYA_REMOTE_CONTROL"
 
 
 def test_hosts_crud_over_rest(client):

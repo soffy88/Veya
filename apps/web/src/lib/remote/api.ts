@@ -87,12 +87,27 @@ export interface WakePolicyView {
 }
 
 export class RemoteDisabledError extends Error {
-	constructor() {
-		super("远程控制未开启（VEYA_REMOTE_CONTROL）");
+	constructor(feature = "VEYA_REMOTE_CONTROL") {
+		super(`远程控制未开启（${feature}）`);
 	}
 }
 
+/** Backend "feature disabled" body: `{detail: {code, feature, message}}`. */
+function disabledFeature(data: unknown): string | null {
+	const detail = (data as { detail?: unknown } | null)?.detail;
+	if (detail && typeof detail === "object") {
+		const body = detail as { code?: unknown; feature?: unknown };
+		if (body.code === "feature_disabled") {
+			return typeof body.feature === "string" ? body.feature : "feature_disabled";
+		}
+	}
+	return null;
+}
+
 function fail(status: number, data: unknown): never {
+	const feature = disabledFeature(data);
+	if (feature) throw new RemoteDisabledError(feature);
+	// Older builds answered a bare 404 string; keep that behaviour working.
 	if (status === 404) throw new RemoteDisabledError();
 	const detail = (data as { detail?: unknown } | null)?.detail;
 	throw new Error(typeof detail === "string" ? detail : `请求失败 (HTTP ${status})`);

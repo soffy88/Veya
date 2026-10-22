@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from server import auth as auth_mod
 from server.events import event_store
 from server.routes import session_handoff, session_search
+from server.session_events import durable_session_store
 from server.session_identity import new_session_id
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -167,7 +168,30 @@ async def get_unified_session_events(
     session_id: str, user: dict[str, Any] = Depends(auth_mod.get_current_user)
 ) -> dict[str, Any]:
     await _unified_session(session_id, user)
-    return {"session_id": session_id, "events": event_store.read_all(session_id=session_id)}
+    # Two producers write events: the local JSONL EventStore (projections and
+    # lifecycle records) and the durable per-session journal (SSE/ReAct steps,
+    # including `round_compaction`). Reading only the JSONL store made
+    # compaction look like it never ran, so the endpoint merges both and tags
+    # each record with its source.
+    events: list[dict[str, Any]] = [
+        {**event, "source": "event_store"} for event in event_store.read_all(session_id=session_id)
+    ]
+    durable = await durable_session_store.read_session_events(session_id)
+    events.extend(
+        {
+            "topic": record.get("event"),
+            "type": record.get("event"),
+            "session_id": record.get("session_id"),
+            "event_id": record.get("event_id"),
+            "epoch": record.get("epoch"),
+            "seq": record.get("seq"),
+            "ts": record.get("created_at"),
+            "payload": record.get("data") or {},
+            "source": "session_events",
+        }
+        for record in durable
+    )
+    return {"session_id": session_id, "events": events}
 
 
 @unified_router.post("/{session_id}/attach")

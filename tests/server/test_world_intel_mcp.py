@@ -121,8 +121,10 @@ async def test_flag_on_registers_one_lazy_gateway(
     assert registry.spec_for(world_intel_mcp.GATEWAY_NAME).side_effect is SideEffect.PURE_READ
 
     description = registry.describe(world_intel_mcp.GATEWAY_NAME)
-    assert "mcp_world_intel_earthquakes" in description
-    assert "mcp_world_intel_market_quotes" in description
+    # One prefix in total: the gateway is already `mcp_world_intel`.
+    assert "earthquakes" in description
+    assert "market_quotes" in description
+    assert "mcp_world_intel_earthquakes" not in description
     assert world_intel_mcp.UNTRUSTED_NOTE in description
 
     session = "world-intel-lazy"
@@ -168,6 +170,36 @@ async def test_gateway_call_preserves_upstream_tool_name_and_args(
         result = await registry.execute(
             world_intel_mcp.GATEWAY_NAME,
             {
+                "action": "earthquakes",
+                "args": {"min_magnitude": 5},
+            },
+        )
+    finally:
+        await world_intel_mcp.close_world_intel()
+
+    assert "ok" in result
+    assert client.calls == [("intel_earthquakes", {"min_magnitude": 5})]
+
+
+async def test_gateway_accepts_legacy_double_prefixed_action(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """P3-1: the historical `mcp_world_intel_*` action keeps working."""
+    monkeypatch.setenv(world_intel_mcp.FLAG_NAME, "1")
+    monkeypatch.setenv(world_intel_mcp.ROOT_ENV, str(tmp_path))
+    registry = MasterToolRegistry()
+    client = _FakeClient()
+
+    assert (
+        await world_intel_mcp.wire_master_tools(
+            registry=registry, client_factory=lambda _root: client
+        )
+        == 1
+    )
+    try:
+        result = await registry.execute(
+            world_intel_mcp.GATEWAY_NAME,
+            {
                 "action": "mcp_world_intel_earthquakes",
                 "args": {"min_magnitude": 5},
             },
@@ -177,6 +209,33 @@ async def test_gateway_call_preserves_upstream_tool_name_and_args(
 
     assert "ok" in result
     assert client.calls == [("intel_earthquakes", {"min_magnitude": 5})]
+
+
+async def test_gateway_unknown_action_lists_short_names(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(world_intel_mcp.FLAG_NAME, "1")
+    monkeypatch.setenv(world_intel_mcp.ROOT_ENV, str(tmp_path))
+    registry = MasterToolRegistry()
+
+    assert (
+        await world_intel_mcp.wire_master_tools(
+            registry=registry, client_factory=lambda _root: _FakeClient()
+        )
+        == 1
+    )
+    try:
+        with pytest.raises(Exception) as excinfo:
+            await registry.execute(
+                world_intel_mcp.GATEWAY_NAME, {"action": "intel_earthquakes", "args": {}}
+            )
+    finally:
+        await world_intel_mcp.close_world_intel()
+
+    message = str(excinfo.value)
+    assert "unknown action" in message
+    assert "earthquakes" in message
+    assert "mcp_world_intel_earthquakes" not in message
 
 
 async def test_missing_root_degrades_without_spawning(
