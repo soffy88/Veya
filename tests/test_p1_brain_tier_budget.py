@@ -66,13 +66,47 @@ def test_fast_break_classifies_auth_and_connect_only():
 
 
 def test_tier_timeout_is_short_and_env_configurable(monkeypatch):
+    monkeypatch.delenv("VEYA_TIER_TIMEOUT_S", raising=False)
     assert hllm._tier_timeout_s({}) == hllm._DEFAULT_TIER_TIMEOUT_S
+    assert hllm._tier_timeout_s({"timeout": "9"}) == 9.0
+    # The operator env knob wins over the shipped per-tier default.
     monkeypatch.setenv("VEYA_TIER_TIMEOUT_S", "25")
     assert hllm._tier_timeout_s({}) == 25.0
-    # A pool entry still wins over the env default.
-    assert hllm._tier_timeout_s({"timeout": "9"}) == 9.0
-    monkeypatch.delenv("VEYA_TIER_TIMEOUT_S")
-    assert hllm._tier_timeout_s({"timeout": "9"}) == 9.0
+    assert hllm._tier_timeout_s({"timeout": "9"}) == 25.0
+
+
+def test_nested_proxy_tier_is_bounded_by_a_whole_tier_deadline(pool_env, monkeypatch):
+    """A tier that walks several upstream models internally cannot exceed its slice.
+
+    veya-nim tries several NIM models inside one call, so a per-request timeout
+    alone let it consume far more than one tier's worth of the turn budget.
+    """
+
+    original = hllm.llm_call
+
+    async def slow_tier(messages, **kwargs):
+        provider = kwargs.get("provider")
+        if provider == "veya-nim":
+            await asyncio.sleep(30)
+        if provider == "opencode-go":
+            raise _http_error(401)
+        return _ok("live")
+
+    monkeypatch.setattr(hllm, "llm_call", slow_tier)
+    monkeypatch.setattr(hllm, "_workbuddy_candidates", lambda: [])
+    monkeypatch.setattr(hllm, "_veya_gateway_candidates", lambda: [])
+    monkeypatch.setattr(hllm, "_frognano_candidate", lambda: None)
+    monkeypatch.setenv("VEYA_TIER_TIMEOUT_S", "0.2")
+
+    import time as _time
+
+    t0 = _time.monotonic()
+    result = asyncio.run(
+        original([{"role": "user", "content": "hi"}], provider="veya1.2", model="veya1.2")
+    )
+    elapsed = _time.monotonic() - t0
+    assert elapsed < 5, f"nested tier was not bounded by its deadline ({elapsed:.1f}s)"
+    assert result["router"]["provider"] == "openrouter"
 
 
 def test_default_pool_tiers_all_carry_a_short_timeout():

@@ -494,9 +494,25 @@ _TIER_TIMEOUT_ENV = "VEYA_TIER_TIMEOUT_S"
 _DEFAULT_TIER_TIMEOUT_S = 18.0
 
 
+def _tier_deadline_s(cand: dict[str, str]) -> float:
+    """Whole-tier deadline (P1-1a).
+
+    The per-request timeout bounds one HTTP call; a nested proxy tier that
+    walks several upstream models internally can still exceed it. The deadline
+    equals the tier timeout, so no single tier can consume more than its slice
+    of the turn budget — a multi-round turn must stay inside 120s.
+    """
+    return _tier_timeout_s(cand)
+
+
 def _tier_timeout_s(cand: dict[str, str]) -> float:
-    """Per-tier request timeout: pool entry > env > default (P1-1a)."""
-    raw = str(cand.get("timeout") or "").strip()
+    """Per-tier request timeout: env > pool entry > default (P1-1a).
+
+    The env knob wins because it is the operator's lever on a host whose
+    upstreams are slower than the built-in assumption; the pool entry is the
+    per-tier default that ships with the code.
+    """
+    raw = os.environ.get(_TIER_TIMEOUT_ENV, "").strip()
     if raw:
         try:
             value = float(raw)
@@ -504,7 +520,7 @@ def _tier_timeout_s(cand: dict[str, str]) -> float:
             value = 0.0
         if value > 0:
             return value
-    raw = os.environ.get(_TIER_TIMEOUT_ENV, "").strip()
+    raw = str(cand.get("timeout") or "").strip()
     if raw:
         try:
             value = float(raw)
@@ -828,7 +844,14 @@ async def _veya12_rr_call(
             if cand.get("endpoint"):
                 call_kwargs["endpoint"] = cand["endpoint"]
             try:
-                resp = await llm_call(messages, **call_kwargs)
+                # P1-1a: the per-request timeout bounds one HTTP call, but a
+                # nested proxy tier (veya-nim walks several upstream models in
+                # one call) can exceed it. A tier deadline keeps the whole
+                # tier inside its slice of the turn budget.
+                resp = await asyncio.wait_for(
+                    llm_call(messages, **call_kwargs),
+                    timeout=_tier_deadline_s(cand),
+                )
             except Exception as exc:  # 网络/鉴权失败 (含 openrouter 缺 key) → 换模型重试
                 last_err = f"{cand_provider}/{cand_model}: {exc}"
                 # P1-1b: 401/403 (凭据/权限失效) 与连接拒绝 (该层根本没监听) 立刻
