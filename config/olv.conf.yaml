@@ -1,0 +1,68 @@
+# Open-LLM-VTuber (OLV) Phase 0 — Veya gateway overlay.
+#
+# This is a FRAGMENT, not a full conf.yaml: copy these keys into OLV's
+# config_templates/conf.default.yaml (or a character file under characters/) and
+# keep every other upstream default. Veya never reads this file at runtime.
+#
+# Source: docs/open-llm-vtuber-integration.md §7.3. LLM points at the existing
+# Veya OpenAI-compatible gateway (scripts/veya_llm_gateway.py, default 8791).
+#
+# No credential lives in this file. Issue the gateway token once, then paste the
+# plaintext into OLV's conf.yaml only (it is printed exactly once):
+#
+#   python -m scripts.veya_llm_gateway_tokens issue --name open-llm-vtuber --ttl-days 30
+#
+# Veya's side of this integration is gated by VEYA_OLV (default OFF) and only
+# exposes GET /api/v1/vtuber/status when enabled. No token is ever returned.
+
+character_config:
+  agent_config:
+    conversation_agent_choice: 'basic_memory_agent'
+
+    agent_settings:
+      basic_memory_agent:
+        llm_provider: 'openai_compatible_llm'
+        faster_first_response: True
+        segment_method: 'pysbd'
+        # Phase 0 deliberately keeps OLV's MCP client off: Veya already owns the
+        # tool surface, and a second MCP authority would split it.
+        use_mcpp: False
+        mcp_enabled_servers: []
+
+    llm_configs:
+      openai_compatible_llm:
+        # Replace 127.0.0.1 with the Veya host reachable from the OLV process
+        # (container name / tailnet address when OLV runs elsewhere).
+        base_url: 'http://127.0.0.1:8791/v1'
+        # <issued token> — output of the veya_llm_gateway_tokens issue command
+        # above. Plaintext exists only in OLV's conf.yaml.
+        llm_api_key: '<issued token>'
+        organization_id: null
+        project_id: null
+        model: 'veya1.2'
+        temperature: 1.0
+        interrupt_method: 'user'
+
+  # Short, spoken Chinese: the Veya brain is code/task oriented, so the persona
+  # prompt is what keeps replies speakable and expression-keyword bearing.
+  persona_prompt: |
+    你是屏幕里的虚拟形象，用简短口语的中文回答，一次不超过两句。
+    不要输出 Markdown、代码块、列表或链接，不要复述用户的提问。
+    每句话里带一个情绪关键字，且只能是 neutral、joy、smirk、sadness、anger、disgust、fear、surprise 之一。
+
+  # ASR on CPU onnx, no API key. Swap to sherpa_onnx_tts below for a fully
+  # offline path (both need their model files downloaded once).
+  asr_config:
+    asr_model: 'sherpa_onnx_asr'
+
+  # TTS with no API key. Offline alternative: 'sherpa_onnx_tts'.
+  tts_config:
+    tts_model: 'edge_tts'
+
+# Keep the Live2D expression prompt ON. Without it the Veya brain never sees the
+# emotionMap keys and the avatar gets lip-sync without expressions
+# (docs/open-llm-vtuber-integration.md §3.3, risk 7). Keys for the bundled
+# mao_pro model: neutral / joy / smirk / sadness / anger / disgust / fear / surprise.
+system_config:
+  tool_prompts:
+    live2d_expression_prompt: 'live2d_expression_prompt'

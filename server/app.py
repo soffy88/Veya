@@ -720,6 +720,10 @@ from server.routes.skill_teach import router as skill_teach_router
 
 app.include_router(skill_teach_router)
 app.include_router(tdx_router)
+# OLV Phase 0: flag-gated read-only status route (404 while VEYA_OLV is off).
+from server.routes.vtuber import router as vtuber_router
+
+app.include_router(vtuber_router)
 
 
 @app.get("/health")
