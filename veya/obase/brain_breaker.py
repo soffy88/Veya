@@ -39,6 +39,9 @@ _QUOTA_MARKERS = ("monthly", "daily", "limitname", "quota", "insufficient", "usa
 #: key is rotated or the endpoint is back, so they stay short.
 _AUTH_BREAK_COOLDOWN_S = 600.0
 _CONNECT_BREAK_COOLDOWN_S = 120.0
+#: A nested proxy (veya-nim) whose whole upstream walk failed. Recovered as soon
+#: as one upstream model answers again, so it stays short.
+_NESTED_BREAK_COOLDOWN_S = 180.0
 
 _lock = threading.RLock()
 #: provider -> breaker record.
@@ -183,7 +186,11 @@ def note_provider_break(provider: str, kind: str = "", *, now: float | None = No
     """
     if not _flag_on() or not provider:
         return
-    cooldown = _AUTH_BREAK_COOLDOWN_S if kind == "auth" else _CONNECT_BREAK_COOLDOWN_S
+    cooldown = {
+        "auth": _AUTH_BREAK_COOLDOWN_S,
+        "connect": _CONNECT_BREAK_COOLDOWN_S,
+        "nested": _NESTED_BREAK_COOLDOWN_S,
+    }.get(kind, _CONNECT_BREAK_COOLDOWN_S)
     moment = now if now is not None else time.time()
     with _lock:
         _breakers[provider] = {

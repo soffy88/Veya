@@ -501,6 +501,30 @@ _TURN_BUDGET_ENV = "VEYA_BRAIN_TURN_BUDGET_S"
 _DEFAULT_TURN_BUDGET_S = 100.0
 
 
+#: An open breaker is re-probed only after this long. Shorter intervals turn
+#: every round of a multi-round turn into another full tier timeout.
+_REPROBE_INTERVAL_ENV = "VEYA_BRAIN_REPROBE_INTERVAL_S"
+_DEFAULT_REPROBE_INTERVAL_S = 60.0
+
+
+def _breaker_reprobe_due(provider: str) -> bool:
+    """Should an open breaker be re-probed now (P1-1b)?"""
+    state = _breaker.breaker_state(provider)
+    if not state:
+        return True
+    raw = os.environ.get(_REPROBE_INTERVAL_ENV, "").strip()
+    interval = _DEFAULT_REPROBE_INTERVAL_S
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value >= 0:
+            interval = value
+    opened_at = float(state.get("opened_at") or 0.0)
+    return (time.time() - opened_at) >= interval
+
+
 def _turn_budget_s() -> float:
     """Wall-clock budget for one brain-pool call (P1-1a)."""
     raw = os.environ.get(_TURN_BUDGET_ENV, "").strip()
@@ -826,16 +850,17 @@ async def _veya12_rr_call(
     """Run one of the veya1.2 round-robin pools with common retry semantics."""
     candidates = pool[start:] + pool[:start]  # 从游标处旋转
 
-    # B1: skip providers whose breaker is open; re-probe the first occurrence
-    # of each open tier so a wrongly-open breaker can close itself.
+    # B1: skip providers whose breaker is open. A tier that opened moments ago
+    # is not re-probed: doing so on every call is the "pay the dead tier's
+    # timeout again" pattern P1-1 removes, and a multi-round turn is many calls.
     open_providers: set[str] = set()
     safe_candidates: list[dict[str, str]] = []
     for cand in candidates:
         p = cand.get("provider", "")
         if _breaker.breaker_open(p):
-            if p not in open_providers:
+            if p not in open_providers and _breaker_reprobe_due(p):
                 open_providers.add(p)
-                safe_candidates.append(cand)  # re-probe this tier
+                safe_candidates.append(cand)  # cheap re-probe this tier
             continue
         safe_candidates.append(cand)
     candidates = safe_candidates
@@ -926,6 +951,7 @@ async def _veya12_rr_call(
                     # the next retry round costs another full tier timeout. An
                     # empty reply stays retryable: it is often transient.
                     failed_this_turn.add(cand_provider)
+                    _breaker.note_provider_break(cand_provider, "nested")
                 continue
             resp.setdefault("usage", {})
             resp["router"] = {

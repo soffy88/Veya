@@ -267,13 +267,13 @@ def test_broken_tiers_open_a_breaker_for_the_next_call(pool_env, monkeypatch):
     assert "opencode-go" in calls
     assert bb.breaker_open("opencode-go") is True
 
-    # The second call re-probes the broken tier once (existing B1 semantics)
-    # and still lands on the live tier.
+    # The second call skips the broken tier entirely: re-probing it on every
+    # call is what re-paid the dead tier's timeout on each round.
     calls.clear()
     result = asyncio.run(
         original([{"role": "user", "content": "hi"}], provider="veya1.2", model="veya1.2")
     )
-    assert calls.count("opencode-go") == 1
+    assert "opencode-go" not in calls
     assert result["router"]["provider"] == "openrouter"
     assert result["choices"][0]["message"]["content"] == "answer"
 
