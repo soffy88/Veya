@@ -4273,6 +4273,22 @@ def _lazy_search_tools(query: str, top_k: int = 8) -> str:
                 " Read-only security SKILL.md matches (Claude-BugHunter) are listed "
                 "under 'security_skills' for on-demand reference; they are not callable tools."
             )
+
+    # ── Phase 0: read-only Spec Kit (SDD) command templates ─────────────
+    # Opt-in (VEYA_SPECKIT=1) and read-only: the vendored templates are
+    # knowledge files, NOT Veya skill packages, so they are not registered as
+    # tools and never enter the resident/lazy tool surface.  With the flag off
+    # this block is skipped entirely and the payload is byte-identical.
+    from server import speckit_skills as _speckit_skills
+
+    if _speckit_skills.enabled():
+        template_hits = _speckit_skills.search_speckit_skills(q, top_k=top_k)
+        if template_hits:
+            payload["speckit_skills"] = template_hits
+            payload["note"] += (
+                " Read-only Spec Kit command/artifact templates are listed under "
+                "'speckit_skills' for on-demand reference; they are not callable tools."
+            )
     return _search_tools_render(payload, hits)
 
 

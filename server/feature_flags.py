@@ -115,6 +115,10 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_OLV", False, "runtime", "2027-01-01"),
     # dsh-decision-review Phase 0 (default OFF; lazy tool slot only)
     FeatureFlag("VEYA_DSH_DECISION_REVIEW", False, "safety", "2027-06-01"),
+    # Spec Kit (SDD) Phase 0: goal_run stage templates + .speckit/ artifacts +
+    # read-only template discovery via search_tools. Default OFF; appended,
+    # never reordered.
+    FeatureFlag("VEYA_SPECKIT", False, "runtime", "2027-01-01"),
 )
 
 
