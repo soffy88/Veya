@@ -109,6 +109,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     # Hark parity Phase 0 (default OFF; appended, never reordered)
     FeatureFlag("VEYA_BROWSER_SESSION", False, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_ROUND_COMPACTION", False, "runtime", "2027-01-01"),
+    # dsh-decision-review Phase 0 (default OFF; lazy tool slot only)
+    FeatureFlag("VEYA_DSH_DECISION_REVIEW", False, "safety", "2027-06-01"),
 )
 
 

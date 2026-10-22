@@ -317,6 +317,20 @@ async def lifespan(app: FastAPI):
             exc,
         )
 
+    # dsh-decision-review Phase 0: opt-in, lazy tool slot only.  No review
+    # backend exists yet, so the slot answers `unavailable` and never
+    # dispatches; registering it never touches the resident tool surface.
+    try:
+        from server.decision_review import wire_master_tools as wire_decision_review
+
+        await wire_decision_review()
+    except Exception as exc:
+        _lg.warning(
+            "decision-review wire skipped (%s: %s), degrading gracefully",
+            type(exc).__name__,
+            exc,
+        )
+
     # GBP6: EvoOntology MCP preset & semantic tools
     try:
         from server.evo_ontology import is_evo_ontology_enabled, wire_evo_ontology_tools
@@ -505,6 +519,12 @@ async def lifespan(app: FastAPI):
         await close_world_intel()
     except Exception:
         _lg.exception("world-intel MCP shutdown failed")
+    try:
+        from server.decision_review import close_decision_review
+
+        await close_decision_review()
+    except Exception:
+        _lg.exception("decision-review shutdown failed")
     try:
         from server.acp_mcp_delivery import get_acp_mcp_delivery
 
