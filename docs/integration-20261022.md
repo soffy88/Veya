@@ -268,5 +268,8 @@ docker compose --env-file deploy/.env \
 ## 八、提交与推送
 
 - 远端：`origin/main` 已从 `cb03ebfe` 推进到 `9172671f`（`git push` 成功）。
+- 镜像与线上 `/health` 的 `VEYA_BUILD_SHA` 是 `9172671f`，即代码合并完成的那个
+  commit。其后的 `main` 提交（`4c6897af` 与本报告自身的提交）只改 `docs/`，
+  不进镜像，所以线上运行时 sha 与它们无关；这是预期状态，不是漏部署。
 - 本轮未 bump 版本号；`/health` 版本串由 `VEYA_BUILD_SHA` 派生。
 - 报告中不含任何 token、密钥或密码明文。
