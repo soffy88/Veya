@@ -161,8 +161,8 @@ def create_user(
     username = str(username).strip()
     if not (3 <= len(username) <= 32) or not username.replace("_", "").replace("-", "").isalnum():
         raise ValueError("用户名需 3-32 位字母/数字/下划线")
-    if len(str(password)) < 12:
-        raise ValueError("密码至少 12 位")
+    if len(str(password)) < 8:
+        raise ValueError("密码至少 8 位")
     uid = uuid.uuid4().hex
     with _lock, _connect() as conn:
         try:

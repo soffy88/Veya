@@ -137,7 +137,7 @@
 			<input
 				aria-label="密码"
 				autocomplete={mode === "register" ? "new-password" : "current-password"}
-				placeholder="密码 (≥6 位)"
+				placeholder="密码 (≥8 位)"
 				type="password"
 				bind:value={password}
 				onkeydown={(e) => e.key === "Enter" && submit()}
