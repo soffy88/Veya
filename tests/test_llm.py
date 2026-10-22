@@ -712,6 +712,16 @@ def test_aliased_llm_falls_back_to_frontier_on_empty(monkeypatch):
         return None
 
     monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
+    # The veya-gw and veya-nim tiers are deployment wiring, not pool logic:
+    # keep them out so the call sequence stays the two canonical pool tiers
+    # followed by the frontier fallback (matches the fixture in
+    # tests/test_llm_router.py).
+    monkeypatch.setenv("VEYA_GATEWAY_POOL_DISABLED", "1")
+    monkeypatch.setenv("VEYA_FROGNANO_DISABLED", "1")
+    monkeypatch.setenv("VEYA_WORKBUDDY_DISABLED", "1")
+    monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
+    # The local opencodex bridge (:10100) is host state, not router logic.
+    monkeypatch.setattr(hllm, "_ensure_frontier_bridge", lambda _endpoint: True)
 
     async def flaky_provider(client, provider, **kw):
         # 底层网络层: GMI + OpenRouter 模型持续空回复, openai (gpt-5.6-luna) 正常
@@ -751,6 +761,47 @@ def test_aliased_llm_falls_back_to_frontier_on_empty(monkeypatch):
     assert str(
         ((resp2.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
     ).strip()
+
+
+def test_aliased_llm_pool_isolated_from_host_deployment_tiers(monkeypatch):
+    """回归: veya-gw / veya-nim 是部署装配而非路由逻辑。
+
+    这两层来自宿主机状态（pi 的 models.json、~/.veya/model-state.json 的
+    NIM key pool），一旦出现在 veya1.2 池里，veya-gw 的空回复与 veya-nim
+    对上游模型（moonshotai/kimi-k3）的调用会把 "落到 gpt-5.6-luna 兜底"
+    这个断言变成一次误判的成功。关掉这两层后，池必须只剩
+    opencode-go + OpenRouter 两层，与 tests/test_llm_router.py 的
+    _isolate_host_gateway_pool fixture 一致。
+    """
+    import os
+
+    from veya.obase import canonical_proxies as cp
+    from veya.obase import llm as obase_llm
+
+    monkeypatch.setenv("VEYA_GATEWAY_POOL_DISABLED", "1")
+    monkeypatch.setenv("VEYA_FROGNANO_DISABLED", "1")
+    monkeypatch.setenv("VEYA_WORKBUDDY_DISABLED", "1")
+    monkeypatch.delenv("VEYA_FREE_POOL_PROVIDERS", raising=False)
+    monkeypatch.setattr(
+        "os.environ",
+        {**os.environ, "OPENCODE_API_KEY": "sk-test", "OPENROUTER_API_KEY": "sk-test"},
+    )
+    # No NIM key pool on this host, so the veya-nim tier is dropped before the
+    # pool runs (same mechanism the P1-1 test suite uses).
+    monkeypatch.setenv("NIM_KEY_POOL", "")
+    monkeypatch.setattr(
+        cp, "_NIM_KEY_POOL", type("_NoPoolFile", (), {"is_file": lambda _self: False})()
+    )
+    cp.reset_nim_key_pool()
+    monkeypatch.setattr(cp, "eligible_nim_models", lambda: [])
+    try:
+        pool = obase_llm._veya12_pool()
+    finally:
+        cp.reset_nim_key_pool()
+    providers = [c["provider"] for c in pool]
+    assert providers == ["opencode-go", "openrouter"], (
+        f"隔离宿主部署层后 veya1.2 池应只剩两层, 实际 {providers}"
+    )
 
 
 def test_frontier_fallback_accepts_tool_call_with_empty_content(monkeypatch):
