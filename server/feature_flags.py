@@ -109,6 +109,10 @@ FLAGS: tuple[FeatureFlag, ...] = (
     # Hark parity Phase 0 (default OFF; appended, never reordered)
     FeatureFlag("VEYA_BROWSER_SESSION", False, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_ROUND_COMPACTION", False, "runtime", "2027-01-01"),
+    # Open-LLM-VTuber (OLV) Phase 0 — default OFF bypass integration. Gates only
+    # a read-only status module and an optional status route; no tool surface,
+    # no process spawn, no OLV dependency (docs/open-llm-vtuber-integration.md).
+    FeatureFlag("VEYA_OLV", False, "runtime", "2027-01-01"),
 )
 
 
