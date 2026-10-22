@@ -116,8 +116,14 @@ class BrowserComputerAdapter:
             "download": bind(oprim.browser_download),
             "upload": bind(oprim.browser_upload),
             "screenshot": bind(oprim.browser_screenshot),
-            "design_capture": bind(oprim.browser_design_capture),
         }
+        # Design Mode capture lives in server/routes/design.py; the 3O browser
+        # library has no ``browser_design_capture`` op.  Bind it only when the
+        # library provides it, so constructing this adapter never depends on an
+        # optional op and an unbound action reports "unknown browser action".
+        design_capture = getattr(oprim, "browser_design_capture", None)
+        if callable(design_capture):
+            self._browser_actions["design_capture"] = bind(design_capture)
 
         async def computer_prepare(
             profile: Any,

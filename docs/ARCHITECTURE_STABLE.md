@@ -8,13 +8,13 @@
 
 ## 1. 一句话架构
 
-**入口只有一个大模型**：用户消息 → 大模型（ReAct 循环 + 全量工具面）→
+**入口只有一个大模型**：用户消息 → 大模型（ReAct 循环 + 默认两段式按需加载工具面：常驻核心工具 + `search_tools`）→
 模型自主决定直答或调用哪个工具 → 模型收尾总结。
 
 程序不做任何路由/判断/裁藏/预抓/代做。
 
 ```
-用户输入 ──► [大模型 ReAct：全量工具，模型自主决策]
+用户输入 ──► [大模型 ReAct：默认两段式按需加载（常驻 + search_tools），模型自主决策]
                ├─ 直接回答（设计/问答/写作…）
                ├─ fetch_url / browser_run（URL/网页）
                ├─ assemble_code_context（需要时代码地图 + 历史规则；非每轮预注入）
@@ -114,7 +114,7 @@ MasterAgent ReAct，且本文档从未同步更新，导致文档与生产行为
 
 **结论（本次修正）**：
 - 唯一主链恢复为 `MasterCoordinator.chat_stream()` → `MasterAgent.chat_stream()`
-  ReAct 循环，全量工具面（`get_all_tool_schemas()`），零程序裁剪，§1/§2.1
+  ReAct 循环，默认两段式按需加载工具面（常驻核心工具 + `search_tools`，调用未加载工具自动按需加载兜底；`VEYA_LAZY_TOOLS=0` 重启即回退全量），零程序裁剪，§1/§2.1
   原则重新对现实生效。
 - `VEYA_AGENT_LOOP` / `strict_loop_enabled()` 已整体删除，不再是可切换的
   主链入口。

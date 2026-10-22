@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 from runtime.provider_reliability import ReliableProviderAdapter
 from server import graft_autocontext as _graft_autocontext
+from server import lazy_tools as _lazy_tools
 from server.events import (
     _on_step_ctx,
     _task_id_ctx,
@@ -46,7 +47,12 @@ from server.session_identity import new_session_id
 from server.skill_hub import VeyaSkillHub
 from server.skill_hub import skill_hub as _default_skill_hub
 from server.swarm_manager import SwarmOrchestrator
-from server.tool_registry import ToolExecutionError, master_tools, parse_optional_timeout
+from server.tool_registry import (
+    ToolExecutionError,
+    _current_master_session,
+    master_tools,
+    parse_optional_timeout,
+)
 from server.workspace_rag import get_rag_engine as _default_rag_factory
 from veya.history_store import default_history_store
 from veya.llm import get_provider_config, llm_call
@@ -216,6 +222,41 @@ class _SteeringLongTaskDriver:
                 for text in pending:
                     messages.append({"role": "user", "content": text})
                     fire_step({"type": "steering_injected", "session_id": self._sid, "text": text})
+        if self._inner is not None:
+            return await self._inner.pre_round()
+        from oservi.long_task_driver import RoundContext
+
+        return RoundContext(
+            next_action=None, goal_summary="", quota_ok=True, remaining_usd=None, prompt_suffix=""
+        )
+
+    async def post_round(self, outcome: Any) -> None:
+        if self._inner is not None:
+            await self._inner.post_round(outcome)
+
+
+class _RoundCompactionDriver:
+    """Wrap a long-task driver so every round can compact the transcript.
+
+    Opt-in through ``VEYA_ROUND_COMPACTION`` (default OFF).  ``pre_round`` is
+    the only hook the MasterAgent loop calls on every iteration, so a ReAct
+    run longer than ``VEYA_ROUND_COMPACTION_EVERY`` rounds folds the older
+    rounds into one summary message.  Summarisation is delegated to the
+    coordinator's existing compaction path; with the flag off this class is
+    never constructed.
+    """
+
+    def __init__(self, coordinator: Any, sid: str, inner: Any | None) -> None:
+        self._coordinator = coordinator
+        self._sid = sid
+        self._inner = inner
+        self.rounds = 0
+
+    async def pre_round(self) -> Any:
+        self.rounds += 1
+        every = self._coordinator._round_compaction_every
+        if every > 0 and self.rounds > every and (self.rounds - 1) % every == 0:
+            await self._coordinator._maybe_compact_rounds(self._sid, rounds=self.rounds)
         if self._inner is not None:
             return await self._inner.pre_round()
         from oservi.long_task_driver import RoundContext
@@ -514,6 +555,31 @@ class MasterCoordinator:
         self._tool_timeout_s = parse_optional_timeout(
             os.environ.get("VEYA_TOOL_TIMEOUT_S"), source="VEYA_TOOL_TIMEOUT_S"
         )
+        # Opt-in per-round compaction for long ReAct loops (default OFF).
+        # OFF keeps the canonical path: only the token-budget compaction runs.
+        try:
+            from server.feature_flags import enabled as _flag_enabled
+
+            self._round_compaction_enabled = _flag_enabled("VEYA_ROUND_COMPACTION")
+        except KeyError:
+            self._round_compaction_enabled = False
+        try:
+            self._round_compaction_every = max(
+                1, int(os.environ.get("VEYA_ROUND_COMPACTION_EVERY", "6"))
+            )
+        except ValueError:
+            self._round_compaction_every = 6
+        # Opt-in lazy tool surface. Off by default: every path below falls back
+        # to the canonical full-surface behavior (docs/ARCHITECTURE_STABLE.md).
+        self._lazy_tools_enabled = _lazy_tools.enabled()
+        self._lazy_metrics_enabled = _lazy_tools.metrics_enabled()
+        self._lazy_schema_metrics: dict[str, Any] = {}
+        if self._lazy_tools_enabled:
+            from server.tool_registry import register_lazy_search_tool
+
+            # Register into the same registry this agent already holds, so the
+            # model never sees a discovery tool that is not executable.
+            register_lazy_search_tool(self.tools)
 
         # 用户侧 Key 只注入本实例 config,不影响全局环境
         self._llm_config: dict[str, Any] = {}
@@ -546,8 +612,14 @@ class MasterCoordinator:
         # introduced; the raw methods remain the single source for schemas.
         self._raw_get_system_schemas = self._agent.get_system_schemas
         self._raw_get_all_tool_schemas = self._agent.get_all_tool_schemas
+        # Snapshot the engine's original prompt builder before any override.
+        # Lazy mode reuses this exact builder for the stable prompt prefix and
+        # swaps only the trailing tool-inventory block.
+        self._raw_get_system_prompt = self._agent.get_system_prompt
         self._agent.get_system_schemas = self.get_system_schemas
         self._agent.get_all_tool_schemas = self.get_all_tool_schemas
+        if self._lazy_tools_enabled:
+            self._agent.get_system_prompt = self.get_system_prompt
 
         # 零信任金库物理工具接线: 大模型只传 vault_id + 意图, 审批通过后
         # 真实密钥经 _injected_secret 隐式注入物理回调(feishu_webhook 等)。
@@ -601,6 +673,10 @@ class MasterCoordinator:
                 parameters = spec.get("parameters") or {}
             if name:
                 self._system_tool_parameters[str(name)] = parameters
+        # Names the engine marks non-unloadable (oservi get_system_schemas).
+        # They are part of the surface in every mode; lazy mode keeps them
+        # pinned instead of treating them as optional residents.
+        self._system_tool_names: tuple[str, ...] = tuple(self._system_tool_parameters)
         self._agent.handle_tool_call = self._guarded_handle_tool_call
 
     # ── 宿主注入 ─────────────────────────────────────────────────────
@@ -639,6 +715,12 @@ class MasterCoordinator:
 
     async def _guarded_handle_tool_call(self, tool_name: str, tool_args: dict) -> str:
         """补齐 MasterAgent system_* 直通分支的 schema 与 ToolGuard。"""
+        if self._lazy_tools_enabled and self.tools.has(tool_name):
+            # Direct-call fallback: the model invoked a registered tool that this
+            # session had not loaded yet.  Load it (so it stays visible) and let
+            # the normal execution path run.  No name that cannot execute is
+            # recorded, so a hallucinated tool never occupies the surface.
+            _lazy_tools.load_tools(_current_master_session.get(), (tool_name,))
         args = dict(tool_args or {})
         replan_state = _REPLAN_STATE_CTX.get()
 
@@ -887,6 +969,7 @@ class MasterCoordinator:
             histories = getattr(self._agent, "_histories", None)
             if histories is not None:
                 histories.pop(sid, None)
+            _lazy_tools.clear_session(sid)
         self._history_owners[sid] = owner
 
     def enqueue_steering_message(self, sid: str, text: str) -> bool:
@@ -915,6 +998,24 @@ class MasterCoordinator:
         req_provider = kwargs.pop("provider", None)
         req_endpoint = kwargs.pop("endpoint", None)
         tools = kwargs.pop("tools", None)
+        if self._lazy_metrics_enabled:
+            with contextlib.suppress(Exception):
+                from server import lazy_tools
+
+                full = lazy_tools.schema_metrics(self._raw_get_all_tool_schemas())
+                sent = lazy_tools.schema_metrics(tools)
+                metrics = {
+                    "enabled": self._lazy_tools_enabled,
+                    "session_id": _current_master_session.get(),
+                    "full": full.as_dict(),
+                    "sent": sent.as_dict(),
+                    "saved_chars": full.chars - sent.chars,
+                    "saved_estimated_tokens": full.estimated_tokens - sent.estimated_tokens,
+                }
+                self._lazy_schema_metrics = metrics
+                logger.info(
+                    "[lazy-tools] schema metrics %s", json.dumps(metrics, ensure_ascii=False)
+                )
         replan_state = _REPLAN_STATE_CTX.get()
         failure_evidence = (
             replan_state.get("failure_evidence", []) if isinstance(replan_state, dict) else []
@@ -1114,16 +1215,51 @@ class MasterCoordinator:
 
     # ── 主脑 API(委托主库引擎) ──────────────────────────────────────
     def get_system_prompt(self) -> str:
-        return str(self._agent.get_system_prompt())
+        raw = str(self._raw_get_system_prompt())
+        if not self._lazy_tools_enabled:
+            return raw
+        # The engine appends a per-tool description dump as the final block.
+        # Keep the stable SOP/subconscious prefix byte-identical and replace
+        # only that inventory with the compact name-only catalog.
+        marker = "# AVAILABLE TOOLS"
+        index = raw.rfind(marker)
+        prefix = raw[:index].rstrip() if index >= 0 else raw.rstrip()
+        return (
+            prefix
+            + "\n\n"
+            + _lazy_tools.compact_inventory(
+                self._raw_get_all_tool_schemas(),
+                resident_names=_lazy_tools.resident_tool_names(),
+                always_names=self._system_tool_names,
+            )
+        )
 
     def get_system_schemas(self) -> list[dict]:
         return cast(list[dict], self._raw_get_system_schemas())
 
     def get_all_tool_schemas(self) -> list[dict]:
-        # The canonical MasterAgent always receives the complete registered
-        # surface. Tool selection is its ReAct decision, never a host-side
-        # semantic capability projection.
-        return cast(list[dict], self._raw_get_all_tool_schemas())
+        all_schemas = cast(list[dict], self._raw_get_all_tool_schemas())
+        if not self._lazy_tools_enabled:
+            # Default behavior is the frozen canonical full surface.
+            return all_schemas
+        selected = _lazy_tools.select_schemas(
+            all_schemas,
+            session_id=_current_master_session.get(),
+            resident_names=_lazy_tools.resident_tool_names(),
+            always_names=self._system_tool_names,
+        )
+        if self._lazy_metrics_enabled:
+            full = _lazy_tools.schema_metrics(all_schemas)
+            sent = _lazy_tools.schema_metrics(selected)
+            self._lazy_schema_metrics = {
+                "enabled": True,
+                "session_id": _current_master_session.get(),
+                "full": full.as_dict(),
+                "sent": sent.as_dict(),
+                "saved_chars": full.chars - sent.chars,
+                "saved_estimated_tokens": full.estimated_tokens - sent.estimated_tokens,
+            }
+        return selected
 
     def register_secure_tool(self, tool_name: str, callback: Callable) -> None:
         self._agent.register_secure_tool(tool_name, callback)
@@ -1346,6 +1482,8 @@ class MasterCoordinator:
                         topic="turn.started",
                     )
             lt = _SteeringLongTaskDriver(sid, self._agent, lt)  # 总是包一层, 接住运行中的 steering
+            if self._round_compaction_enabled:
+                lt = _RoundCompactionDriver(self, sid, lt)
             self._bind_history_owner(sid)
             await self._restore_history(sid)
             # P0: 结构化压缩 (token 预算超阈值 → 摘要+保留尾部, 替换硬截断丢弃)
@@ -1369,6 +1507,11 @@ class MasterCoordinator:
             _lite_token = _tr._current_master_session.set(sid)
             write_root_token = _tr.bind_write_root(
                 getattr(task, "workspace_id", None) if task is not None else None
+            )
+            catalog_token = (
+                _lazy_tools.bind_catalog(self._raw_get_all_tool_schemas())
+                if self._lazy_tools_enabled
+                else None
             )
             if requested_task_id is not None:
                 governance_token = bind_task_governance(
@@ -1398,6 +1541,8 @@ class MasterCoordinator:
                 if governance_token is not None:
                     reset_task_governance(governance_token)
                 _tr.reset_write_root(write_root_token)
+                if catalog_token is not None:
+                    _lazy_tools.reset_catalog(catalog_token)
                 _tr._current_master_session.reset(_lite_token)
                 ckpt_task.cancel()
                 # CancelledError 是 BaseException, 不被 suppress(Exception) 捕获 → 显式列出
@@ -1700,6 +1845,69 @@ class MasterCoordinator:
             tail=tail,
             after_msgs=msgs,
             reasoning=f"tokens~{before_tokens} >= {budget}*{ratio}",
+        )
+
+    async def _maybe_compact_rounds(self, sid: str, *, rounds: int) -> None:
+        """Fold earlier ReAct rounds into one summary (flag-gated).
+
+        Only runs when ``VEYA_ROUND_COMPACTION`` is on and the loop has passed
+        the configured round interval.  It reuses the token-budget compaction
+        primitives but triggers on round count rather than tokens, so a long
+        run with many small tool results still sheds its older middle.  Any
+        failure is silent: the live conversation must never be lost to a
+        housekeeping step.
+        """
+        if not self._round_compaction_enabled:
+            return
+        hist = getattr(self._agent, "_histories", None)
+        if hist is None:
+            return
+        msgs = hist.get(sid)
+        if not msgs or len(msgs) < 4:
+            return
+        try:
+            tail_n = max(2, int(os.environ.get("VEYA_ROUND_COMPACTION_TAIL_MSGS", "8")))
+        except ValueError:
+            tail_n = 8
+        try:
+            head, to_compact, tail = split_compaction_window(msgs, keep_tail_messages=tail_n)
+        except Exception:
+            logger.exception("[round-compact %s] window split failed, skip", sid)
+            return
+        if not to_compact:
+            return
+        try:
+            summary = await self._summarize_for_compaction(to_compact)
+        except Exception as exc:
+            logger.warning("[round-compact %s] summary failed: %s", sid, type(exc).__name__)
+            return
+        if not summary.strip():
+            return
+        new_msgs = build_compacted_messages(
+            head, summary, tail, summary_prefix="[ROUND SUMMARY — earlier rounds condensed]"
+        )
+        before_tokens = estimate_messages_tokens(msgs)
+        msgs[:] = new_msgs
+        self._record_compaction_decision(
+            sid,
+            outcome="round_compacted",
+            before_count=len(to_compact) + len(head) + len(tail),
+            before_tokens=before_tokens,
+            budget=0,
+            ratio=0.0,
+            tail_n=tail_n,
+            to_compact=to_compact,
+            tail=tail,
+            after_msgs=msgs,
+            reasoning=f"round interval {self._round_compaction_every} reached at round {rounds}",
+        )
+        fire_step(
+            {
+                "type": "round_compaction",
+                "session_id": sid,
+                "rounds": rounds,
+                "compacted_messages": len(to_compact),
+            }
         )
 
     async def _summarize_for_compaction(self, messages: list[dict[str, Any]]) -> str:

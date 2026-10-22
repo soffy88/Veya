@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
@@ -10,6 +8,7 @@ from server.auth import _connect, _init_db
 from veya.rkz import routines
 
 client = TestClient(app)
+
 
 @pytest.fixture(autouse=True)
 def setup_env(tmp_path, monkeypatch):
@@ -23,19 +22,19 @@ def setup_env(tmp_path, monkeypatch):
     with _connect() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO users (id, username, password_hash, created_at, is_owner) VALUES (?, ?, ?, ?, ?)",
-            ("owner1", "owner", "fakehash", 1234567890, 1)
+            ("owner1", "owner", "fakehash", 1234567890, 1),
         )
         conn.execute(
             "INSERT OR REPLACE INTO tokens (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-            ("test-owner-token", "owner1", 1234567890, 9999999999)
+            ("test-owner-token", "owner1", 1234567890, 9999999999),
         )
         conn.execute(
             "INSERT OR REPLACE INTO users (id, username, password_hash, created_at, is_owner) VALUES (?, ?, ?, ?, ?)",
-            ("user1", "regular", "fakehash", 1234567890, 0)
+            ("user1", "regular", "fakehash", 1234567890, 0),
         )
         conn.execute(
             "INSERT OR REPLACE INTO tokens (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-            ("test-regular-token", "user1", 1234567890, 9999999999)
+            ("test-regular-token", "user1", 1234567890, 9999999999),
         )
     yield
 
@@ -91,7 +90,9 @@ def test_api_unauthorized_and_forbidden():
     assert resp.status_code == 401
 
     # 403 with non-owner token
-    resp = client.get("/api/v1/rkz/routines", headers={"Authorization": "Bearer test-regular-token"})
+    resp = client.get(
+        "/api/v1/rkz/routines", headers={"Authorization": "Bearer test-regular-token"}
+    )
     assert resp.status_code == 403
 
 
@@ -99,6 +100,10 @@ def test_api_feature_flag_off(monkeypatch):
     monkeypatch.setenv("VEYA_RKZ_ROUTINES", "0")
     resp = client.get("/api/v1/rkz/routines", headers={"Authorization": "Bearer test-owner-token"})
     assert resp.status_code == 404
+    # P3-3: a disabled feature is machine-distinguishable from a missing route.
+    detail = resp.json()["detail"]
+    assert detail["code"] == "feature_disabled"
+    assert detail["feature"] == "VEYA_RKZ_ROUTINES"
 
 
 def test_api_endpoints_success():

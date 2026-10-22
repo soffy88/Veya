@@ -6,16 +6,22 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server.auth import require_owner
+from server.feature_gate import feature_disabled
 from veya.rkz import routines
 
 router = APIRouter(prefix="/api/v1/rkz/routines", tags=["rkz-routines"])
 
 
 def _check_feature_flag() -> None:
-    # Flag VEYA_RKZ_ROUTINES default OFF. If OFF or not "1"/"true", owner gets 404.
+    # Flag VEYA_RKZ_ROUTINES default OFF. If OFF or not "1"/"true", owner gets 404
+    # with the shared feature-disabled body so this is distinguishable from a
+    # genuinely missing route (P3-3).
     flag = os.environ.get("VEYA_RKZ_ROUTINES", "").lower()
     if flag not in {"1", "true", "yes", "on"}:
-        raise HTTPException(status_code=404, detail="Routines feature flag disabled")
+        raise feature_disabled(
+            "VEYA_RKZ_ROUTINES",
+            message="Routines feature flag disabled",
+        )
 
 
 @router.get("", dependencies=[Depends(require_owner)])
@@ -29,7 +35,12 @@ async def api_get_routine(name: str) -> dict[str, Any]:
     _check_feature_flag()
     try:
         data = routines.get_routine(name)
-        return {"status": "ok", "routine": data["meta"], "body": data["body"], "content": data["content"]}
+        return {
+            "status": "ok",
+            "routine": data["meta"],
+            "body": data["body"],
+            "content": data["content"],
+        }
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -75,10 +86,10 @@ async def api_delete_routine(name: str, request: Request) -> dict[str, Any]:
                 confirm = True
         except Exception:
             pass
-    
+
     if not confirm:
         raise HTTPException(status_code=400, detail="Delete requires confirmation (confirm=true)")
-    
+
     try:
         routines.delete_routine(name, confirm=True)
         return {"status": "ok", "message": f"Routine '{name}' deleted"}

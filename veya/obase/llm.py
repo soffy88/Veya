@@ -42,6 +42,7 @@ import logging
 import os
 import re
 import threading
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -108,6 +109,33 @@ def _user_llm_config() -> dict[str, str]:
         }
     except Exception:
         return {}
+
+
+def _exception_status(exc: BaseException) -> int | None:
+    """HTTP status carried by an exception, when there is one."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    return int(status) if isinstance(status, int) else None
+
+
+def _fast_break_kind(exc: BaseException) -> str:
+    """Classify a tier failure as an immediate break (P1-1b).
+
+    ``auth``: 401/403 — the credential or permission is gone, retrying the same
+    tier inside one turn cannot change the answer. ``connect``: the endpoint
+    refused the TCP connection, i.e. nothing is listening there.
+    """
+    if isinstance(exc, httpx.ConnectError):
+        return "connect"
+    status = _exception_status(exc)
+    if status in (401, 403):
+        return "auth"
+    return ""
+
+
+def _fast_break(exc: BaseException) -> bool:
+    """Should this failure skip the tier immediately instead of retrying?"""
+    return bool(_fast_break_kind(exc))
 
 
 def get_provider_config(
@@ -432,22 +460,120 @@ async def _nvidia_nim_stream(messages: list[dict], kwargs: dict, alias: str) -> 
 # GMI MiniMax M3 已于 2026-09 移除: 上游持续 402 Insufficient balance。
 # Advisor + Executor 架构保留为独立 alias veya-dp4.1-jev-1.13，
 # 不改变固化的 veya1.2 单一主入口路由语义。
+# 2026-10-22 生产验收 P1-1: 主脑池前 3 层各自吃满超时预算, 第 4 层
+# OpenRouter 虽可用却永远轮不到, chat/headless 全线 120s 超时。
+# 规则:
+#   (a) 每层独立短超时 (VEYA_TIER_TIMEOUT_S, 默认 18s; 连接/首字节同值),
+#       总预算内保证后续层有机会;
+#   (b) 401/403 (凭据/权限失效) 与连接拒绝 (ConnectError) 立即熔断跳过该层,
+#       不重试、不等满;
+#   (c) 缺 key 的 provider 在入池前就摘掉 (见 _veya12_pool)。
 _VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
     {
         "provider": "opencode-go",
         "model": "deepseek-v4.1-flash",
         "endpoint": "https://opencode.ai/zen/go/v1",
+        "timeout": "18",
     },
     # W11: NVIDIA NIM (key pool, probe-qualified via model-state.json) is the
     # second tier — opencode-go hits its monthly cap and the OpenRouter :free
     # tier has a shared daily cap, which left the brain with no live model.
     # Real bot turns carry ~180 tool schemas; NIM needs well over 12s for them.
-    {"provider": "veya-nim", "model": "veya-nim", "timeout": "30"},
+    # P1-1: 30s → tier timeout so one slow tier cannot eat the whole budget.
+    {"provider": "veya-nim", "model": "veya-nim", "timeout": "18"},
     {
         "provider": "openrouter",
         "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "timeout": "18",
     },
 ]
+
+#: Per-tier timeout (seconds) for the veya1.2 brain pool. Env-overridable so a
+#: host with slower upstreams can widen it without a code change; the 120s
+#: MasterAgent budget only tolerates ~4 such tiers.
+_TIER_TIMEOUT_ENV = "VEYA_TIER_TIMEOUT_S"
+_DEFAULT_TIER_TIMEOUT_S = 18.0
+
+
+#: Wall-clock budget for one brain-pool call. The MasterAgent gives the whole
+#: LLM call 120s; the pool stops retrying early enough to return something.
+_TURN_BUDGET_ENV = "VEYA_BRAIN_TURN_BUDGET_S"
+_DEFAULT_TURN_BUDGET_S = 100.0
+
+
+#: An open breaker is re-probed only after this long. Shorter intervals turn
+#: every round of a multi-round turn into another full tier timeout.
+_REPROBE_INTERVAL_ENV = "VEYA_BRAIN_REPROBE_INTERVAL_S"
+_DEFAULT_REPROBE_INTERVAL_S = 60.0
+
+
+def _breaker_reprobe_due(provider: str) -> bool:
+    """Should an open breaker be re-probed now (P1-1b)?"""
+    state = _breaker.breaker_state(provider)
+    if not state:
+        return True
+    raw = os.environ.get(_REPROBE_INTERVAL_ENV, "").strip()
+    interval = _DEFAULT_REPROBE_INTERVAL_S
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value >= 0:
+            interval = value
+    opened_at = float(state.get("opened_at") or 0.0)
+    return (time.time() - opened_at) >= interval
+
+
+def _turn_budget_s() -> float:
+    """Wall-clock budget for one brain-pool call (P1-1a)."""
+    raw = os.environ.get(_TURN_BUDGET_ENV, "").strip()
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value > 0:
+            return value
+    return _DEFAULT_TURN_BUDGET_S
+
+
+def _tier_deadline_s(cand: dict[str, str]) -> float:
+    """Whole-tier deadline (P1-1a).
+
+    The per-request timeout bounds one HTTP call; a nested proxy tier that
+    walks several upstream models internally can still exceed it. The deadline
+    equals the tier timeout, so no single tier can consume more than its slice
+    of the turn budget — a multi-round turn must stay inside 120s.
+    """
+    return _tier_timeout_s(cand)
+
+
+def _tier_timeout_s(cand: dict[str, str]) -> float:
+    """Per-tier request timeout: env > pool entry > default (P1-1a).
+
+    The env knob wins because it is the operator's lever on a host whose
+    upstreams are slower than the built-in assumption; the pool entry is the
+    per-tier default that ships with the code.
+    """
+    raw = os.environ.get(_TIER_TIMEOUT_ENV, "").strip()
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value > 0:
+            return value
+    raw = str(cand.get("timeout") or "").strip()
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value > 0:
+            return value
+    return _DEFAULT_TIER_TIMEOUT_S
+
 
 # veya1.2-free: opencode-go 免费模型轮询 (不走 veya1.2 主脑代理)。
 # 端点统一指向本机 veya gateway，端口由 VEYA_GATEWAY_PORT 控制；opencode-go
@@ -555,7 +681,7 @@ def _workbuddy_candidates() -> list[dict[str, str]]:
     offered = {str((m or {}).get("id") or "") for m in entry.get("models") or []}
     endpoint = _host_reachable(endpoint)
     return [
-        {"provider": "workbuddy", "model": m, "endpoint": endpoint, "timeout": "45"}
+        {"provider": "workbuddy", "model": m, "endpoint": endpoint, "timeout": "18"}
         for m in _WORKBUDDY_MODELS
         if m in offered
     ]
@@ -567,6 +693,13 @@ def _veya_gateway_candidates() -> list[dict[str, str]]:
     W11 live landing: opencode-go hit its Go usage cap and NIM times out on
     real bot turns (~180 tool schemas), which left every turn waiting minutes
     on fallbacks.  The gateway's veya-free pool answers tool calls in seconds.
+
+    P1-1 (2026-10-22 production acceptance): the docker backend has no listener
+    on the gateway port (container 127.0.0.1:8791 is empty, host bridge closed),
+    so the tier is a guaranteed miss there. It stays in the pool because it is
+    the fast path on hosts where it does listen, but it now carries the tier
+    timeout plus the connect-refused fast break below, which turns the miss into
+    milliseconds. ``VEYA_GATEWAY_POOL_DISABLED=1`` removes it outright.
     """
     if os.environ.get("VEYA_GATEWAY_POOL_DISABLED", "").strip() in ("1", "true"):
         return []
@@ -582,9 +715,26 @@ def _veya_gateway_candidates() -> list[dict[str, str]]:
             "provider": "veya-gw",
             "model": "veya-free",
             "endpoint": _host_reachable(endpoint),
-            "timeout": "45",
+            "timeout": "18",
         }
     ]
+
+
+def _pool_candidate_has_key(cand: dict[str, str]) -> bool:
+    """Does this pool tier hold a usable credential (P1-1c)?
+
+    Local/loopback endpoints need no key; every other tier must resolve one,
+    otherwise it is a guaranteed miss that only burns the tier budget.
+    """
+    from veya.obase._llm_config import get_api_key
+    from veya.obase._llm_protocol import _is_local_or_private
+
+    endpoint = cand.get("endpoint") or ""
+    if endpoint and _is_local_or_private(endpoint):
+        return True
+    if cand.get("provider") == "veya-nim":
+        return _cp.nim_key_pool().size() > 0
+    return bool(get_api_key(cand.get("provider", "")))
 
 
 def _veya12_pool() -> list[dict[str, str]]:
@@ -592,14 +742,21 @@ def _veya12_pool() -> list[dict[str, str]]:
 
     WorkBuddy (when configured in pi) sits right after opencode-go, ahead of
     the NIM and OpenRouter free tiers; FrogNano is the last resort.
+
+    P1-1c: a tier without a credential is dropped before the pool runs, so a
+    keyless provider never spends a tier timeout on a guaranteed miss.
     """
-    pool = list(_VEYA12_DEFAULT_POOL)
-    wb = _workbuddy_candidates() + _veya_gateway_candidates()
+    pool = [c for c in _VEYA12_DEFAULT_POOL if _pool_candidate_has_key(c)]
+    wb = [
+        c
+        for c in _workbuddy_candidates() + _veya_gateway_candidates()
+        if _pool_candidate_has_key(c)
+    ]
     if wb:
         at = next((i for i, c in enumerate(pool) if c.get("provider") != "opencode-go"), len(pool))
         pool[at:at] = wb
     frog = _frognano_candidate()
-    if frog is not None:
+    if frog is not None and _pool_candidate_has_key(frog):
         pool.append(frog)
     return pool
 
@@ -693,16 +850,17 @@ async def _veya12_rr_call(
     """Run one of the veya1.2 round-robin pools with common retry semantics."""
     candidates = pool[start:] + pool[:start]  # 从游标处旋转
 
-    # B1: skip providers whose breaker is open; re-probe the first occurrence
-    # of each open tier so a wrongly-open breaker can close itself.
+    # B1: skip providers whose breaker is open. A tier that opened moments ago
+    # is not re-probed: doing so on every call is the "pay the dead tier's
+    # timeout again" pattern P1-1 removes, and a multi-round turn is many calls.
     open_providers: set[str] = set()
     safe_candidates: list[dict[str, str]] = []
     for cand in candidates:
         p = cand.get("provider", "")
         if _breaker.breaker_open(p):
-            if p not in open_providers:
+            if p not in open_providers and _breaker_reprobe_due(p):
                 open_providers.add(p)
-                safe_candidates.append(cand)  # re-probe this tier
+                safe_candidates.append(cand)  # cheap re-probe this tier
             continue
         safe_candidates.append(cand)
     candidates = safe_candidates
@@ -710,8 +868,21 @@ async def _veya12_rr_call(
     default = kwargs.get("default_content") or f"{pool_label}调用失败"
     last_err = ""
     _retry_rounds = 3
+    # P1-1a: a tier that already failed inside this turn is not retried in a
+    # later round. Without this, one timing-out tier paid its timeout again on
+    # every round, which is what pushed a multi-round turn past 120s.
+    failed_this_turn: set[str] = set()
+    turn_deadline = time.monotonic() + _turn_budget_s()
     for round_idx in range(_retry_rounds):
+        if round_idx and time.monotonic() >= turn_deadline:
+            logger.warning("%s %s预算耗尽, 停止整轮重试", alias, pool_label)
+            break
         for cand in candidates:
+            if cand["provider"] in failed_this_turn:
+                continue
+            if time.monotonic() >= turn_deadline:
+                last_err = f"{cand['provider']} 跳过: 本轮时间预算已耗尽"
+                break
             cand_provider = cand["provider"]
             cand_model = cand["model"]
             call_kwargs: dict[str, Any] = {
@@ -720,15 +891,44 @@ async def _veya12_rr_call(
                 "model": cand_model,
                 "tools": kwargs.get("tools"),
                 "default_content": default,
-                # 单候选超时: 免费模型上游波动大, 卡太久无意义 — 超时即跳下一个候选
-                "timeout": float(cand.get("timeout") or 12.0),
+                # 单候选超时: 免费模型上游波动大, 卡太久无意义 — 超时即跳下一个候选。
+                # P1-1a: 统一走 _tier_timeout_s (pool entry > VEYA_TIER_TIMEOUT_S > 18s),
+                # 否则 veya-gw 的 45s 会把 120s 预算吃穿。
+                "timeout": _tier_timeout_s(cand),
+                # P1-1b: 连接/首字节独立超时, 与整请求同量级 — 上游挂起时不必等满读超时。
+                "connect_timeout": _tier_timeout_s(cand),
+                "read_timeout": _tier_timeout_s(cand),
             }
             if cand.get("endpoint"):
                 call_kwargs["endpoint"] = cand["endpoint"]
             try:
-                resp = await llm_call(messages, **call_kwargs)
+                # P1-1a: the per-request timeout bounds one HTTP call, but a
+                # nested proxy tier (veya-nim walks several upstream models in
+                # one call) can exceed it. A tier deadline keeps the whole
+                # tier inside its slice of the turn budget.
+                resp = await asyncio.wait_for(
+                    llm_call(messages, **call_kwargs),
+                    timeout=_tier_deadline_s(cand),
+                )
             except Exception as exc:  # 网络/鉴权失败 (含 openrouter 缺 key) → 换模型重试
                 last_err = f"{cand_provider}/{cand_model}: {exc}"
+                # A timeout is a property of this turn's upstream conditions,
+                # not a permanent verdict: record it for this turn only.
+                if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+                    failed_this_turn.add(cand_provider)
+                # P1-1b: 401/403 (凭据/权限失效) 与连接拒绝 (该层根本没监听) 立刻
+                # 熔断该 provider, 不重试、不等满 — 否则 3 轮 × N 层会把 120s 预算
+                # 全耗在已知必败的层上, 后面的可用层永远轮不到。
+                if _fast_break(exc):
+                    _breaker.record_provider_failure(cand_provider, exc)
+                    _breaker.note_provider_break(cand_provider, _fast_break_kind(exc))
+                    logger.warning(
+                        "brain tier %s/%s fast-break (%s), 跳过该层",
+                        cand_provider,
+                        cand_model,
+                        _fast_break_kind(exc),
+                    )
+                    candidates = [c for c in candidates if c.get("provider") != cand_provider]
                 continue
             msg = (resp.get("choices") or [{}])[0].get("message") or {}
             content = msg.get("content") or ""
@@ -745,6 +945,13 @@ async def _veya12_rr_call(
                 or resp.get("error") is True
             ):
                 last_err = f"{cand_provider}/{cand_model} 返回无效/错误内容: {content!r}"
+                if resp.get("error") is True:
+                    # A nested proxy that walked all its upstream models and
+                    # still has nothing is dead for this turn; re-probing it in
+                    # the next retry round costs another full tier timeout. An
+                    # empty reply stays retryable: it is often transient.
+                    failed_this_turn.add(cand_provider)
+                    _breaker.note_provider_break(cand_provider, "nested")
                 continue
             resp.setdefault("usage", {})
             resp["router"] = {
@@ -755,15 +962,19 @@ async def _veya12_rr_call(
             }
             return resp
         if round_idx < _retry_rounds - 1:
+            backoff = 3.0 * (2**round_idx)
+            if time.monotonic() + backoff >= turn_deadline:
+                logger.warning("%s %s预算不足以重试整轮, 停止", alias, pool_label)
+                break
             logger.warning(
                 "%s %s第 %d 轮全候选无效 (%s), %.1fs 后重试整轮",
                 alias,
                 pool_label,
                 round_idx + 1,
                 last_err,
-                3.0 * (2**round_idx),
+                backoff,
             )
-            await asyncio.sleep(3.0 * (2**round_idx))
+            await asyncio.sleep(backoff)
 
     fb = await _frontier_fallback(messages, kwargs, reason=fallback_reason)
     if fb is not None:
@@ -1368,6 +1579,14 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         }
 
     timeout = kwargs.get("timeout", 120.0)
+    connect_timeout = kwargs.get("connect_timeout")
+    read_timeout = kwargs.get("read_timeout")
+    # P1-1a: connect/read 可分别设短值 — 连接被拒/上游挂起时不必等满整请求超时。
+    httpx_timeout = (
+        httpx.Timeout(timeout, connect=connect_timeout, read=read_timeout)
+        if (connect_timeout or read_timeout)
+        else timeout
+    )
     tools = kwargs.get("tools")
     max_tokens = kwargs.get("max_tokens", 4096)
     temperature = kwargs.get("temperature")
@@ -1384,9 +1603,9 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         # AsyncClient owns sockets, SSL contexts, and connection-pool state.
         # Keep construction inside the lifecycle block so partially-created
         # client lists are also cleaned up when the process is FD constrained.
-        clients.append(httpx.AsyncClient(timeout=timeout))
+        clients.append(httpx.AsyncClient(timeout=httpx_timeout))
         if proxy:
-            clients.append(httpx.AsyncClient(timeout=timeout, proxy=proxy))
+            clients.append(httpx.AsyncClient(timeout=httpx_timeout, proxy=proxy))
         last_exc: Exception | None = None
         for attempt in range(retries + 1):
             client = clients[attempt % len(clients)]

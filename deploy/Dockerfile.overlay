@@ -1,0 +1,23 @@
+# Thin overlay for Python-only production fixes (no new dependencies).
+#
+# Base image is the currently deployed immutable image; only the changed
+# Python trees are copied in. Anything else (hicode runtime, Node, Playwright,
+# system packages) comes from the base layer untouched.
+#
+# Build:  docker build -f deploy/Dockerfile.overlay -t veya-backend:<sha> \
+#           --build-arg BASE_IMAGE=veya-backend:<prev-sha> \
+#           --build-arg VEYA_BUILD_SHA=<sha> .
+ARG BASE_IMAGE=veya-backend:latest
+FROM ${BASE_IMAGE}
+
+ARG VEYA_BUILD_SHA=unknown
+ENV VEYA_BUILD_SHA=$VEYA_BUILD_SHA
+
+# Changed Python trees only: server/, veya/, tests/ and the 3O submodule tree
+# that carries the scheduler change (platform/3O/omodul). Nothing else is
+# touched, so the hicode runtime, Node toolchain, and Playwright layer stay as
+# shipped by the base image.
+COPY server/ ./server/
+COPY veya/ ./veya/
+COPY tests/ ./tests/
+COPY platform/ ./platform/

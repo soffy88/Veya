@@ -499,6 +499,50 @@ class DurableSessionEventStore:
         self._live_subscribers[session_id].add(q)
         return q
 
+    async def read_session_events(self, session_id: str) -> list[dict]:
+        """All durable events for a session, across every epoch, oldest first.
+
+        ``catch_up`` is deliberately turn-scoped (it replays one epoch for a
+        live SSE cursor).  Read APIs need the whole journal: a housekeeping
+        event such as ``round_compaction`` is written by the turn that emitted
+        it, and looking only at the local JSONL store made it appear as though
+        compaction never ran (P3-2).
+        """
+        await self._ensure_started()
+        repo = self._runtime.repository
+
+        def op(conn):
+            return conn.execute(
+                "SELECT * FROM session_events WHERE session_id=? ORDER BY epoch ASC, seq ASC",
+                (session_id,),
+            ).fetchall()
+
+        if repo.backend == "sqlite":
+            rows = await asyncio.to_thread(lambda: repo._sqlite_read(op))
+        else:
+
+            async def op_pg(conn):
+                return await conn.fetch(
+                    "SELECT * FROM session_events WHERE session_id=$1 ORDER BY epoch ASC, seq ASC",
+                    session_id,
+                )
+
+            rows = await repo._pg_tx(op_pg)
+
+        return [
+            {
+                "id": f"{row['epoch']}:{row['seq']}",
+                "event_id": row["event_id"],
+                "session_id": row["session_id"],
+                "epoch": row["epoch"],
+                "seq": row["seq"],
+                "event": row["event_type"],
+                "data": json.loads(row["payload_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
     def unsubscribe_live(self, session_id: str, q: asyncio.Queue[dict]):
         if session_id in self._live_subscribers:
             self._live_subscribers[session_id].discard(q)

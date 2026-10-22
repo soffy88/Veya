@@ -169,6 +169,35 @@ async def test_headless_failure_recorded(tmp_path, fake_callback):
     automata.shutdown()
 
 
+@pytest.mark.asyncio
+async def test_headless_failed_prefix_sets_status_failed(tmp_path, fake_callback):
+    """执行器把失败报成 ``HEADLESS FAILED:`` 字符串 → status 仍须是 failed。
+
+    验收 P3-4: 监控读 ``status`` 字段, 失败只落在 result 文本里会被漏报。
+    """
+
+    async def reporting_failure(prompt):
+        return "HEADLESS FAILED: LLM call timed out after 120s"
+
+    automata = _make_automata(tmp_path, reporting_failure)
+    await automata._run_headless_mission("[CRON TRIGGER 0 9 * * *]", "检查行情")
+    results = automata.get_recent_results()
+    assert results[0]["status"] == "failed"
+    assert results[0]["result"].startswith("HEADLESS FAILED:")
+    automata.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_headless_success_prefix_keeps_status_success(tmp_path, fake_callback):
+    """正常完成不受影响: 非失败前缀仍是 success。"""
+    callback, _calls = fake_callback
+    automata = _make_automata(tmp_path, callback)
+    await automata._run_headless_mission("[CRON TRIGGER 0 9 * * *]", "检查行情")
+    results = automata.get_recent_results()
+    assert results[0]["status"] == "success"
+    automata.shutdown()
+
+
 # ---------------------------------------------------------------------------
 # 3. 主脑集成: 赋予大模型"设闹钟"的权力
 # ---------------------------------------------------------------------------

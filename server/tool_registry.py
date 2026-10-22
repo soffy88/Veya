@@ -1275,7 +1275,16 @@ async def _tool_browser_run(
     gateway = ActionGatewayAdapter()
     session = BrowserSession(headless=True)
     try:
-        await session.start()
+        try:
+            await session.start()
+        except RuntimeError as exc:
+            # No usable browser backend: tell the model which tool to use
+            # instead so it does not spend a round on a guaranteed failure.
+            raise ToolExecutionError(
+                f"browser_run unavailable: {exc}. "
+                "Use browser_session (open → snapshot) when VEYA_BROWSER_CDP_URL is set, "
+                "or fetch_url for plain page text."
+            ) from exc
 
         async def governed(
             name: str,
@@ -4134,6 +4143,221 @@ def _tool_search(query: str, top_k: int = 5) -> str:
     )
 
 
+# ============ search_tools: opt-in two-stage lazy loading ============
+#: Character budget for one ``search_tools`` result (P1-2). The registry cap is
+#: applied by :func:`_to_str` as a hard character cut, which used to slice the
+#: JSON mid-string whenever the hit set carried a long schema (browser_session,
+#: world_intel) — the model then received unparseable output. The budget keeps
+#: the payload inside the same cap while guaranteeing valid JSON.
+_SEARCH_TOOLS_RESULT_CHARS = 16000
+#: Safety margin for JSON envelope growth (keys, escaping) beyond the measured
+#: per-hit serialization length.
+_SEARCH_TOOLS_JSON_SLACK = 256
+
+
+#: Description ceiling inside the compact schema. A gateway tool can carry a
+#: multi-thousand-character catalog in its description; the compact form keeps
+#: enough for the model to judge the tool and drops the rest.
+_COMPACT_DESCRIPTION_CHARS = 1200
+
+
+def _compact_tool_schema(function: dict) -> dict:
+    """Reduced schema carrying name + description + required parameters.
+
+    Used when the full schemas do not fit the result budget. The model still
+    gets the tool identity, what it does, and the arguments it must pass,
+    which is enough to decide whether to call it.
+    """
+    parameters = function.get("parameters") or {}
+    properties = parameters.get("properties") or {}
+    required = [str(name) for name in (parameters.get("required") or [])]
+    compact_params: dict[str, Any] = {
+        "type": parameters.get("type") or "object",
+        "required": required,
+    }
+    if properties:
+        compact_params["required_arg_shapes"] = {
+            str(name): (properties[name] or {}).get("type", "string") for name in required
+        }
+    description = str(function.get("description") or "")
+    if len(description) > _COMPACT_DESCRIPTION_CHARS:
+        description = _truncate_on_word(description, _COMPACT_DESCRIPTION_CHARS)
+    return {
+        "type": function.get("type") or "function",
+        "name": str(function.get("name") or ""),
+        "description": description,
+        "parameters": compact_params,
+    }
+
+
+def _truncate_on_word(text: str, limit: int) -> str:
+    """Cut ``text`` to at most ``limit`` characters on a word boundary."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    if space > limit // 2:
+        cut = cut[:space]
+    return cut.rstrip() + " …"
+
+
+def _search_tools_payload_fits(payload: dict) -> bool:
+    """Would this payload serialize inside the result budget?"""
+    return len(json.dumps(payload, ensure_ascii=False)) <= _SEARCH_TOOLS_RESULT_CHARS
+
+
+def _lazy_search_tools(query: str, top_k: int = 8) -> str:
+    """Model-triggered discovery for VEYA_LAZY_TOOLS sessions.
+
+    Returns complete OpenAI tool schemas and records the hits in the current
+    session's stable loaded set.  The catalog is request-bound by the host so
+    this function never reads or mutates a second tool surface.
+
+    P1-2: the result is assembled inside a character budget instead of relying
+    on the registry's hard cut, so the model always receives parseable JSON.
+    Hits are added one at a time while the serialized payload still fits; when
+    the full schemas do not fit, the same hits are re-serialized with the
+    compact schema (name + description + required arguments).
+    """
+    from server import lazy_tools
+
+    top_k = max(1, min(int(top_k or 8), 20))
+    q = (query or "").lower().strip()
+    q_tokens = _search_tokens(q)
+    catalog = lazy_tools.current_catalog() or list(master_tools._schemas)
+    session_id = _current_master_session.get()
+    already = set(lazy_tools.loaded_tools(session_id))
+    resident = set(lazy_tools.resident_tool_names())
+    scored: list[tuple[int, str, dict]] = []
+    for schema in catalog:
+        function = schema["function"]
+        name = function["name"]
+        if name == "search_tools":
+            continue
+        hay = f"{name} {function.get('description', '')}".lower()
+        score = 5 if q and q in hay else 0
+        score += len(q_tokens & _search_tokens(hay))
+        # Prefer tools that are not already visible without letting relevance
+        # disappear entirely.
+        if name in already or name in resident:
+            score = max(0, score - 1)
+        scored.append((score, name, function))
+    scored.sort(key=lambda row: (-row[0], row[1]))
+    hits = [row for row in scored if row[0] > 0][:top_k]
+    if not hits:
+        hits = scored[:top_k]
+    names = [row[1] for row in hits]
+    loaded = lazy_tools.load_tools(session_id, names)
+    payload: dict[str, Any] = {
+        "loaded": names,
+        "session_loaded_count": len(loaded),
+        "tools": [row[2] for row in hits],
+        "note": (
+            "These full schemas are now available on the next round and remain "
+            "loaded for this session."
+        ),
+    }
+
+    # ── Phase 0: read-only Claude-BugHunter security SKILL.md index ──────
+    # Opt-in (VEYA_BUGHUNTER_INDEX=1) and read-only: these knowledge files are
+    # NOT registered as tools and never enter the resident/lazy tool surface,
+    # so the master tool list is byte-identical when disabled. They are surfaced
+    # here only as reference matches the model can read on demand via the path.
+    from server import bughunter_index as _bughunter_index
+
+    if _bughunter_index.enabled():
+        skill_hits = _bughunter_index.search_bughunter_skills(q, top_k=top_k)
+        if skill_hits:
+            payload["security_skills"] = skill_hits
+            payload["note"] += (
+                " Read-only security SKILL.md matches (Claude-BugHunter) are listed "
+                "under 'security_skills' for on-demand reference; they are not callable tools."
+            )
+    return _search_tools_render(payload, hits)
+
+
+def _search_tools_render(payload: dict[str, Any], hits: list[tuple[int, str, dict]]) -> str:
+    """Serialize ``search_tools`` output so it always parses as JSON (P1-2).
+
+    Steps, in order:
+    1. every hit with its full schema when the payload fits the budget;
+    2. otherwise drop trailing hits (they stay in ``loaded``) until it fits;
+    3. otherwise re-serialize the remaining hits with the compact schema
+       (name + description + required arguments);
+    4. otherwise keep name + description only. The output is never cut
+       mid-string, and at least one hit is always returned.
+    """
+    if _search_tools_payload_fits(payload):
+        return json.dumps(payload, ensure_ascii=False)
+
+    def _note(extra: str) -> str:
+        return f"{payload.get('note', '')} {extra}".strip()
+
+    budget = _SEARCH_TOOLS_RESULT_CHARS - _SEARCH_TOOLS_JSON_SLACK
+    kept = list(hits)
+    while kept:
+        trial = {**payload, "tools": [row[2] for row in kept]}
+        if len(json.dumps(trial, ensure_ascii=False)) <= budget:
+            break
+        kept = kept[:-1]
+
+    if not kept:
+        # Even one full schema is too large: keep the leading hit in compact form.
+        kept = hits[:1]
+        compact = {
+            **payload,
+            "tools": [_compact_tool_schema(row[2]) for row in kept],
+            "note": _note("Long schemas were reduced to name + description + required arguments."),
+        }
+        if _search_tools_payload_fits(compact):
+            return json.dumps(compact, ensure_ascii=False)
+        # Last resort: name plus a bounded description. The description is cut on
+        # a word boundary inside the serialized payload so the result stays
+        # valid JSON no matter how long the original text was.
+        room = max(
+            64,
+            budget
+            - len(
+                json.dumps({k: v for k, v in compact.items() if k != "tools"}, ensure_ascii=False)
+            )
+            - 64,
+        )
+        names_only = {
+            "loaded": payload.get("loaded", []),
+            "session_loaded_count": payload.get("session_loaded_count", 0),
+            "tools": [
+                {
+                    "name": row[1],
+                    "description": _truncate_on_word(str(row[2].get("description") or ""), room),
+                }
+                for row in kept
+            ],
+            "note": "Schemas exceeded the result budget; names and descriptions only.",
+        }
+        return json.dumps(names_only, ensure_ascii=False)
+
+    dropped = len(hits) - len(kept)
+    payload = {
+        **payload,
+        "tools": [row[2] for row in kept],
+        "note": _note(
+            f"{dropped} further match(es) exceed the result budget; "
+            f"they are loaded and available next round."
+        )
+        if dropped
+        else payload.get("note", ""),
+    }
+    if _search_tools_payload_fits(payload):
+        return json.dumps(payload, ensure_ascii=False)
+
+    payload = {
+        **payload,
+        "tools": [_compact_tool_schema(row[2]) for row in kept],
+        "note": _note("Long schemas were reduced to name + description + required arguments."),
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
 # ── Personal Runtime Memory capabilities ───────────────────────────────
 # These callbacks remain model-invoked capabilities.  They do not pre-search
 # or inject memory into the MasterAgent context.
@@ -5061,6 +5285,56 @@ if not master_tools.has("tool_search"):
     )
 
 
+def _lazy_tools_enabled() -> bool:
+    """Read the lazy-tool switch without importing the module at import time."""
+    from server import lazy_tools
+
+    return lazy_tools.enabled()
+
+
+def register_lazy_search_tool(registry: MasterToolRegistry | None = None) -> None:
+    """Register the opt-in discovery tool once (no-op when already present).
+
+    ``registry`` is injectable so tests (and any host-bound coordinator) can
+    register into their own surface; production passes nothing and gets the
+    canonical global registry, which is the same single object the MasterAgent
+    already holds.
+    """
+    target = registry if registry is not None else master_tools
+    if target.has("search_tools"):
+        return
+    target.register(
+        name="search_tools",
+        description=(
+            "Find and load tools on demand. The default surface contains only a small "
+            "resident set; call this with a natural-language capability query to retrieve "
+            "complete schemas and make matching tools directly callable on the next round. "
+            "Loaded tools stay available for the rest of the session."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Capability or keyword query, e.g. 'image crop OCR' or '量化 回测'.",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Maximum tools to return and load (default 8, max 20).",
+                },
+            },
+            "required": ["query"],
+        },
+        func=_lazy_search_tools,
+        max_result_chars=16000,
+        side_effect=SideEffect.PURE_READ,
+    )
+
+
+if _lazy_tools_enabled():
+    register_lazy_search_tool()
+
+
 # PR-01..04 local coding product surface.  This is an additive capability
 # layer: it does not route requests or replace the single MasterAgent path.
 _register_coding_tools(master_tools)
@@ -5178,3 +5452,11 @@ if not master_tools.has("read_skill"):
 from server.project_brain.tools import register_tools as _register_project_brain_tools  # noqa: E402
 
 _register_project_brain_tools(master_tools)
+
+# Hark parity Phase 0: stateful browser session. Opt-in and lazy-only: with the
+# flag OFF nothing is registered, so the tool surface is byte-identical.
+from server.browser_session_tools import (  # noqa: E402
+    register_tools as _register_browser_session_tools,
+)
+
+_register_browser_session_tools(master_tools)

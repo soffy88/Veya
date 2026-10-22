@@ -35,6 +35,14 @@ _MAX_COOLDOWN_S = 7200.0
 #: A monthly/daily quota error stays open until the next UTC day boundary.
 _QUOTA_MARKERS = ("monthly", "daily", "limitname", "quota", "insufficient", "usagelimit")
 
+#: Hard-failure cooldowns (P1-1b): auth/connect breakers recover as soon as the
+#: key is rotated or the endpoint is back, so they stay short.
+_AUTH_BREAK_COOLDOWN_S = 600.0
+_CONNECT_BREAK_COOLDOWN_S = 120.0
+#: A nested proxy (veya-nim) whose whole upstream walk failed. Recovered as soon
+#: as one upstream model answers again, so it stays short.
+_NESTED_BREAK_COOLDOWN_S = 180.0
+
 _lock = threading.RLock()
 #: provider -> breaker record.
 _breakers: dict[str, dict[str, Any]] = {}
@@ -165,6 +173,36 @@ def breaker_open(provider: str, *, now: float | None = None) -> bool:
         return float(record.get("reopen_at") or 0) > moment
 
 
+def note_provider_break(provider: str, kind: str = "", *, now: float | None = None) -> None:
+    """Open a short breaker for a non-quota hard failure (auth/connect).
+
+    ``record_provider_failure`` only reacts to quota answers. A provider whose
+    key answers 401/403, or whose endpoint refuses connections, is equally
+    dead for the rest of the turn, so the router can skip it without paying a
+    per-tier timeout. The cooldown is deliberately short: unlike a quota limit,
+    a rotated key or a restarted gateway becomes healthy again within minutes.
+
+    No-op unless the flag is on, and never raises.
+    """
+    if not _flag_on() or not provider:
+        return
+    cooldown = {
+        "auth": _AUTH_BREAK_COOLDOWN_S,
+        "connect": _CONNECT_BREAK_COOLDOWN_S,
+        "nested": _NESTED_BREAK_COOLDOWN_S,
+    }.get(kind, _CONNECT_BREAK_COOLDOWN_S)
+    moment = now if now is not None else time.time()
+    with _lock:
+        _breakers[provider] = {
+            "state": "open",
+            "opened_at": moment,
+            "reopen_at": moment + cooldown,
+            "repeats": 1,
+            "last_kind": kind or "hard",
+            "reason": f"hard-failure:{kind or 'unknown'}",
+        }
+
+
 def note_provider_success(provider: str) -> None:
     """A provider answered — close its breaker (re-probe succeeded)."""
     if not _flag_on():
@@ -197,6 +235,7 @@ __all__ = [
     "breaker_state",
     "classify_quota_error",
     "enabled",
+    "note_provider_break",
     "note_provider_success",
     "record_provider_failure",
     "reset",

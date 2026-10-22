@@ -104,6 +104,11 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_SKILL_EVAL_GATE", False, "learning", "2027-01-01"),
     # CAD-Sales Bot for Xianyu marketplace conversion (default OFF)
     FeatureFlag("VEYA_CAD_SALES_BOT", False, "runtime", "2027-01-01"),
+    # world-intel-mcp Phase 0 (default OFF; lazy discovery only)
+    FeatureFlag("VEYA_WORLD_INTEL_MCP", False, "runtime", "2027-01-01"),
+    # Hark parity Phase 0 (default OFF; appended, never reordered)
+    FeatureFlag("VEYA_BROWSER_SESSION", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_ROUND_COMPACTION", False, "runtime", "2027-01-01"),
 )
 
 
