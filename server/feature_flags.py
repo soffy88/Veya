@@ -109,6 +109,10 @@ FLAGS: tuple[FeatureFlag, ...] = (
     # Hark parity Phase 0 (default OFF; appended, never reordered)
     FeatureFlag("VEYA_BROWSER_SESSION", False, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_ROUND_COMPACTION", False, "runtime", "2027-01-01"),
+    # Spec Kit (SDD) Phase 0: goal_run stage templates + .speckit/ artifacts +
+    # read-only template discovery via search_tools. Default OFF; appended,
+    # never reordered.
+    FeatureFlag("VEYA_SPECKIT", False, "runtime", "2027-01-01"),
 )
 
 
