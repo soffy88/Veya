@@ -4135,12 +4135,80 @@ def _tool_search(query: str, top_k: int = 5) -> str:
 
 
 # ============ search_tools: opt-in two-stage lazy loading ============
+#: Character budget for one ``search_tools`` result (P1-2). The registry cap is
+#: applied by :func:`_to_str` as a hard character cut, which used to slice the
+#: JSON mid-string whenever the hit set carried a long schema (browser_session,
+#: world_intel) — the model then received unparseable output. The budget keeps
+#: the payload inside the same cap while guaranteeing valid JSON.
+_SEARCH_TOOLS_RESULT_CHARS = 16000
+#: Safety margin for JSON envelope growth (keys, escaping) beyond the measured
+#: per-hit serialization length.
+_SEARCH_TOOLS_JSON_SLACK = 256
+
+
+#: Description ceiling inside the compact schema. A gateway tool can carry a
+#: multi-thousand-character catalog in its description; the compact form keeps
+#: enough for the model to judge the tool and drops the rest.
+_COMPACT_DESCRIPTION_CHARS = 1200
+
+
+def _compact_tool_schema(function: dict) -> dict:
+    """Reduced schema carrying name + description + required parameters.
+
+    Used when the full schemas do not fit the result budget. The model still
+    gets the tool identity, what it does, and the arguments it must pass,
+    which is enough to decide whether to call it.
+    """
+    parameters = function.get("parameters") or {}
+    properties = parameters.get("properties") or {}
+    required = [str(name) for name in (parameters.get("required") or [])]
+    compact_params: dict[str, Any] = {
+        "type": parameters.get("type") or "object",
+        "required": required,
+    }
+    if properties:
+        compact_params["required_arg_shapes"] = {
+            str(name): (properties[name] or {}).get("type", "string") for name in required
+        }
+    description = str(function.get("description") or "")
+    if len(description) > _COMPACT_DESCRIPTION_CHARS:
+        description = _truncate_on_word(description, _COMPACT_DESCRIPTION_CHARS)
+    return {
+        "type": function.get("type") or "function",
+        "name": str(function.get("name") or ""),
+        "description": description,
+        "parameters": compact_params,
+    }
+
+
+def _truncate_on_word(text: str, limit: int) -> str:
+    """Cut ``text`` to at most ``limit`` characters on a word boundary."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    if space > limit // 2:
+        cut = cut[:space]
+    return cut.rstrip() + " …"
+
+
+def _search_tools_payload_fits(payload: dict) -> bool:
+    """Would this payload serialize inside the result budget?"""
+    return len(json.dumps(payload, ensure_ascii=False)) <= _SEARCH_TOOLS_RESULT_CHARS
+
+
 def _lazy_search_tools(query: str, top_k: int = 8) -> str:
     """Model-triggered discovery for VEYA_LAZY_TOOLS sessions.
 
     Returns complete OpenAI tool schemas and records the hits in the current
     session's stable loaded set.  The catalog is request-bound by the host so
     this function never reads or mutates a second tool surface.
+
+    P1-2: the result is assembled inside a character budget instead of relying
+    on the registry's hard cut, so the model always receives parseable JSON.
+    Hits are added one at a time while the serialized payload still fits; when
+    the full schemas do not fit, the same hits are re-serialized with the
+    compact schema (name + description + required arguments).
     """
     from server import lazy_tools
 
@@ -4196,6 +4264,88 @@ def _lazy_search_tools(query: str, top_k: int = 8) -> str:
                 " Read-only security SKILL.md matches (Claude-BugHunter) are listed "
                 "under 'security_skills' for on-demand reference; they are not callable tools."
             )
+    return _search_tools_render(payload, hits)
+
+
+def _search_tools_render(payload: dict[str, Any], hits: list[tuple[int, str, dict]]) -> str:
+    """Serialize ``search_tools`` output so it always parses as JSON (P1-2).
+
+    Steps, in order:
+    1. every hit with its full schema when the payload fits the budget;
+    2. otherwise drop trailing hits (they stay in ``loaded``) until it fits;
+    3. otherwise re-serialize the remaining hits with the compact schema
+       (name + description + required arguments);
+    4. otherwise keep name + description only. The output is never cut
+       mid-string, and at least one hit is always returned.
+    """
+    if _search_tools_payload_fits(payload):
+        return json.dumps(payload, ensure_ascii=False)
+
+    def _note(extra: str) -> str:
+        return f"{payload.get('note', '')} {extra}".strip()
+
+    budget = _SEARCH_TOOLS_RESULT_CHARS - _SEARCH_TOOLS_JSON_SLACK
+    kept = list(hits)
+    while kept:
+        trial = {**payload, "tools": [row[2] for row in kept]}
+        if len(json.dumps(trial, ensure_ascii=False)) <= budget:
+            break
+        kept = kept[:-1]
+
+    if not kept:
+        # Even one full schema is too large: keep the leading hit in compact form.
+        kept = hits[:1]
+        compact = {
+            **payload,
+            "tools": [_compact_tool_schema(row[2]) for row in kept],
+            "note": _note("Long schemas were reduced to name + description + required arguments."),
+        }
+        if _search_tools_payload_fits(compact):
+            return json.dumps(compact, ensure_ascii=False)
+        # Last resort: name plus a bounded description. The description is cut on
+        # a word boundary inside the serialized payload so the result stays
+        # valid JSON no matter how long the original text was.
+        room = max(
+            64,
+            budget
+            - len(
+                json.dumps({k: v for k, v in compact.items() if k != "tools"}, ensure_ascii=False)
+            )
+            - 64,
+        )
+        names_only = {
+            "loaded": payload.get("loaded", []),
+            "session_loaded_count": payload.get("session_loaded_count", 0),
+            "tools": [
+                {
+                    "name": row[1],
+                    "description": _truncate_on_word(str(row[2].get("description") or ""), room),
+                }
+                for row in kept
+            ],
+            "note": "Schemas exceeded the result budget; names and descriptions only.",
+        }
+        return json.dumps(names_only, ensure_ascii=False)
+
+    dropped = len(hits) - len(kept)
+    payload = {
+        **payload,
+        "tools": [row[2] for row in kept],
+        "note": _note(
+            f"{dropped} further match(es) exceed the result budget; "
+            f"they are loaded and available next round."
+        )
+        if dropped
+        else payload.get("note", ""),
+    }
+    if _search_tools_payload_fits(payload):
+        return json.dumps(payload, ensure_ascii=False)
+
+    payload = {
+        **payload,
+        "tools": [_compact_tool_schema(row[2]) for row in kept],
+        "note": _note("Long schemas were reduced to name + description + required arguments."),
+    }
     return json.dumps(payload, ensure_ascii=False)
 
 

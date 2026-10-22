@@ -110,6 +110,33 @@ def _user_llm_config() -> dict[str, str]:
         return {}
 
 
+def _exception_status(exc: BaseException) -> int | None:
+    """HTTP status carried by an exception, when there is one."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    return int(status) if isinstance(status, int) else None
+
+
+def _fast_break_kind(exc: BaseException) -> str:
+    """Classify a tier failure as an immediate break (P1-1b).
+
+    ``auth``: 401/403 — the credential or permission is gone, retrying the same
+    tier inside one turn cannot change the answer. ``connect``: the endpoint
+    refused the TCP connection, i.e. nothing is listening there.
+    """
+    if isinstance(exc, httpx.ConnectError):
+        return "connect"
+    status = _exception_status(exc)
+    if status in (401, 403):
+        return "auth"
+    return ""
+
+
+def _fast_break(exc: BaseException) -> bool:
+    """Should this failure skip the tier immediately instead of retrying?"""
+    return bool(_fast_break_kind(exc))
+
+
 def get_provider_config(
     config: dict | None = None,
     *,
@@ -432,22 +459,61 @@ async def _nvidia_nim_stream(messages: list[dict], kwargs: dict, alias: str) -> 
 # GMI MiniMax M3 已于 2026-09 移除: 上游持续 402 Insufficient balance。
 # Advisor + Executor 架构保留为独立 alias veya-dp4.1-jev-1.13，
 # 不改变固化的 veya1.2 单一主入口路由语义。
+# 2026-10-22 生产验收 P1-1: 主脑池前 3 层各自吃满超时预算, 第 4 层
+# OpenRouter 虽可用却永远轮不到, chat/headless 全线 120s 超时。
+# 规则:
+#   (a) 每层独立短超时 (VEYA_TIER_TIMEOUT_S, 默认 18s; 连接/首字节同值),
+#       总预算内保证后续层有机会;
+#   (b) 401/403 (凭据/权限失效) 与连接拒绝 (ConnectError) 立即熔断跳过该层,
+#       不重试、不等满;
+#   (c) 缺 key 的 provider 在入池前就摘掉 (见 _veya12_pool)。
 _VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
     {
         "provider": "opencode-go",
         "model": "deepseek-v4.1-flash",
         "endpoint": "https://opencode.ai/zen/go/v1",
+        "timeout": "18",
     },
     # W11: NVIDIA NIM (key pool, probe-qualified via model-state.json) is the
     # second tier — opencode-go hits its monthly cap and the OpenRouter :free
     # tier has a shared daily cap, which left the brain with no live model.
     # Real bot turns carry ~180 tool schemas; NIM needs well over 12s for them.
-    {"provider": "veya-nim", "model": "veya-nim", "timeout": "30"},
+    # P1-1: 30s → tier timeout so one slow tier cannot eat the whole budget.
+    {"provider": "veya-nim", "model": "veya-nim", "timeout": "18"},
     {
         "provider": "openrouter",
         "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "timeout": "18",
     },
 ]
+
+#: Per-tier timeout (seconds) for the veya1.2 brain pool. Env-overridable so a
+#: host with slower upstreams can widen it without a code change; the 120s
+#: MasterAgent budget only tolerates ~4 such tiers.
+_TIER_TIMEOUT_ENV = "VEYA_TIER_TIMEOUT_S"
+_DEFAULT_TIER_TIMEOUT_S = 18.0
+
+
+def _tier_timeout_s(cand: dict[str, str]) -> float:
+    """Per-tier request timeout: pool entry > env > default (P1-1a)."""
+    raw = str(cand.get("timeout") or "").strip()
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value > 0:
+            return value
+    raw = os.environ.get(_TIER_TIMEOUT_ENV, "").strip()
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value > 0:
+            return value
+    return _DEFAULT_TIER_TIMEOUT_S
+
 
 # veya1.2-free: opencode-go 免费模型轮询 (不走 veya1.2 主脑代理)。
 # 端点统一指向本机 veya gateway，端口由 VEYA_GATEWAY_PORT 控制；opencode-go
@@ -555,7 +621,7 @@ def _workbuddy_candidates() -> list[dict[str, str]]:
     offered = {str((m or {}).get("id") or "") for m in entry.get("models") or []}
     endpoint = _host_reachable(endpoint)
     return [
-        {"provider": "workbuddy", "model": m, "endpoint": endpoint, "timeout": "45"}
+        {"provider": "workbuddy", "model": m, "endpoint": endpoint, "timeout": "18"}
         for m in _WORKBUDDY_MODELS
         if m in offered
     ]
@@ -567,6 +633,13 @@ def _veya_gateway_candidates() -> list[dict[str, str]]:
     W11 live landing: opencode-go hit its Go usage cap and NIM times out on
     real bot turns (~180 tool schemas), which left every turn waiting minutes
     on fallbacks.  The gateway's veya-free pool answers tool calls in seconds.
+
+    P1-1 (2026-10-22 production acceptance): the docker backend has no listener
+    on the gateway port (container 127.0.0.1:8791 is empty, host bridge closed),
+    so the tier is a guaranteed miss there. It stays in the pool because it is
+    the fast path on hosts where it does listen, but it now carries the tier
+    timeout plus the connect-refused fast break below, which turns the miss into
+    milliseconds. ``VEYA_GATEWAY_POOL_DISABLED=1`` removes it outright.
     """
     if os.environ.get("VEYA_GATEWAY_POOL_DISABLED", "").strip() in ("1", "true"):
         return []
@@ -582,9 +655,26 @@ def _veya_gateway_candidates() -> list[dict[str, str]]:
             "provider": "veya-gw",
             "model": "veya-free",
             "endpoint": _host_reachable(endpoint),
-            "timeout": "45",
+            "timeout": "18",
         }
     ]
+
+
+def _pool_candidate_has_key(cand: dict[str, str]) -> bool:
+    """Does this pool tier hold a usable credential (P1-1c)?
+
+    Local/loopback endpoints need no key; every other tier must resolve one,
+    otherwise it is a guaranteed miss that only burns the tier budget.
+    """
+    from veya.obase._llm_config import get_api_key
+    from veya.obase._llm_protocol import _is_local_or_private
+
+    endpoint = cand.get("endpoint") or ""
+    if endpoint and _is_local_or_private(endpoint):
+        return True
+    if cand.get("provider") == "veya-nim":
+        return _cp.nim_key_pool().size() > 0
+    return bool(get_api_key(cand.get("provider", "")))
 
 
 def _veya12_pool() -> list[dict[str, str]]:
@@ -592,14 +682,21 @@ def _veya12_pool() -> list[dict[str, str]]:
 
     WorkBuddy (when configured in pi) sits right after opencode-go, ahead of
     the NIM and OpenRouter free tiers; FrogNano is the last resort.
+
+    P1-1c: a tier without a credential is dropped before the pool runs, so a
+    keyless provider never spends a tier timeout on a guaranteed miss.
     """
-    pool = list(_VEYA12_DEFAULT_POOL)
-    wb = _workbuddy_candidates() + _veya_gateway_candidates()
+    pool = [c for c in _VEYA12_DEFAULT_POOL if _pool_candidate_has_key(c)]
+    wb = [
+        c
+        for c in _workbuddy_candidates() + _veya_gateway_candidates()
+        if _pool_candidate_has_key(c)
+    ]
     if wb:
         at = next((i for i, c in enumerate(pool) if c.get("provider") != "opencode-go"), len(pool))
         pool[at:at] = wb
     frog = _frognano_candidate()
-    if frog is not None:
+    if frog is not None and _pool_candidate_has_key(frog):
         pool.append(frog)
     return pool
 
@@ -720,8 +817,13 @@ async def _veya12_rr_call(
                 "model": cand_model,
                 "tools": kwargs.get("tools"),
                 "default_content": default,
-                # 单候选超时: 免费模型上游波动大, 卡太久无意义 — 超时即跳下一个候选
-                "timeout": float(cand.get("timeout") or 12.0),
+                # 单候选超时: 免费模型上游波动大, 卡太久无意义 — 超时即跳下一个候选。
+                # P1-1a: 统一走 _tier_timeout_s (pool entry > VEYA_TIER_TIMEOUT_S > 18s),
+                # 否则 veya-gw 的 45s 会把 120s 预算吃穿。
+                "timeout": _tier_timeout_s(cand),
+                # P1-1b: 连接/首字节独立超时, 与整请求同量级 — 上游挂起时不必等满读超时。
+                "connect_timeout": _tier_timeout_s(cand),
+                "read_timeout": _tier_timeout_s(cand),
             }
             if cand.get("endpoint"):
                 call_kwargs["endpoint"] = cand["endpoint"]
@@ -729,6 +831,19 @@ async def _veya12_rr_call(
                 resp = await llm_call(messages, **call_kwargs)
             except Exception as exc:  # 网络/鉴权失败 (含 openrouter 缺 key) → 换模型重试
                 last_err = f"{cand_provider}/{cand_model}: {exc}"
+                # P1-1b: 401/403 (凭据/权限失效) 与连接拒绝 (该层根本没监听) 立刻
+                # 熔断该 provider, 不重试、不等满 — 否则 3 轮 × N 层会把 120s 预算
+                # 全耗在已知必败的层上, 后面的可用层永远轮不到。
+                if _fast_break(exc):
+                    _breaker.record_provider_failure(cand_provider, exc)
+                    _breaker.note_provider_break(cand_provider, _fast_break_kind(exc))
+                    logger.warning(
+                        "brain tier %s/%s fast-break (%s), 跳过该层",
+                        cand_provider,
+                        cand_model,
+                        _fast_break_kind(exc),
+                    )
+                    candidates = [c for c in candidates if c.get("provider") != cand_provider]
                 continue
             msg = (resp.get("choices") or [{}])[0].get("message") or {}
             content = msg.get("content") or ""
@@ -1368,6 +1483,14 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         }
 
     timeout = kwargs.get("timeout", 120.0)
+    connect_timeout = kwargs.get("connect_timeout")
+    read_timeout = kwargs.get("read_timeout")
+    # P1-1a: connect/read 可分别设短值 — 连接被拒/上游挂起时不必等满整请求超时。
+    httpx_timeout = (
+        httpx.Timeout(timeout, connect=connect_timeout, read=read_timeout)
+        if (connect_timeout or read_timeout)
+        else timeout
+    )
     tools = kwargs.get("tools")
     max_tokens = kwargs.get("max_tokens", 4096)
     temperature = kwargs.get("temperature")
@@ -1384,9 +1507,9 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         # AsyncClient owns sockets, SSL contexts, and connection-pool state.
         # Keep construction inside the lifecycle block so partially-created
         # client lists are also cleaned up when the process is FD constrained.
-        clients.append(httpx.AsyncClient(timeout=timeout))
+        clients.append(httpx.AsyncClient(timeout=httpx_timeout))
         if proxy:
-            clients.append(httpx.AsyncClient(timeout=timeout, proxy=proxy))
+            clients.append(httpx.AsyncClient(timeout=httpx_timeout, proxy=proxy))
         last_exc: Exception | None = None
         for attempt in range(retries + 1):
             client = clients[attempt % len(clients)]
