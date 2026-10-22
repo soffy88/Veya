@@ -42,6 +42,7 @@ import logging
 import os
 import re
 import threading
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -494,6 +495,25 @@ _TIER_TIMEOUT_ENV = "VEYA_TIER_TIMEOUT_S"
 _DEFAULT_TIER_TIMEOUT_S = 18.0
 
 
+#: Wall-clock budget for one brain-pool call. The MasterAgent gives the whole
+#: LLM call 120s; the pool stops retrying early enough to return something.
+_TURN_BUDGET_ENV = "VEYA_BRAIN_TURN_BUDGET_S"
+_DEFAULT_TURN_BUDGET_S = 100.0
+
+
+def _turn_budget_s() -> float:
+    """Wall-clock budget for one brain-pool call (P1-1a)."""
+    raw = os.environ.get(_TURN_BUDGET_ENV, "").strip()
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            value = 0.0
+        if value > 0:
+            return value
+    return _DEFAULT_TURN_BUDGET_S
+
+
 def _tier_deadline_s(cand: dict[str, str]) -> float:
     """Whole-tier deadline (P1-1a).
 
@@ -823,8 +843,21 @@ async def _veya12_rr_call(
     default = kwargs.get("default_content") or f"{pool_label}调用失败"
     last_err = ""
     _retry_rounds = 3
+    # P1-1a: a tier that already failed inside this turn is not retried in a
+    # later round. Without this, one timing-out tier paid its timeout again on
+    # every round, which is what pushed a multi-round turn past 120s.
+    failed_this_turn: set[str] = set()
+    turn_deadline = time.monotonic() + _turn_budget_s()
     for round_idx in range(_retry_rounds):
+        if round_idx and time.monotonic() >= turn_deadline:
+            logger.warning("%s %s预算耗尽, 停止整轮重试", alias, pool_label)
+            break
         for cand in candidates:
+            if cand["provider"] in failed_this_turn:
+                continue
+            if time.monotonic() >= turn_deadline:
+                last_err = f"{cand['provider']} 跳过: 本轮时间预算已耗尽"
+                break
             cand_provider = cand["provider"]
             cand_model = cand["model"]
             call_kwargs: dict[str, Any] = {
@@ -854,6 +887,10 @@ async def _veya12_rr_call(
                 )
             except Exception as exc:  # 网络/鉴权失败 (含 openrouter 缺 key) → 换模型重试
                 last_err = f"{cand_provider}/{cand_model}: {exc}"
+                # A timeout is a property of this turn's upstream conditions,
+                # not a permanent verdict: record it for this turn only.
+                if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+                    failed_this_turn.add(cand_provider)
                 # P1-1b: 401/403 (凭据/权限失效) 与连接拒绝 (该层根本没监听) 立刻
                 # 熔断该 provider, 不重试、不等满 — 否则 3 轮 × N 层会把 120s 预算
                 # 全耗在已知必败的层上, 后面的可用层永远轮不到。
@@ -893,15 +930,19 @@ async def _veya12_rr_call(
             }
             return resp
         if round_idx < _retry_rounds - 1:
+            backoff = 3.0 * (2**round_idx)
+            if time.monotonic() + backoff >= turn_deadline:
+                logger.warning("%s %s预算不足以重试整轮, 停止", alias, pool_label)
+                break
             logger.warning(
                 "%s %s第 %d 轮全候选无效 (%s), %.1fs 后重试整轮",
                 alias,
                 pool_label,
                 round_idx + 1,
                 last_err,
-                3.0 * (2**round_idx),
+                backoff,
             )
-            await asyncio.sleep(3.0 * (2**round_idx))
+            await asyncio.sleep(backoff)
 
     fb = await _frontier_fallback(messages, kwargs, reason=fallback_reason)
     if fb is not None:

@@ -109,6 +109,63 @@ def test_nested_proxy_tier_is_bounded_by_a_whole_tier_deadline(pool_env, monkeyp
     assert result["router"]["provider"] == "openrouter"
 
 
+def test_timed_out_tier_is_not_retried_in_the_same_turn(pool_env, monkeypatch):
+    """One timing-out tier must not pay its timeout on every retry round.
+
+    The three retry rounds were what pushed a multi-round turn past 120s even
+    after each tier got a short timeout.
+    """
+    monkeypatch.setattr(hllm, "_workbuddy_candidates", lambda: [])
+    monkeypatch.setattr(hllm, "_veya_gateway_candidates", lambda: [])
+    monkeypatch.setattr(hllm, "_frognano_candidate", lambda: None)
+    monkeypatch.setenv("VEYA_TIER_TIMEOUT_S", "0.05")
+    original = hllm.llm_call
+    nim_attempts: list[int] = []
+
+    async def fake(messages, **kwargs):
+        provider = kwargs.get("provider", "")
+        if provider == "veya-nim":
+            nim_attempts.append(1)
+            await asyncio.sleep(5)  # exceeds the tier deadline
+        if provider == "opencode-go":
+            raise _http_error(401)
+        return _ok("live")
+
+    monkeypatch.setattr(hllm, "llm_call", fake)
+    result = asyncio.run(
+        original([{"role": "user", "content": "hi"}], provider="veya1.2", model="veya1.2")
+    )
+    assert len(nim_attempts) == 1, "a timed-out tier was retried in the same turn"
+    assert result["router"]["provider"] == "openrouter"
+
+
+def test_turn_budget_stops_retry_rounds(pool_env, monkeypatch):
+    monkeypatch.setattr(hllm, "_workbuddy_candidates", lambda: [])
+    monkeypatch.setattr(hllm, "_veya_gateway_candidates", lambda: [])
+    monkeypatch.setattr(hllm, "_frognano_candidate", lambda: None)
+    monkeypatch.setenv("VEYA_TIER_TIMEOUT_S", "0.05")
+    monkeypatch.setenv("VEYA_BRAIN_TURN_BUDGET_S", "0.01")
+    original = hllm.llm_call
+
+    async def empty(messages, **kwargs):
+        return {"choices": [{"message": {"content": ""}}], "usage": {}}
+
+    async def no_frontier(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(hllm, "llm_call", empty)
+    monkeypatch.setattr(hllm, "_frontier_fallback", no_frontier)
+    # No live tier: the pool must give up on its turn budget, not spin rounds.
+    import time as _time
+
+    t0 = _time.monotonic()
+    result = asyncio.run(
+        original([{"role": "user", "content": "hi"}], provider="veya1.2", model="veya1.2")
+    )
+    assert _time.monotonic() - t0 < 2, "turn budget did not stop the retry rounds"
+    assert result.get("error") is True
+
+
 def test_default_pool_tiers_all_carry_a_short_timeout():
     for cand in hllm._VEYA12_DEFAULT_POOL:
         assert 0 < hllm._tier_timeout_s(cand) <= 30, cand
