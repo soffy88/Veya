@@ -181,6 +181,22 @@ class _OrderedEventDrain:
         self.failures.append(record)
         logger.error("durable session event append failed: %s", record)
 
+    async def flush(self, timeout: float = 5.0) -> bool:
+        """Wait until every submitted event has been appended.
+
+        A producer that must be ordered after pending sync events (the stream
+        pump's final answer and terminal event) awaits this instead of racing
+        the drain. Returns False on timeout; the caller must still publish, so
+        a stuck drain degrades to the previous unordered behavior rather than
+        hanging the stream.
+        """
+        deadline = time.monotonic() + timeout
+        while self._in_flight or any(not q.empty() for _l, q, _t in self._drains.values()):
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.005)
+        return True
+
 
 class DurableSessionEventStore:
     def __init__(self):
@@ -631,6 +647,10 @@ class DurableSessionEventStore:
     def drain_failures(self) -> list[dict[str, Any]]:
         """Append failures recorded by the ordered drain (observability)."""
         return self._drain.failures
+
+    async def flush(self, timeout: float = 5.0) -> bool:
+        """Wait for sync-produced events submitted so far to be journaled."""
+        return await self._drain.flush(timeout)
 
     def reset_transient_state(self) -> None:
         """Drop live subscribers and per-loop drain state.

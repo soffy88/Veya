@@ -18,7 +18,12 @@ from contextlib import suppress
 from typing import TYPE_CHECKING
 
 from server.coordinator_master import master_coordinator
-from server.session_events import durable_session_store, is_terminal, wire_payload
+from server.session_events import (
+    TERMINAL_EVENT_TYPES,
+    durable_session_store,
+    is_terminal,
+    wire_payload,
+)
 from server.session_identity import new_session_id
 from server.sse import parse_cursor
 
@@ -156,7 +161,17 @@ async def new_agent_stream_events(
     from server.events import _on_step_ctx
 
     def _on_step(event: dict) -> None:
-        """Sync producer hook for the engine (fire_step -> _on_step_ctx)."""
+        """Sync producer hook for the engine (fire_step -> _on_step_ctx).
+
+        The engine signals the end of its ReAct loop with a ``master_done``
+        that carries only the round count; the final answer is returned to
+        this pump afterwards. Publishing that as a durable terminal event
+        ends the stream before ``_finish`` can send ``text_delta(final)``, so
+        the answer is lost. Termination is owned by ``_finish``: it publishes
+        the final text and then exactly one terminal event.
+        """
+        if str(event.get("type") or "") in TERMINAL_EVENT_TYPES:
+            return
         durable_session_store.publish_sync(sid, event, epoch=stream_epoch)
 
     # Consumers that used to recover the session id from the bound method's
@@ -208,6 +223,7 @@ async def new_agent_stream_events(
             # 先排空 sync producer 队列: 本协程的直接落盘绝不能插队到它们前面,
             # 否则终止事件会拿到更小的 seq 并提前截断流。
             try:
+                await durable_session_store.flush()
                 try:
                     result = await chat_task
                 except asyncio.CancelledError:
