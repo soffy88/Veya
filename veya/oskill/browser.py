@@ -269,13 +269,13 @@ class BrowserSession:
                 wait_until=action.wait_until,
                 timeout=action.timeout_ms,
             )
-            return self._page_snapshot(action)
+            return await self._page_snapshot(action)
 
         elif action.action == "click":
             el = await page.wait_for_selector(action.selector or "body", timeout=action.timeout_ms)
             await el.click(timeout=action.timeout_ms)
             await page.wait_for_load_state("networkidle")
-            return self._page_snapshot(action)
+            return await self._page_snapshot(action)
 
         elif action.action == "type":
             el = await page.wait_for_selector(action.selector or "body", timeout=action.timeout_ms)
@@ -306,7 +306,11 @@ class BrowserSession:
             else:
                 text = await page.inner_text("body")
             return BrowserActionResult(
-                success=True, action="extract_text", text=text, page_url=page.url
+                success=True,
+                action="extract_text",
+                text=text,
+                page_url=page.url,
+                page_title=await page.title(),
             )
 
         elif action.action == "extract_html":
@@ -316,7 +320,11 @@ class BrowserSession:
             else:
                 html = await page.content()
             return BrowserActionResult(
-                success=True, action="extract_html", html=html, page_url=page.url
+                success=True,
+                action="extract_html",
+                html=html,
+                page_url=page.url,
+                page_title=await page.title(),
             )
 
         elif action.action == "scroll":
@@ -364,13 +372,14 @@ class BrowserSession:
             success=False, action=action.action, error=f"Unknown action: {action.action}"
         )
 
-    def _page_snapshot(self, action: BrowserAction) -> BrowserActionResult:
+    async def _page_snapshot(self, action: BrowserAction) -> BrowserActionResult:
         """Create a text snapshot of the current page."""
+        page = self._page
         return BrowserActionResult(
             success=True,
             action=action.action,
-            page_url=self._page.url if self._page else "",
-            page_title="",
+            page_url=page.url if page else "",
+            page_title=await page.title() if page else "",
         )
 
     # ── High-level convenience methods ──────────────────────────────────

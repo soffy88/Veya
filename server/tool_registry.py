@@ -1344,6 +1344,7 @@ async def _tool_browser_run(
                 "url": last.page_url or url,
                 "title": last.page_title,
                 "text": last.text[:4000],
+                "html": last.html[:4000],
                 "screenshot_base64": (last.screenshot_base64[:200] + "...")
                 if last.screenshot_base64
                 else "",

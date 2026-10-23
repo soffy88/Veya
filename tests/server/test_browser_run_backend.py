@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from veya.oprim.browser import action_extract_text
 from veya.oskill.browser import BrowserSession
 
 
@@ -59,11 +60,18 @@ class _FakeBrowser:
 
 
 class _FakePage:
+    def __init__(self) -> None:
+        self.url = "https://example.com/"
+
     async def goto(self, url: str, **kwargs: Any) -> Any:
+        self.url = url
         return type("Resp", (), {"status": 200})()
 
     async def title(self) -> str:
         return "Example Domain"
+
+    async def inner_text(self, selector: str) -> str:
+        return "This domain is for use in documentation examples."
 
 
 class _FakeContext:
@@ -190,3 +198,30 @@ def test_installed_executable_finds_a_bundled_chromium(tmp_path: Path, monkeypat
 def test_installed_executable_is_none_without_a_bundle(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path / "empty"))
     assert BrowserSession._installed_executable() is None
+
+
+@pytest.mark.asyncio
+async def test_navigate_snapshot_reports_the_page_title(
+    fake_playwright: _FakePlaywright, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`browser_run` returns `last.page_title`; navigate must actually fill it.
+
+    With an empty snapshot title the tool reported ``"title": ""`` for every
+    page, so a model asked for a page title had nothing to answer with and
+    fell back to re-trying other actions.
+    """
+    monkeypatch.setenv("VEYA_BROWSER_CDP_URL", "http://sidecar:9222")
+    session = BrowserSession(headless=True)
+    await session.start()
+
+    result = await session.navigate("https://example.com")
+
+    assert result.success is True
+    assert result.page_title == "Example Domain"
+
+    # browser_run reports the last action's result, so text extraction must
+    # carry the title too.
+    extracted = await session.execute_action(action_extract_text())
+    assert extracted.text.startswith("This domain is for use")
+    assert extracted.page_title == "Example Domain"
+    await session.stop()
