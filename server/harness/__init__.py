@@ -12,9 +12,11 @@ Phase 0 不改动冻结主链路（master_agent / tool_registry 行为不变）�
 __all__ = [
     "VeyaBenchmarkAdapter",
     "VeyaDemoProposer",
+    "VeyaProposer",
     "build_harness_tree",
     "export_base_harness",
     "import_harness2_core",
+    "proposer_enabled",
     "read_veya_sources",
     "veya_substrate",
 ]
