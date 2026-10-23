@@ -273,3 +273,203 @@ docker compose --env-file deploy/.env \
   不进镜像，所以线上运行时 sha 与它们无关；这是预期状态，不是漏部署。
 - 本轮未 bump 版本号；`/health` 版本串由 `VEYA_BUILD_SHA` 派生。
 - 报告中不含任何 token、密钥或密码明文。
+
+---
+
+# 第二轮集成（2026-10-23）：harness2 Phase 1 + fix/baseline 新提交
+
+本轮在同一份报告上追加。目标：把已提交的 harness2 Phase 1 与 `fix/baseline`
+新提交合入 `main`，复跑套件对比上文基线，做薄镜像上线，并记录浏览器端到端结果。
+
+- 起始线上版本：`veya-backend:7d0b6faf`（health `0.6.0-7d0b6faf`）
+- 起始 `main`：`a74b66e7`（比 `origin/main` 领先 1 个 docs/版本提交）
+- 上线版本：`veya-backend:348dbb78`（health `0.6.0-348dbb78`）
+- 合并：`feat/harness2-phase0`（`77ef5971`）与 `fix/baseline`（`b1e03064`），
+  两条都是 `--no-ff`。
+
+## 九、前置等待与分支判定
+
+等待条件为 `~/wim/all/h22.exit` 与 `~/wim/all/base2.exit`。执行开始时两个文件
+都已存在（`h22.exit` 06:17、`base2.exit` 07:07），等待循环立即返回，未阻塞。
+
+| 标记 | 状态 | 对判定结果的影响 |
+|---|---|---|
+| `h22.exit` / `base2.exit` | 存在 | 前置等待满足 |
+| `h2.done` | 存在（06:17） | 允许合并 harness2 新提交 |
+| `base.done` | 存在（11:35） | 允许合并 `fix/baseline` 新提交 |
+
+新提交核对（`git merge-base --is-ancestor` 判定均为「不在 main」）：
+
+| 分支 | HEAD | 领先 main |
+|---|---|---|
+| `feat/harness2-phase0`（`~/projects/veya-h2`） | `77ef5971` | 1 commit（Phase 1） |
+| `fix/baseline`（`~/projects/veya-base`） | `b1e03064` | 1 commit |
+
+`feat/harness2-phase0` 的 diff：`server/harness/channel.py`（191 行）、
+`server/harness/proposer.py`（628 行）、`scripts/run_harness2_phase1.py`、
+`tests/server/test_harness_proposer.py`（572 行）、`server/feature_flags.py`
+追加 `VEYA_HARNESS2_REAL_PROPOSER`，以及三份文档。
+`fix/baseline` 的 diff：`server/chat_stream.py`、`server/session_events.py`、
+`veya/oskill/browser.py`、`server/tool_registry.py`、两个测试文件与
+`docs/baseline-fix-20261022.md`。
+
+## 十、合并记录
+
+```
+348dbb78 merge: fix/baseline (stream terminal ordering + browser page title)
+c974a008 merge: feat/harness2-phase0 Phase 1 (real proposer, default OFF)
+```
+
+`feat/harness2-phase0` 第一次 `git merge` 被工作区里两个未跟踪文件挡住：
+`docs/harness2-integration.md` 与 `docs/monty-integration.md`。先逐字节对比，
+两者与 `77ef5971` 中的版本完全相同（`diff` 无输出），因此暂存到 `/tmp` 后合并，
+合并后文件由分支版本落盘，内容一致，无丢失。
+
+唯一冲突在 `server/feature_flags.py` 的 `FLAGS` 元组尾部：分支在 `94e0cbba`
+之后追加 `VEYA_HARNESS2_REAL_PROPOSER`，`main` 在同一位置已有
+`VEYA_OLV` / `VEYA_DSH_DECISION_REVIEW` / `VEYA_SPECKIT`。解决方式是两段都保留，
+顺序为 OLV → DSH → SPECKIT → HARNESS2。合并后 `FLAGS` 共 67 条，
+四个新开关都在表尾且 `default=False`，无冲突标记残留。
+
+`fix/baseline` 自动合并成功，无冲突。
+
+## 十一、测试结果
+
+### harness 套件
+
+```
+$ venv/bin/python -m pytest -q tests/server/test_harness*
+42 passed, 5 warnings in 4.06s
+```
+
+42 条包含 Phase 1 的 `tests/server/test_harness_proposer.py`，与任务描述里
+「已核验 42 测试通过」一致。
+
+### unit-fast 与基线对比
+
+基线取合并前的 `main` @ `a74b66e7`，在独立 worktree 中跑同一套件（套件用
+`scripts/ci_test_suites.py unit-fast` 展开，与 CI 定义一致）。该 worktree 需要
+把 `platform/3O/*` 五个子模块按 pin 补齐才能 collect，补齐后正常执行。
+
+| 套件 | 基线（a74b66e7） | 合并后（348dbb78） | 新增失败 |
+|---|---|---|---|
+| unit-fast | 13 failed, 393 passed | 13 failed, 393 passed | 0 |
+
+不只是数量相同：把两次运行的失败 nodeid 排序后 `diff`，**完全一致**
+（`IDENTICAL_FAILURES`）。13 条既有失败集中在
+`tests/security/test_sf002_sandbox_boundary.py`（9 条）、
+`tests/test_tool_execution_contract.py`（2 条）、
+`tests/architecture/test_single_execution_authority.py`（1 条）、
+`tests/remote/test_credential_truthfulness_fields.py`（1 条）。
+
+一次说明：第一次跑 unit-fast 时只截取了尾部 30 行日志，看到 8 条；随后用完整
+日志重跑，得到全部 13 条 nodeid 再与基线逐条比对。上表用的是完整日志的数字。
+
+## 十二、镜像与上线
+
+薄镜像，`FROM veya-backend:9172671f`，只覆盖 Python 树与 speckit 模板：
+
+```dockerfile
+FROM veya-backend:9172671f
+ARG VEYA_BUILD_SHA=348dbb78
+ENV VEYA_BUILD_SHA=$VEYA_BUILD_SHA
+COPY server/ ./server/
+COPY veya/ ./veya/
+COPY tests/ ./tests/
+COPY templates/speckit/ ./templates/speckit/
+```
+
+构建后逐文件比对容器内代码与工作区：`server/chat_stream.py`、
+`server/session_events.py`、`veya/oskill/browser.py`、
+`server/harness/proposer.py`、`server/feature_flags.py` 的 md5 全部相同。
+`platform/` 未 COPY，沿用基础镜像内的 3O 树。
+
+部署走 `deploy/deploy-immutable.sh`（内含 version 校验、禁止代码 bind mount
+校验、依赖 preflight、失败自动回滚），未执行裸 `docker compose up`，
+`backend-override.yml` 只被脚本按设计改写了 `image:` 一行。
+
+```
+[deploy] current=veya-backend:7d0b6faf target=veya-backend:348dbb78
+deployed_at=20261023T114222Z
+image=veya-backend:348dbb78
+image_id=sha256:941cf1b7a234ffbef12434a34a0ca9d8d85d64e36ce5d1933131530732464689
+previous_image=veya-backend:7d0b6faf
+previous_image_id=sha256:d798e51963e70d86800f9a29b69409fea571cb4bbaac96650a5cdf78f47eb25f
+commit=348dbb78d6feace13908d639d3239a13196c6c98
+health_version=0.6.0-348dbb78
+[deploy] healthy immutable image: veya-backend:348dbb78
+```
+
+## 十三、上线验证
+
+| 检查 | 结果 |
+|---|---|
+| `curl https://veya.aiinote.com/health` | **200**，`status: ok`，`details.backend.version = 0.6.0-348dbb78` |
+| 本地网关 `http://127.0.0.1:8767/health` | **200**，`version: 0.6.0-348dbb78` |
+| 容器 `VEYA_BUILD_SHA` | `348dbb78` |
+| 容器状态 | `Up (healthy)` |
+| 代码 bind mount | 无（`/app/server`、`/app/veya`、`/app/platform` 均未挂载） |
+| tailnet 7767 | `http://100.86.95.70:7767/health` **200**，`{"ok": true, "v": 1, "node": "ubuntu26.taile7dda2.ts.net"}`；监听 `100.86.95.70:7767` |
+| 启动日志 | `Application startup complete`，`master_tools=204`，无 traceback |
+
+### 新开关默认关闭（线上容器内实测）
+
+```
+VEYA_HARNESS2_REAL_PROPOSER default=False enabled=False
+VEYA_SPECKIT                default=False enabled=False
+VEYA_OLV                    default=False enabled=False
+VEYA_DSH_DECISION_REVIEW    default=False enabled=False
+```
+
+## 十四、浏览器端到端结果（来源 `docs/baseline-fix-20261022.md`）
+
+上线后在本容器内复跑同一条验收问句
+`用浏览器打开 https://example.com 告诉我页面标题`：在容器内
+`server.auth.issue_token(uid)` 取临时 token → `POST http://127.0.0.1:8765/api/v1/agent/stream`
+→ `finally` 里 `revoke_token`，未手工写入 `~/.veya/auth.db`。
+
+本轮实测（镜像 `348dbb78`）：
+
+```
+issued token prefix: 6b8fc90b ...
+HTTP 200
+elapsed_s=36.3
+event_count= 7
+master_start  seq=1
+master_round  seq=2  round=1
+tool_call     seq=3  browser_run {"url": "https://example.com", "action": "extract_text"}
+master_round  seq=4  round=2
+text_delta    seq=5  "The page title is **\"Example Domain\"**."
+master_done   seq=6  status=success rounds=2
+[DONE]
+HAS_EXAMPLE_DOMAIN= True
+token revoked
+```
+
+`docs/baseline-fix-20261022.md` 中的三组对照结果（同一问句、同一方法）：
+
+| 运行 | 镜像 | 耗时 | `browser_run` 调用 | 结果 |
+|---|---|---|---|---|
+| 修复前 | `9172671f` | 211.6 s | 4 次（extract_text / extract_html / screenshot / extract_text selector=title） | 5 轮后 provider timeout，无答案 |
+| 修复后 run 1 | `7d0b6faf` | 38.3 s | 1 次（extract_text） | `text_delta` = `The page title is **"Example Domain"**.` |
+| 修复后 run 2 | `7d0b6faf` | 34.7 s | 1 次（extract_text） | `text_delta` = `页面标题：**Example Domain**`，`GET /stream/{sid}` 回放含同一答案 |
+| 本轮复跑 | `348dbb78` | 36.3 s | 1 次（extract_text） | `text_delta` 含 `Example Domain`，`master_done` status=success |
+
+该文档记录的两个根因：`MasterAgent` 在 ReAct 循环内部发出的 `master_done`
+被 `server/chat_stream.py` 直接转进 durable journal，消费者把它当终止事件，
+在最终答案发布前就发出 `[DONE]`；`veya/oskill/browser.py` 的
+`_page_snapshot` 把 `page_title` 写死为空串，`extract_text` / `extract_html`
+也不填，而 `browser_run` 只上报最后一个 action 的 `page_title`。
+本轮合并的 `fix/baseline` 即这两处修复及其回归测试
+（`tests/test_stream_terminal_ordering.py` 2 条，修复前为红；
+`tests/server/test_browser_run_backend.py` 的标题断言）。
+
+## 十五、跳过与回滚
+
+- 两条分支都合并，无跳过、无回滚。
+- 13 条既有失败未修，属本轮范围外；与基线逐条一致。
+- 回滚目标：`veya-backend:7d0b6faf`（上一版本，仍在本地）。部署脚本的状态文件
+  `/home/soffy/veya-fix-1017/p0-3-immutable/last-deploy.env` 已记录本轮现场，
+  回滚备份的 override 与 compose 解析结果同目录、时间戳 `20261023T114222Z`。
+- 远端 `origin/main` 已从 `47ed4027` 推进到 `348dbb78`。
+- 本轮未 bump 版本号；报告中不含任何 token、密钥或密码明文。
