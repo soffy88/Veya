@@ -1,0 +1,39 @@
+# Veya Sandbox Daemon — host-side srt execution service (user systemd)
+#
+# Why: the production veya-backend container cannot run srt (bubblewrap
+# cannot create namespaces inside Docker under the host kernel's
+# user-namespace restriction). This daemon runs on the HOST, where srt
+# works, and serves sandbox executions over a Unix socket that the
+# container mounts read-only at /run/veya-sandbox.
+#
+# Install (host, user scope):
+#   cp deploy/systemd/veya-sandbox-daemon.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now veya-sandbox-daemon
+#
+# Container side (deploy/docker-compose.yml, backend service):
+#   volumes: /home/soffy/.veya/sandbox-sockets:/run/veya-sandbox:ro
+#   environment: VEYA_SANDBOX_REMOTE_SOCKET=/run/veya-sandbox/sandbox-exec.sock
+#
+# The socket directory lives under ~/.veya, which veya's srt settings mask
+# (denyRead) inside every sandbox, so a sandboxed child cannot connect back
+# to this daemon. Do not move the socket outside a masked directory.
+
+[Unit]
+Description=Veya sandbox execution daemon (srt on host, socket for backend container)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/soffy/projects/veya
+Environment=PYTHONPATH=/data/soffy/projects/veya
+Environment=PATH=/home/soffy/.nvm/versions/node/v26.4.0/bin:/home/soffy/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=VEYA_SANDBOX_BACKEND=srt
+Environment=VEYA_SRT_ALLOW_ALL_UNIX_SOCKETS=1
+Environment=VEYA_SRT_BIN=/home/soffy/.nvm/versions/node/v26.4.0/bin/srt
+ExecStart=/usr/bin/python3 server/sandbox_remote_daemon.py --socket-dir /home/soffy/.veya/sandbox-sockets
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

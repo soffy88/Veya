@@ -96,6 +96,148 @@ def _bwrap_available() -> bool:
     return _bwrap_probe
 
 
+# --- sandbox-runtime (srt) backend ---
+# veya 的隔离层从手写 bwrap --unshare-net 切换为 Anthropic sandbox-runtime:
+# srt 在 bwrap 之上再加文件白名单 + 域名白名单 + 凭证目录掩盖, 补齐旧实现
+# 的三块短板: 旧实现 --bind / / 导致文件视图全开 (子进程可读 ~/.ssh、
+# ~/.veya/auth.db 等宿主凭证)、网络只有"全断/全通"两档、bwrap 缺失时退回
+# 纯代理 env 软阻断 (直接 socket 即可绕过)。
+#
+# 后端选择 (VEYA_SANDBOX_BACKEND):
+#   auto   (默认) : srt 二进制在位就用 srt, 否则退回旧 bwrap 路径; 实际走哪条
+#          路写进每次执行结果的 sandbox_backend 和审计日志, 不静默降级。
+#   srt    : 强制 srt; 二进制缺失或配置无法表达 (如 network_blocked=False
+#          且未给 allowed_domains) 时执行直接失败, 不退回旧路径。
+#   legacy : 强制旧路径。
+# VEYA_SRT_BIN 可指定 srt 二进制位置 (默认 PATH 查找)。
+# VEYA_SRT_ALLOW_ALL_UNIX_SOCKETS=1 时 srt 跳过 Unix socket 创建封堵
+# (apply-seccomp 嵌套 userns): ubuntu26 默认禁非特权 userns, 全量模式在该
+# 主机上直接报 setgroups 权限错, 必须开此开关才能跑; 代价是沙箱内进程可
+# 创建 Unix socket (容器内无 docker.sock 挂载, 残余面主要是宿主侧的
+# /run/veya 等 socket, 容器部署可接受; 宿主部署须知悉)。默认 0 (全量)。
+_SRT_CREDENTIAL_DENY_READ: tuple[str, ...] = (
+    "~/.ssh",
+    "~/.veya",
+    "~/.claude",
+    "~/.codex",
+    "~/.grok",
+    "~/.pi",
+    "~/.opencode",
+    "~/.local/share/opencode/auth.json",
+)
+
+
+def _srt_binary() -> str | None:
+    override = os.environ.get("VEYA_SRT_BIN", "").strip()
+    if override:
+        return override if os.path.isfile(override) else None
+    return shutil.which("srt")
+
+
+_SRT_PROBE_CACHE: dict[tuple[str, bool], bool] = {}
+
+
+def _srt_probe(binary: str) -> bool:
+    """Run one trivial srt command to prove srt can actually sandbox here.
+
+    Binary presence is not enough: inside a Docker container bwrap cannot
+    create namespaces at all, so every srt run fails even with the binary
+    installed. The probe result is cached per (binary, allow-all-flag) so
+    the ~0.3s probe cost is paid once per process. A probe failure only
+    disables auto mode; explicit mode=srt still fails hard on the real run.
+    """
+    key = (binary, _srt_allow_all_unix_sockets())
+    if key in _SRT_PROBE_CACHE:
+        return _SRT_PROBE_CACHE[key]
+    ok = False
+    try:
+        with tempfile.TemporaryDirectory(prefix="veya_srt_probe_") as work_dir:
+            probe_config = SandboxConfig(network_blocked=True, allow_write=False)
+            settings = build_srt_settings(probe_config, work_dir=work_dir)
+            fd, path = tempfile.mkstemp(prefix="veya_srt_probe_", suffix=".json")
+            try:
+                with os.fdopen(fd, "w") as handle:
+                    json.dump(settings, handle)
+                proc = subprocess.run(
+                    [binary, "--settings", path, "--", "true"],
+                    capture_output=True,
+                    timeout=30,
+                )
+                ok = proc.returncode == 0
+            finally:
+                with contextlib.suppress(OSError):
+                    os.unlink(path)
+    except Exception:
+        ok = False
+    _SRT_PROBE_CACHE[key] = ok
+    return ok
+
+
+def _srt_backend_mode() -> str:
+    return os.environ.get("VEYA_SANDBOX_BACKEND", "auto").strip().lower() or "auto"
+
+
+def _srt_allow_all_unix_sockets() -> bool:
+    return os.environ.get("VEYA_SRT_ALLOW_ALL_UNIX_SOCKETS", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _srt_enabled_for(config: SandboxConfig) -> bool:
+    mode = _srt_backend_mode()
+    if mode == "srt":
+        return True
+    if mode == "legacy":
+        return False
+    binary = _srt_binary()
+    if binary is None:
+        return False
+    # auto 模式: 二进制在位还不够, 必须探活成功 (容器内 bwrap 建不了
+    # namespace 时探活失败, 自动退回旧路径, 而不是让每次执行都报错)。
+    return _srt_probe(binary)
+
+
+def build_srt_settings(
+    config: SandboxConfig,
+    *,
+    work_dir: str,
+) -> dict[str, Any]:
+    """从 SandboxConfig 生成 srt settings (纯函数, 可单测)。
+
+    fail-closed 两点:
+    - network_blocked=False 且未给 allowed_domains 时抛错: srt 的
+      allowedDomains 明确拒绝 "*" 这类全通 pattern, 旧"全通"语义无法表达,
+      绝不能静默翻译成 [] (那会变成断网) 或全通 (那会丢隔离)。
+    - allowWrite 只含本次沙箱工作目录 (allow_write 时再加 /tmp);
+      宿主 home、项目、repo 一律不在写白名单内。
+    """
+    if not config.network_blocked and not config.allowed_domains:
+        raise ValueError(
+            "srt backend cannot express unrestricted network: "
+            "set SandboxConfig.allowed_domains or use network_blocked=True"
+        )
+    allow_write = [work_dir]
+    if config.allow_write:
+        allow_write.append("/tmp")
+    return {
+        "network": {
+            "allowedDomains": [] if config.network_blocked else list(config.allowed_domains or []),
+            "deniedDomains": [],
+            "allowUnixSockets": [],
+            "allowAllUnixSockets": _srt_allow_all_unix_sockets(),
+        },
+        "filesystem": {
+            "denyRead": list(_SRT_CREDENTIAL_DENY_READ),
+            "allowRead": [],
+            "allowWrite": allow_write,
+            "denyWrite": [],
+        },
+    }
+
+
 def is_dangerous_command(command: str) -> bool:
     """Dangerous-command detection (canonical single source, §1.4: tools.py delegates here)."""
     lowered = (command or "").lower()
@@ -184,6 +326,7 @@ class SandboxConfig:
     reject_dangerous: bool = True  # G4: 危险命令执行前拦截
     env_extra: dict[str, str] | None = None  # 注入子进程的额外环境变量(如 OPENBLAS_NUM_THREADS=1)
     profile: str | None = None
+    allowed_domains: list[str] | None = None  # srt 专用: network_blocked=False 时的域名白名单; None 则 srt 模式下拒绝执行 (fail-closed)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -196,6 +339,7 @@ class SandboxConfig:
             "allow_write": self.allow_write,
             "audit_enabled": self.audit_enabled,
             "env_extra": self.env_extra,
+            "allowed_domains": self.allowed_domains,
             "profile": self.profile,
         }
 
@@ -321,6 +465,9 @@ class Sandbox(ABC):
         self.original_cwd = os.getcwd()
         self._saved_rlimits: dict[int, tuple[int, int]] = {}
         self.logger = logging.getLogger(f"sandbox.{id(self)}")
+        self._srt_settings_path: str | None = None
+        self._last_backend: str = "legacy"
+
 
         # 确保审计日志目录存在 (cwd 不可写时 — 如容器 /app 只读 — fallback 到系统临时目录)
         if self.config.audit_enabled:
@@ -373,6 +520,12 @@ class Sandbox(ABC):
             except Exception as e:
                 self.logger.error(f"Failed to clean up sandbox: {e}")
         self.temp_dir = None
+        # 清理 srt settings 临时文件 (600, 仅本次执行用)
+        settings_path = getattr(self, "_srt_settings_path", None)
+        if settings_path and os.path.exists(settings_path):
+            with contextlib.suppress(OSError):
+                os.unlink(settings_path)
+        self._srt_settings_path = None
 
         # 恢复原始工作目录
         os.chdir(self.original_cwd)
@@ -414,8 +567,47 @@ class Sandbox(ABC):
             parts.append(f"ulimit -t {max(1, int(self.config.cpu_limit))} 2>/dev/null;")
         return " ".join(parts)
 
+    def _write_srt_settings(self) -> str:
+        """把本次执行的 srt settings 写进系统临时目录的 600 文件, 返回路径。
+
+        srt 在沙箱外读 settings, 故不放工作目录: 工作目录在 allowWrite 内,
+        子进程理论上可改写它 (读时已定, 但没必要留这个口子)。
+        """
+        assert self.temp_dir is not None
+        settings = build_srt_settings(self.config, work_dir=self.temp_dir)
+        fd, path = tempfile.mkstemp(prefix="veya_srt_", suffix=".json")
+        try:
+            with os.fdopen(fd, "w") as handle:
+                json.dump(settings, handle)
+            os.chmod(path, 0o600)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+            raise
+        self._srt_settings_path = path
+        return path
+
     def _isolation_argv(self) -> list[str]:
-        """bubblewrap wrapper implementing real network isolation (SEC H5).
+        """隔离前缀: srt 模式走 srt, 否则旧 bwrap 路径。
+
+        srt 形态: [srt, --settings, <file>, --] + 后续 bash/argv; srt 接管
+        后, 原 bash 命令原样成为被包装命令 (argv 透传与 -c 形式均已实测)。
+        """
+        if _srt_enabled_for(self.config):
+            self._last_backend = "srt"
+            binary = _srt_binary()
+            if binary is None:
+                raise RuntimeError(
+                    "VEYA_SANDBOX_BACKEND=srt but no srt binary found "
+                    "(set VEYA_SRT_BIN or install @anthropic-ai/sandbox-runtime)"
+                )
+            settings_path = self._write_srt_settings()
+            return [binary, "--settings", settings_path, "--"]
+        self._last_backend = "legacy"
+        return self._legacy_isolation_argv()
+
+    def _legacy_isolation_argv(self) -> list[str]:
+        """旧 bubblewrap 路径: 仅 network_blocked 时加 bwrap --unshare-net。
 
         ``network_blocked`` used to be only proxy-env scrubbing, which a direct
         socket bypasses. When ``bwrap`` is present and ``network_blocked`` is set,
@@ -623,6 +815,7 @@ class ProcessSandbox(Sandbox):
                 "stderr": stderr.decode().strip(),
                 "command": display,
                 "duration": time.time() - self.start_time,
+                "sandbox_backend": self._last_backend,
             }
 
             # 记录审计日志
@@ -632,6 +825,7 @@ class ProcessSandbox(Sandbox):
                 status="success" if process.returncode == 0 else "failed",
                 exit_code=process.returncode,
                 duration=result["duration"],
+                sandbox_backend=self._last_backend,
             )
 
             return result
@@ -730,6 +924,25 @@ class ProcessSandbox(Sandbox):
         if self.config.env_extra:
             # 注入额外环境(如 OPENBLAS_NUM_THREADS=1 规避 RLIMIT_AS 下 OpenBLAS 启动失败)
             env.update(self.config.env_extra)
+        if getattr(self, "_last_backend", "legacy") == "srt":
+            # srt 自己给子进程注入指向本地代理的 proxy env (含 per-run token),
+            # 宿主的 egress 代理只应供给 srt 自身的上游, 不能原样进子进程;
+            # srt 会覆盖子进程的 proxy 变量, 这里把宿主代理透传给 srt 进程即可。
+            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "no_proxy"):
+                value = os.environ.get(name)
+                if value is not None:
+                    env[name] = value
+            # 沙箱内临时文件统一落工作目录 (allowWrite 内), 避免 /tmp 绝对路径
+            # 在 read-only 档被拒; 工作目录随沙箱删除, 不留宿主残留。
+            if self.temp_dir:
+                env["TMPDIR"] = self.temp_dir
+                env["TMP"] = self.temp_dir
+                env["TEMP"] = self.temp_dir
+                # srt 硬编码子进程 TMPDIR = $CLAUDE_CODE_TMPDIR || '/tmp/claude'
+                # (为 Claude Code 而生); veya 侧必须把它指到本次工作目录,
+                # 否则子进程临时文件落到不存在的 /tmp/claude 直接失败。
+                env["CLAUDE_CODE_TMPDIR"] = self.temp_dir
+            return env
         if self.config.network_blocked:
             # 代理层软阻断 (纵深防御之一; 真隔离见 _isolation_argv 的 --unshare-net)
             env["NO_PROXY"] = "*"
@@ -914,8 +1127,11 @@ class SafeExecutor:
 
         import concurrent.futures
 
-        # 选择合适的沙箱实现
-        if self.config.allow_write:
+        # 选择合适的沙箱实现: 远程 socket 配好且无 working_dir 时走宿主 srt;
+        # 否则保持原有本地分支 (working_dir 的相对路径在两端解析不同)。
+        if _remote_socket_path() is not None and not self.config.working_dir:
+            self.sandbox = RemoteSandbox(self.config)
+        elif self.config.allow_write:
             self.sandbox = FileSystemSandbox(self.config)
         else:
             self.sandbox = ProcessSandbox(self.config)
@@ -1063,10 +1279,182 @@ class SecureTool:
 
 
 # 便捷函数
+
+# ── 远程沙箱 (宿主侧 srt 执行服务客户端) ──────────────────────────────
+# 背景: 生产容器内 bwrap 建不了 namespace, srt 无法在容器内运行。宿主机上
+# 跑一个守护进程 (server/sandbox_remote_daemon.py, systemd 用户服务), 它在
+# 宿主侧用 srt 执行沙箱命令; 容器通过只读挂载的 socket 目录连过去。
+# 环境变量 VEYA_SANDBOX_REMOTE_SOCKET 设为容器内 socket 路径即启用。
+#
+# 信任边界: 守护进程只跑 srt 沙箱命令, 不跑裸命令, 所以拿到 socket 的只能
+# 是沙箱执行, 不是宿主 shell。socket 目录在宿主侧位于 ~/.veya 下, srt 的
+# denyRead 会把它整个掩盖, 沙箱内的子进程连不回守护进程 (防逃逸)。
+# 远程只在 config.working_dir 为空时启用: working_dir 的相对路径在容器和
+# 宿主侧解析结果不同, 有 working_dir 的调用保持本地执行。
+
+_REMOTE_MAX_REQUEST_BYTES = 8 * 1024 * 1024
+_REMOTE_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+
+
+def _remote_socket_path() -> str | None:
+    path = os.environ.get("VEYA_SANDBOX_REMOTE_SOCKET", "").strip()
+    return path or None
+
+
+class RemoteConnectError(Exception):
+    """Socket connect failed before the request was sent (safe to fall back)."""
+
+
+class RemoteProtocolError(Exception):
+    """Request sent but the round-trip failed (do NOT retry: may double-run)."""
+
+
+def _remote_recvall(sock: Any, n: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = n
+    while remaining > 0:
+        chunk = sock.recv(min(65536, remaining))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def _remote_call(socket_path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+    """One JSON request/response over the daemon Unix socket (blocking)."""
+    import socket as _socket
+    import struct as _struct
+
+    raw = json.dumps(payload).encode("utf-8")
+    if len(raw) > _REMOTE_MAX_REQUEST_BYTES:
+        raise RemoteProtocolError("request too large")
+    try:
+        sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect(socket_path)
+    except OSError as exc:
+        raise RemoteConnectError(str(exc)) from exc
+    try:
+        sock.sendall(_struct.pack(">I", len(raw)) + raw)
+        header = _remote_recvall(sock, 4)
+        if len(header) < 4:
+            raise RemoteProtocolError("daemon closed connection")
+        (n,) = _struct.unpack(">I", header)
+        if n > _REMOTE_MAX_RESPONSE_BYTES:
+            raise RemoteProtocolError("response too large")
+        data = _remote_recvall(sock, n)
+    except RemoteProtocolError:
+        raise
+    except OSError as exc:
+        raise RemoteProtocolError(str(exc)) from exc
+    finally:
+        with contextlib.suppress(OSError):
+            sock.close()
+    resp = json.loads(data.decode("utf-8"))
+    if "error" in resp:
+        raise RemoteProtocolError(str(resp["error"])[:500])
+    return resp
+
+
+class RemoteSandbox(Sandbox):
+    """Sandbox whose execution happens in the host daemon (srt on host).
+
+    Same result shape as ProcessSandbox. If the daemon socket cannot be
+    reached at connect time (daemon down, socket not mounted), falls back
+    to a local ProcessSandbox and marks the result, so a daemon outage
+    degrades to today's behavior instead of breaking tool execution.
+    """
+
+    def __init__(self, config: SandboxConfig):
+        super().__init__(config)
+        self._socket_path = _remote_socket_path()
+
+    def setup_environment(self) -> None:
+        pass  # temp dirs live on the daemon side
+
+    def cleanup_environment(self) -> None:
+        pass
+
+    def cleanup(self) -> None:
+        pass
+
+    def _rejected_result(self, command: str) -> dict[str, Any]:
+        return {
+            "exit_code": -3,
+            "stdout": "",
+            "stderr": "Command rejected: potentially dangerous (blocked before execution)",
+            "command": command,
+            "duration": 0.0,
+        }
+
+    async def execute(self, command: str, **kwargs: Any) -> dict[str, Any]:
+        if self.config.reject_dangerous and is_dangerous_command(command):
+            return self._rejected_result(command)
+        return await self._run_remote("execute", {"command": command})
+
+    async def execute_args(self, argv: list[str], **kwargs: Any) -> dict[str, Any]:
+        if not argv:
+            return {
+                "exit_code": -2,
+                "stdout": "",
+                "stderr": "empty argv",
+                "command": "",
+                "duration": 0.0,
+            }
+        if self.config.reject_dangerous and is_dangerous_argv(argv):
+            return self._rejected_result(" ".join(shlex.quote(a) for a in argv))
+        return await self._run_remote("execute_args", {"command": argv})
+
+    async def run_script(self, script: str, **kwargs: Any) -> dict[str, Any]:
+        return await self._run_remote("run_script", {"script": script})
+
+    async def cancel(self) -> None:
+        pass  # daemon enforces config.time_limit; no remote cancel protocol
+
+    async def _run_remote(self, kind: str, fields: dict[str, Any]) -> dict[str, Any]:
+        payload = {
+            "version": 1,
+            "kind": kind,
+            **fields,
+            "config": self.config.to_dict(),
+        }
+        timeout = (self.config.time_limit or 300) + 120
+        try:
+            result = await asyncio.to_thread(
+                _remote_call, self._socket_path or "", payload, timeout
+            )
+        except RemoteConnectError as exc:
+            self.logger.warning(
+                "sandbox remote unavailable (%s); falling back to local", exc
+            )
+            local = ProcessSandbox(self.config)
+            if kind == "execute":
+                result = await local.execute(fields["command"])
+            elif kind == "execute_args":
+                result = await local.execute_args(fields["command"])
+            else:
+                result = await local.run_script(fields["script"])
+            result["sandbox_fallback"] = "remote-unavailable"
+            return result
+        except RemoteProtocolError as exc:
+            return {
+                "exit_code": -2,
+                "stdout": "",
+                "stderr": f"sandbox remote error: {exc}",
+                "command": fields.get("command", ""),
+                "duration": 0.0,
+                "sandbox_backend": "remote-error",
+            }
+        result["sandbox_backend"] = "srt-remote"
+        return result
+
 def create_sandbox(config: SandboxConfig | None = None) -> Sandbox:
     """Create a sandbox instance."""
     if not config:
         config = SandboxConfig()
+    if _remote_socket_path() is not None and not config.working_dir:
+        return RemoteSandbox(config)
     return ProcessSandbox(config)
 
 

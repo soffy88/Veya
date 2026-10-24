@@ -111,6 +111,9 @@ services:
       - VEYA_PERSONAL_AGENT_GOLD_REPORT=${VEYA_PERSONAL_AGENT_GOLD_REPORT:-/home/soffy/projects/veya/evals/personal_agent_gold/results/latest.json}
       # local = process/docker (veya start / 当前单机). hosted = OpenSandbox, 禁止 process.
       - VEYA_SANDBOX_PROFILE=${VEYA_SANDBOX_PROFILE:-local}
+      # 宿主侧 srt 沙箱守护进程: 容器内 bwrap 无法建 namespace, 沙箱执行经
+      # socket 委托宿主守护进程 (srt); 断线时客户端自动回退本地并明示。
+      - VEYA_SANDBOX_REMOTE_SOCKET=/run/veya-sandbox/sandbox-exec.sock
       - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}
       - OPEN_SANDBOX_API_KEY=${OPEN_SANDBOX_API_KEY:-}
       - OPEN_SANDBOX_PROTOCOL=${OPEN_SANDBOX_PROTOCOL:-http}
@@ -197,6 +200,8 @@ services:
       # hicode-entrypoint is baked into the image so the command cannot change
       # without a new image digest.
       - ${STRATUM_NIM_KEYS_FILE:-/data/soffy/projects/stratum/aii/.pipeline_keys.json}:/home/soffy/projects/stratum/aii/.pipeline_keys.json:ro
+      # 宿主 srt 沙箱守护进程 socket 目录 (只读: 容器只需连接, 不能删改 socket)
+      - /home/soffy/.veya/sandbox-sockets:/run/veya-sandbox:ro
       # 宿主同级项目 (hemal/stratum/aegis 等) 通过上面的
       # /data/soffy/projects:/data/soffy/projects 与 /home/soffy/projects
       # 符号链接访问; 不再重复挂载同一目录。
