@@ -114,6 +114,10 @@ services:
       # 宿主侧 srt 沙箱守护进程: 容器内 bwrap 无法建 namespace, 沙箱执行经
       # socket 委托宿主守护进程 (srt); 断线时客户端自动回退本地并明示。
       - VEYA_SANDBOX_REMOTE_SOCKET=/run/veya-sandbox/sandbox-exec.sock
+      # owner 判定：is_owner() 认 DB is_owner 标志或该 env；compose 从未声明它，
+      # 导致 compose 重建后 owner 丢失、全部 owner 接口 403（2026-10-25 验收发现）。
+      # 用户 id 非密钥，可明文写在这里。
+      - VEYA_OWNER_USER_ID=a70d409b44534c1f83f666d1cf7f09d1
       - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}
       - OPEN_SANDBOX_API_KEY=${OPEN_SANDBOX_API_KEY:-}
       - OPEN_SANDBOX_PROTOCOL=${OPEN_SANDBOX_PROTOCOL:-http}
