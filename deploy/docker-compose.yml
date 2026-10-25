@@ -118,6 +118,10 @@ services:
       # 导致 compose 重建后 owner 丢失、全部 owner 接口 403（2026-10-25 验收发现）。
       # 用户 id 非密钥，可明文写在这里。
       - VEYA_OWNER_USER_ID=a70d409b44534c1f83f666d1cf7f09d1
+      # 公开注册：Soffy 2026-10-25 拍板开放（此前默认关闭，注册 403）。
+      # 注意：注册即登录、无验证码无公开限流，注册用户可用主脑对话（走 LLM）；
+      # 若遭滥用，改回 0 并重建即可立即关闭。
+      - VEYA_PUBLIC_SIGNUP=1
       - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}
       - OPEN_SANDBOX_API_KEY=${OPEN_SANDBOX_API_KEY:-}
       - OPEN_SANDBOX_PROTOCOL=${OPEN_SANDBOX_PROTOCOL:-http}
