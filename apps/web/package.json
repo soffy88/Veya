@@ -29,6 +29,7 @@
     "@veya/ui": "workspace:*",
     "highlight.js": "11.11.1",
     "lucide-svelte": "1.0.1",
-    "marked": "18.0.9"
+    "marked": "18.0.9",
+    "ws": "^8.22.0"
   }
 }

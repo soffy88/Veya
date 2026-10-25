@@ -541,7 +541,7 @@ import { sessionStore } from "$lib/sessionStore.svelte";
 				class="flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-left transition hover:bg-white/[0.05]"
 			>
 				<Bot class="size-3.5 shrink-0 text-sky-300/70" />
-				<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">Muse 会话</span>
+				<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">窗口</span>
 			</a>
 			<a
 				href="/projects"
