@@ -205,8 +205,23 @@ wss.on("connection", (ws) => {
 				);
 				return;
 			}
+			// CDP key events without a virtual key code reach page JS but do
+			// not trigger the editor's default action (Backspace deleted
+			// nothing). The page sends DOM `code`, which maps 1:1 to Windows
+			// virtual key codes for the editing/navigation keys forwarded here.
+			const VK_BY_CODE = {
+				Backspace: 8, Tab: 9, Enter: 13, Escape: 27,
+				PageUp: 33, PageDown: 34, End: 35, Home: 36,
+				ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40,
+				Delete: 46,
+			};
 			if (msg.type === "key") {
 				const params = { type: msg.kind, key: msg.key, code: msg.code };
+				const vk = VK_BY_CODE[msg.code] ?? VK_BY_CODE[msg.key];
+				if (vk !== undefined) {
+					params.windowsVirtualKeyCode = vk;
+					params.nativeVirtualKeyCode = vk;
+				}
 				if (msg.text) {
 					params.text = msg.text;
 					params.unmodifiedText = msg.text;
