@@ -30,8 +30,8 @@ Turn flow (single-threaded: turns run one at a time):
   2. pick the window tab that has a visible chat input
   3. snapshot visible leaf texts, focus the input, type the message,
      submit with Enter (send-button fallback), confirm it went out
-  4. poll for new visible text (excluding the sent message itself) until
-     it is stable across 3 polls, or the reply timeout hits
+  4. poll for the reply's own text (after the sent message, in the
+     input's column) until stable across 3 polls, or the timeout hits
   5. return the reply; identical (bot_id, text) turns within the cache
      window return the cached reply instead of re-sending
 """
@@ -39,6 +39,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -81,7 +82,8 @@ FIND_INPUT_JS = """(focus) => {
   cands.sort((a, b) => b.score - a.score);
   const el = cands[0].el;
   if (focus) { el.focus(); el.scrollIntoView({block: 'nearest'}); }
-  return {tag: el.tagName};
+  const rr = el.getBoundingClientRect();
+  return {tag: el.tagName, x: rr.x, w: rr.width};
 }"""
 
 SEND_BUTTON_JS = """() => {
@@ -108,7 +110,10 @@ LEAF_TEXTS_JS = """() => {
       if (s.display === 'none' || s.visibility === 'hidden') { vis = false; break; }
       el = el.parentElement;
     }
-    if (vis) out.push(t);
+    if (vis) {
+      const r = n.parentElement.getBoundingClientRect();
+      out.push({t, x: r.left + r.width / 2});
+    }
   }
   return out;
 }"""
@@ -199,7 +204,45 @@ def is_noise(text):
     # pure digits / punctuation / symbols (timestamps, counters, bullets)
     if all((not ch.isalnum()) for ch in stripped):
         return True
+    # bare clock times (3:42 AM, 15:04) that ride along with a reply
+    if re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?\s*([AP]M)?", stripped, re.I):
+        return True
     return False
+
+
+def extract_reply(before, ordered, sent, band):
+    """Keep only the reply's own text from a page snapshot.
+
+    before: [(text, x)] taken before the message was sent.
+    ordered: [(text, x)] in document order, current snapshot.
+    sent: the message text that was typed.
+    band: (x_lo, x_hi) column of the chat input, or None.
+    """
+    before_set = {t for t, _ in before}
+    sent_s = sent.strip()
+    anchor = None
+    for i, (t, _) in enumerate(ordered):
+        if t.strip() == sent_s or (
+            sent_s and sent_s in t and len(t) <= len(sent_s) + 20
+        ):
+            anchor = i
+            break
+    items = []
+    for i, (t, x) in enumerate(ordered):
+        if t in before_set or t.strip() == sent_s or is_noise(t):
+            continue
+        if anchor is not None and i <= anchor:
+            continue
+        if band is not None and not (band[0] <= x <= band[1]):
+            continue
+        items.append(t)
+    lines = list(dict.fromkeys(items))
+    # a lone speaker label at the top is UI chrome, not the reply
+    if lines and lines[0].strip() in ("You:", "Assistant:", "Assistant message:"):
+        lines = lines[1:]
+    if lines and lines[0].startswith("Assistant message: "):
+        lines[0] = lines[0][len("Assistant message: "):]
+    return "\n".join(lines).strip()
 
 
 def run_window_turn(window, text, cfg):
@@ -236,15 +279,19 @@ def run_window_turn(window, text, cfg):
                     f"window {window!r} shows no chat input "
                     "(is it logged in on a chat page?)"
                 )
-            before = set(page.evaluate(f"({LEAF_TEXTS_JS})()"))
+            before = [
+                (d["t"], d["x"])
+                for d in page.evaluate(f"({LEAF_TEXTS_JS})()")
+            ]
             info = page.evaluate(f"({FIND_INPUT_JS})(true)")
             if not info:
                 raise RuntimeError("chat input disappeared before send")
+            band = (info["x"] - 60, info["x"] + info["w"] + 60)
             page.keyboard.type(text)
             page.keyboard.press("Enter")
             time.sleep(2)
             sent = False
-            after = set(page.evaluate(f"({LEAF_TEXTS_JS})()"))
+            after = {d["t"] for d in page.evaluate(f"({LEAF_TEXTS_JS})()")}
             if text.strip() in after or page.evaluate(f"({INPUT_EMPTY_JS})()"):
                 sent = True
             if not sent:
@@ -254,35 +301,26 @@ def run_window_turn(window, text, cfg):
                     clicked = False
                 if clicked:
                     time.sleep(2)
-                    after = set(page.evaluate(f"({LEAF_TEXTS_JS})()"))
+                    after = {d["t"] for d in page.evaluate(f"({LEAF_TEXTS_JS})()")}
                     if text.strip() in after or page.evaluate(
                         f"({INPUT_EMPTY_JS})()"
                     ):
                         sent = True
             if not sent:
                 raise RuntimeError("message did not leave the chat input")
-            # wait for a new, stable reply
+            # wait for a new, stable reply (only the reply's own text)
             last_candidate = ""
             stable = 0
             while time.time() < deadline:
                 time.sleep(poll_s)
                 try:
-                    current = set(page.evaluate(f"({LEAF_TEXTS_JS})()"))
+                    ordered = [
+                        (d["t"], d["x"])
+                        for d in page.evaluate(f"({LEAF_TEXTS_JS})()")
+                    ]
                 except Exception:
                     continue
-                new = [
-                    t
-                    for t in current - before
-                    if t.strip() != text.strip() and not is_noise(t)
-                ]
-                # document order is lost in a set; re-read ordered list
-                ordered = page.evaluate(f"({LEAF_TEXTS_JS})()")
-                new_ordered = [
-                    t
-                    for t in ordered
-                    if t in set(new) and t.strip() != text.strip()
-                ]
-                candidate = "\n".join(dict.fromkeys(new_ordered))
+                candidate = extract_reply(before, ordered, text, band)
                 if candidate and candidate == last_candidate:
                     stable += 1
                     if stable >= 3:
