@@ -41,6 +41,7 @@ Turn flow (single-threaded: turns run one at a time):
      the cache window return the cached reply instead of re-sending
 """
 import hashlib
+from collections import Counter
 import hmac
 import json
 import os
@@ -266,7 +267,11 @@ def extract_reply(before, ordered, sent, band, anchor_last=False):
     anchor_last: anchor on the LAST leaf containing sent (for typed
     blocks, where the trailer line is unique to the bubble).
     """
-    before_set = {t for t, _ in before}
+    # Occurrence counts, not a text set: a reply that repeats an older
+    # on-screen text (notably a second "[PASS]") is new when it is an
+    # extra occurrence, while old sidebar leaves keep their counts.
+    before_counts = Counter(t for t, _ in before)
+    seen_counts: dict[str, int] = {}
     sent_s = sent.strip()
     anchor = None
     for i, (t, _) in enumerate(ordered):
@@ -282,11 +287,14 @@ def extract_reply(before, ordered, sent, band, anchor_last=False):
                 anchor = i
     items = []
     for i, (t, x) in enumerate(ordered):
-        if t in before_set or t.strip() == sent_s or is_noise(t):
-            continue
+        seen_counts[t] = seen_counts.get(t, 0) + 1
         if anchor is not None and i <= anchor:
             continue
+        if t.strip() == sent_s or is_noise(t):
+            continue
         if band is not None and not (band[0] <= x <= band[1]):
+            continue
+        if seen_counts[t] <= before_counts.get(t, 0):
             continue
         items.append(t)
     lines = list(dict.fromkeys(items))
@@ -438,7 +446,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path in ("/health", "/health/"):
-            self._send_json(200, {"status": "ok", "version": "window-bridge-2"})
+            self._send_json(200, {"status": "ok", "version": "window-bridge-3"})
         else:
             self._send_json(404, {"ok": False, "error": "not found"})
 
