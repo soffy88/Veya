@@ -195,6 +195,16 @@ wss.on("connection", (ws) => {
 				);
 				return;
 			}
+			if (msg.type === "insertText") {
+				cdp.send(
+					JSON.stringify({
+						id: 13,
+						method: "Input.insertText",
+						params: { text: msg.text ?? "" },
+					}),
+				);
+				return;
+			}
 			if (msg.type === "key") {
 				const params = { type: msg.kind, key: msg.key, code: msg.code };
 				if (msg.text) {

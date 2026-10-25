@@ -38,6 +38,8 @@
 	let busy = $state(false);
 	let error = $state("");
 	let notice = $state("");
+	let activeWindow = $state<string | null>(null);
+	let composing = false;
 
 	const streams = new Map<string, Stream>();
 
@@ -68,6 +70,17 @@
 
 	function canvasOf(sname: string): HTMLCanvasElement | null {
 		return document.getElementById(`cv-${sname}`) as HTMLCanvasElement | null;
+	}
+
+	function kbInput(): HTMLInputElement | null {
+		return document.getElementById("kb-input") as HTMLInputElement | null;
+	}
+
+	function setActive(sname: string | null): void {
+		activeWindow = sname;
+		const kb = kbInput();
+		if (sname) kb?.focus();
+		else kb?.blur();
 	}
 
 	function drawFrame(sname: string, m: { data: string; width: number; height: number }): void {
@@ -145,6 +158,7 @@
 			}
 			streams.delete(sname);
 		}
+		if (activeWindow === sname) setActive(null);
 		delete streamNote[sname];
 	}
 
@@ -204,7 +218,8 @@
 	function onCanvasMouse(sname: string, ev: MouseEvent, kind: string): void {
 		const canvas = canvasOf(sname);
 		if (!canvas) return;
-		canvas.focus();
+		ev.preventDefault();
+		setActive(sname);
 		const p = coords(sname, ev);
 		const button = ev.button === 0 ? "left" : ev.button === 1 ? "middle" : "right";
 		sendInput(sname, { type: "mouse", kind, x: p.x, y: p.y, button, clickCount: 1 });
@@ -227,14 +242,25 @@
 	}
 
 	function onKey(ev: KeyboardEvent, kind: "keyDown" | "keyUp"): void {
+		// 在顶部表单（窗口名/网址）里打字时不转发
 		const el = document.activeElement;
-		if (!(el instanceof HTMLCanvasElement)) return;
-		const sname = el.id.replace(/^cv-/, "");
-		if (!streams.has(sname)) return;
+		if ((el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.id !== "kb-input") return;
+		const sname = activeWindow;
+		if (!sname || !streams.has(sname)) return;
+		const printable = ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey;
+		if (printable) {
+			if (kind === "keyDown") {
+				// 焦点已在隐藏输入框时，input 事件会发 insertText，这里不重复发
+				if (el?.id === "kb-input") return;
+				ev.preventDefault();
+				kbInput()?.focus();
+				sendInput(sname, { type: "insertText", text: ev.key });
+			}
+			return;
+		}
+		if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
 		ev.preventDefault();
-		const msg: Record<string, unknown> = { type: "key", kind, key: ev.key, code: ev.code };
-		if (kind === "keyDown" && ev.key.length === 1) msg.text = ev.key;
-		sendInput(sname, msg);
+		sendInput(sname, { type: "key", kind, key: ev.key, code: ev.code });
 	}
 
 	function onKeyDown(ev: KeyboardEvent): void {
@@ -244,10 +270,30 @@
 		onKey(ev, "keyUp");
 	}
 	function onWindowMouseDown(ev: MouseEvent): void {
-		if (!(ev.target instanceof HTMLCanvasElement)) {
-			const el = document.activeElement;
-			if (el instanceof HTMLCanvasElement) el.blur();
-		}
+		if (!(ev.target instanceof HTMLCanvasElement)) setActive(null);
+	}
+
+	function onKbInput(ev: Event): void {
+		if (composing) return;
+		const input = ev.target as HTMLInputElement;
+		const v = input.value;
+		if (!v) return;
+		input.value = "";
+		const sname = activeWindow;
+		if (sname) sendInput(sname, { type: "insertText", text: v });
+	}
+
+	function onCompositionStart(): void {
+		composing = true;
+	}
+
+	function onCompositionEnd(ev: CompositionEvent): void {
+		composing = false;
+		const input = kbInput();
+		const data = ev.data ?? input?.value ?? "";
+		if (input) input.value = "";
+		const sname = activeWindow;
+		if (sname && data) sendInput(sname, { type: "insertText", text: data });
 	}
 
 	onMount(() => {
@@ -327,6 +373,20 @@
 		<p class="mt-3 text-sm text-emerald-300">{notice}</p>
 	{/if}
 
+	<input
+		id="kb-input"
+		type="text"
+		autocomplete="off"
+		autocapitalize="off"
+		autocorrect="off"
+		spellcheck="false"
+		aria-hidden="true"
+		tabindex="-1"
+		oninput={(e) => onKbInput(e)}
+		oncompositionstart={onCompositionStart}
+		oncompositionend={(e) => onCompositionEnd(e)}
+		class="pointer-events-none fixed bottom-0 left-0 h-px w-px opacity-0"
+	/>
 	<div class="mt-4 space-y-4">
 		{#each Object.entries(sessions) as [sname, s] (sname)}
 			<div class="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
@@ -378,7 +438,7 @@
 					<canvas
 						id={`cv-${sname}`}
 						tabindex="0"
-						class="mt-3 w-full cursor-pointer rounded-lg border border-white/10 bg-black focus:outline-2 focus:outline-sky-400"
+						class={`mt-3 w-full cursor-pointer rounded-lg border bg-black ${activeWindow === sname ? "border-sky-400 outline-2 outline-sky-400" : "border-white/10"}`}
 						onmousemove={(e) => onCanvasMove(sname, e)}
 						onmousedown={(e) => onCanvasMouse(sname, e, "mousePressed")}
 						onmouseup={(e) => onCanvasMouse(sname, e, "mouseReleased")}
@@ -389,7 +449,7 @@
 						}}
 						oncontextmenu={(e) => e.preventDefault()}
 					></canvas>
-					<p class="mt-1 text-xs text-terminal-dim">点画面进入窗口，键盘直接打字；点画面外退出。</p>
+					<p class="mt-1 text-xs text-terminal-dim">点画面进入窗口，键盘直接打字（支持中文输入法）；点画面外退出。</p>
 				{:else}
 					<p class="mt-3 text-sm text-terminal-dim">窗口已关闭，点“打开窗口”恢复（登录态还在）。</p>
 				{/if}

@@ -8,6 +8,7 @@ User=soffy
 WorkingDirectory=/data/soffy/projects/veya/apps/web
 ExecStart=/home/soffy/.nvm/versions/node/v26.4.0/bin/node server.js
 Restart=always
+KillMode=process
 RestartSec=5
 StandardOutput=append:/var/log/veya-web.log
 StandardError=append:/var/log/veya-web-error.log
