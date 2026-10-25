@@ -234,6 +234,11 @@ class GroupMessageRequest(BaseModel):
     workspace_id: str | None = Field(default=None, max_length=512)
 
 
+class GroupUpdateRequest(BaseModel):
+    name: str | None = None
+    bot_ids: list[str] | None = None
+
+
 # ── groups and proposals are declared before ``/{bot_id}`` so a static path
 # ── segment (``/groups``) wins over the bot-id path parameter.
 
@@ -375,6 +380,62 @@ async def post_group_message(
         user_id=str(user.get("user_id") or ""),
     )
     return {"status": "completed", **result}
+
+
+@router.patch("/groups/{group_id}")
+async def update_group(
+    group_id: str,
+    req: GroupUpdateRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Change a group's members (and name). The room stays; its transcript stays.
+
+    Members may join or leave at any time; the next round offers a turn to
+    whoever is a member then. Validation mirrors creation: 1..6 members,
+    all owned by the caller.
+    """
+
+    group = _require_group(group_id, user["user_id"])
+    registry = bot_registry()
+    new_admin: str | None = None
+    if req.bot_ids is not None:
+        members: list[str] = []
+        for bot_id in req.bot_ids:
+            value = str(bot_id or "").strip()
+            if value and value not in members:
+                members.append(value)
+        if not members:
+            raise HTTPException(
+                status_code=422, detail="a group needs at least one member bot"
+            )
+        if len(members) > MAX_GROUP_MEMBERS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"a group may have at most {MAX_GROUP_MEMBERS} members",
+            )
+        unknown = [
+            bot_id
+            for bot_id in members
+            if _resolve_bot(registry, bot_id, owner_id=user["user_id"]) is None
+        ]
+        if unknown:
+            raise HTTPException(
+                status_code=422, detail=f"unknown member bots: {unknown}"
+            )
+        if group.admin_bot_id not in members:
+            new_admin = members[0]
+    try:
+        updated = groups().update(
+            group_id,
+            name=req.name,
+            bot_ids=req.bot_ids,
+            admin_bot_id=new_admin,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"group {group_id!r} not found")
+    return {"status": "updated", "group": updated.to_dict()}
 
 
 @router.post("/proposals/{proposal_id}/accept")
