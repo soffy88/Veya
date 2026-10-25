@@ -3,9 +3,12 @@
 A veya bot whose runner is this service gets its turns forwarded to a
 logged-in browser window (a Muse/Hark account the user opened on the
 /windows page). Room message -> typed into the window's chat input ->
-the account's reply comes back as the bot's turn reply. No transcript
-injection, no extra rounds: turns are veya's own product path, so a
-bridge reply never triggers another round.
+the account's reply comes back as the bot's turn reply. On group turns
+the hub's transcript travels in the payload's context field, and the
+bridge types it (speaker-labelled, this bot named) ahead of the new
+message, so members can see each other. Still no extra rounds: turns
+only run when the user posts, so a bridge reply never triggers
+another round.
 
 Protocol (hub side, see server/bot_team/runner_client.py):
   GET  /health                      -> {"status": "ok", ...} (no auth)
@@ -28,12 +31,14 @@ from the request. The bridge only ever talks to loopback CDP ports.
 Turn flow (single-threaded: turns run one at a time):
   1. map bot_id -> window; resolve the window's CDP port via the manager
   2. pick the window tab that has a visible chat input
-  3. snapshot visible leaf texts, focus the input, type the message,
-     submit with Enter (send-button fallback), confirm it went out
+  3. snapshot visible leaf texts, focus the input, type the message
+     (on group turns: the speaker-labelled transcript first, then the
+     new message, typed as one block), submit with Enter
+     (send-button fallback), confirm it went out
   4. poll for the reply's own text (after the sent message, in the
      input's column) until stable across 3 polls, or the timeout hits
-  5. return the reply; identical (bot_id, text) turns within the cache
-     window return the cached reply instead of re-sending
+  5. return the reply; identical (bot_id, text, context) turns within
+     the cache window return the cached reply instead of re-sending
 """
 import hashlib
 import hmac
@@ -166,7 +171,7 @@ def load_secret():
 
 
 SECRET = load_secret()
-CACHE = {}  # (bot_id, text) -> (reply, expires_at)
+CACHE = {}  # (bot_id, text, ctx_hash) -> (reply, expires_at)
 
 
 def manager_list():
@@ -180,17 +185,17 @@ def manager_list():
     return data
 
 
-def cache_get(bot_id, text):
-    entry = CACHE.get((bot_id, text))
+def cache_get(bot_id, text, ctx_hash=""):
+    entry = CACHE.get((bot_id, text, ctx_hash))
     if entry and entry[1] > time.time():
         return entry[0]
     if entry:
-        del CACHE[(bot_id, text)]
+        del CACHE[(bot_id, text, ctx_hash)]
     return None
 
 
-def cache_put(bot_id, text, reply, ttl):
-    CACHE[(bot_id, text)] = (reply, time.time() + ttl)
+def cache_put(bot_id, text, reply, ttl, ctx_hash=""):
+    CACHE[(bot_id, text, ctx_hash)] = (reply, time.time() + ttl)
     if len(CACHE) > 200:  # keep it small
         now = time.time()
         for key in [k for k, v in CACHE.items() if v[1] <= now]:
@@ -210,13 +215,56 @@ def is_noise(text):
     return False
 
 
-def extract_reply(before, ordered, sent, band):
+
+GROUP_TRANSCRIPT_MARKERS = ("You are one of", "\nTranscript:")
+
+CONTEXT_TRAILER = "请结合上面的对话（包括其他成员刚说的话）回复。"
+
+
+def format_group_block(context, bot_name, bindings):
+    """Build the typed block for a group turn, or None if not a group transcript.
+
+    Only the hub's group transcript shape is accepted (header + Transcript:
+    lines); anything else is typed as a plain message. Speaker labels are
+    rewritten to window names (user -> 用户) so the account sees who is who.
+    The block is capped so typing stays bounded; the newest lines survive.
+    Returns (block, trailer) or None.
+    """
+    if not context or not all(m in context for m in GROUP_TRANSCRIPT_MARKERS):
+        return None
+    display = {"user": "用户"}
+    for bid, wname in bindings.items():
+        display[bid] = wname
+    lines = context.split("\n")
+    try:
+        start = lines.index("Transcript:") + 1
+    except ValueError:
+        return None
+    out = ["你是 %s。" % bot_name]
+    out.extend(lines[:start])
+    for line in lines[start:]:
+        head, sep, rest = line.partition(": ")
+        if sep and head in display:
+            line = display[head] + ": " + rest
+        out.append(line)
+    out.append(CONTEXT_TRAILER)
+    block = "\n".join(out)
+    if len(block) > 4000:
+        head = "\n".join(out[:6])
+        block = head + "\n…（前略）\n" + block[-3400:]
+    return block, CONTEXT_TRAILER
+
+
+def extract_reply(before, ordered, sent, band, anchor_last=False):
     """Keep only the reply's own text from a page snapshot.
 
     before: [(text, x)] taken before the message was sent.
     ordered: [(text, x)] in document order, current snapshot.
-    sent: the message text that was typed.
+    sent: the message text that was typed (or the trailer line of a
+    typed block when anchor_last is set).
     band: (x_lo, x_hi) column of the chat input, or None.
+    anchor_last: anchor on the LAST leaf containing sent (for typed
+    blocks, where the trailer line is unique to the bubble).
     """
     before_set = {t for t, _ in before}
     sent_s = sent.strip()
@@ -226,7 +274,12 @@ def extract_reply(before, ordered, sent, band):
             sent_s and sent_s in t and len(t) <= len(sent_s) + 20
         ):
             anchor = i
-            break
+            if not anchor_last:
+                break
+    if anchor_last and sent_s:
+        for i, (t, _) in enumerate(ordered):
+            if sent_s in t:
+                anchor = i
     items = []
     for i, (t, x) in enumerate(ordered):
         if t in before_set or t.strip() == sent_s or is_noise(t):
@@ -245,8 +298,17 @@ def extract_reply(before, ordered, sent, band):
     return "\n".join(lines).strip()
 
 
-def run_window_turn(window, text, cfg):
-    """Send text to the window's chat input, wait for a reply, return it."""
+def run_window_turn(window, text, cfg, typed=None, anchor=None, anchor_last=False):
+    """Send text to the window's chat input, wait for a reply, return it.
+
+    typed: what is actually typed (defaults to text). anchor: the leaf
+    text extraction anchors on (defaults to text). Group turns type the
+    transcript block and anchor on its trailer line.
+    """
+    if typed is None:
+        typed = text
+    if anchor is None:
+        anchor = text
     from playwright.sync_api import sync_playwright
 
     sessions = manager_list()
@@ -287,12 +349,25 @@ def run_window_turn(window, text, cfg):
             if not info:
                 raise RuntimeError("chat input disappeared before send")
             band = (info["x"] - 60, info["x"] + info["w"] + 60)
-            page.keyboard.type(text)
-            page.keyboard.press("Enter")
+            kb = page.keyboard
+            if "\n" in typed and hasattr(kb, "insert_text"):
+                kb.insert_text(typed)
+            elif "\n" in typed:
+                for j, part in enumerate(typed.split("\n")):
+                    if j:
+                        kb.press("Shift+Enter")
+                    if part:
+                        kb.type(part)
+            else:
+                kb.type(typed)
+            kb.press("Enter")
             time.sleep(2)
             sent = False
             after = {d["t"] for d in page.evaluate(f"({LEAF_TEXTS_JS})()")}
-            if text.strip() in after or page.evaluate(f"({INPUT_EMPTY_JS})()"):
+            anchor_s = anchor.strip()
+            if (anchor_s in after
+                    or any(anchor_s in t for t in after)
+                    or page.evaluate(f"({INPUT_EMPTY_JS})()")):
                 sent = True
             if not sent:
                 try:
@@ -302,9 +377,10 @@ def run_window_turn(window, text, cfg):
                 if clicked:
                     time.sleep(2)
                     after = {d["t"] for d in page.evaluate(f"({LEAF_TEXTS_JS})()")}
-                    if text.strip() in after or page.evaluate(
-                        f"({INPUT_EMPTY_JS})()"
-                    ):
+                    anchor_s = anchor.strip()
+                    if (anchor_s in after
+                            or any(anchor_s in t for t in after)
+                            or page.evaluate(f"({INPUT_EMPTY_JS})()")):
                         sent = True
             if not sent:
                 raise RuntimeError("message did not leave the chat input")
@@ -320,7 +396,7 @@ def run_window_turn(window, text, cfg):
                     ]
                 except Exception:
                     continue
-                candidate = extract_reply(before, ordered, text, band)
+                candidate = extract_reply(before, ordered, anchor, band, anchor_last)
                 if candidate and candidate == last_candidate:
                     stable += 1
                     if stable >= 3:
@@ -362,7 +438,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path in ("/health", "/health/"):
-            self._send_json(200, {"status": "ok", "version": "window-bridge-1"})
+            self._send_json(200, {"status": "ok", "version": "window-bridge-2"})
         else:
             self._send_json(404, {"ok": False, "error": "not found"})
 
@@ -379,12 +455,21 @@ class Handler(BaseHTTPRequestHandler):
         bot = body.get("bot") or {}
         bot_id = str(bot.get("bot_id") or "")
         text = str(body.get("text") or "")
+        context = str(body.get("context") or "")
         trace_id = str(body.get("trace_id") or "") or uuid.uuid4().hex
         if not bot_id or not text.strip():
             self._send_json(422, {"ok": False, "error": "bot_id and text required"})
             return
         cfg = load_config()
         window = cfg["bindings"].get(bot_id)
+        bot_name = str(bot.get("name") or bot_id)
+        block = format_group_block(context, bot_name, cfg["bindings"])
+        if block is not None:
+            typed, trailer = block
+            anchor, anchor_last = trailer, True
+            ctx_hash = hashlib.sha1(context.encode("utf-8")).hexdigest()[:12]
+        else:
+            typed, anchor, anchor_last, ctx_hash = text, text, False, ""
         if not window:
             self._send_json(
                 200,
@@ -394,7 +479,7 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
-        cached = cache_get(bot_id, text)
+        cached = cache_get(bot_id, text, ctx_hash)
         if cached is not None:
             log(f"turn bot={bot_id} window={window} cached reply_len={len(cached)}")
             self._send_json(
@@ -403,14 +488,16 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         started = time.time()
-        log(f"turn bot={bot_id} window={window} text_len={len(text)}")
+        log(f"turn bot={bot_id} window={window} text_len={len(text)} "
+            f"typed_len={len(typed)}")
         try:
-            reply = run_window_turn(window, text, cfg)
+            reply = run_window_turn(window, text, cfg, typed=typed,
+                                    anchor=anchor, anchor_last=anchor_last)
         except Exception as exc:  # visible error turn, never a silent drop
             log(f"turn FAILED bot={bot_id} window={window} err={str(exc)[:200]}")
             self._send_json(200, {"ok": False, "error": str(exc)[:300]})
             return
-        cache_put(bot_id, text, reply, cfg["cache_ttl_s"])
+        cache_put(bot_id, text, reply, cfg["cache_ttl_s"], ctx_hash)
         log(
             f"turn OK bot={bot_id} window={window} "
             f"reply_len={len(reply)} took={time.time() - started:.1f}s"
