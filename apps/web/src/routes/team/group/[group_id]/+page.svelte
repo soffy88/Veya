@@ -21,6 +21,7 @@
 	import PushToggle from "$lib/team/PushToggle.svelte";
 	import { actionClass, inputClass, primaryClass } from "$lib/team/ui";
 	import GroupRolesSheet from "./GroupRolesSheet.svelte";
+	import GroupMembersSheet from "./GroupMembersSheet.svelte";
 
 	let { data } = $props<{ data: { groupId: string } }>();
 
@@ -37,6 +38,7 @@
 	// W-5: who answers is a group setting; the sheet edits it through the same
 	// roles endpoint the group already has.
 	let showRoles = $state(false);
+	let showMembers = $state(false);
 	let rolesSupported = $state(true);
 	let composer: HTMLTextAreaElement | undefined = $state();
 	const groupId = $derived(data.groupId);
@@ -145,6 +147,14 @@
 		{#if group}
 			<button
 				class={actionClass}
+				onclick={() => (showMembers = true)}
+				title="群成员"
+				aria-label="群成员设置"
+			>
+				<Users size={18} />
+			</button>
+			<button
+				class={actionClass}
 				onclick={() => (showRoles = true)}
 				title="群角色"
 				aria-label="群角色设置"
@@ -241,6 +251,15 @@
 </div>
 
 {#if group}
+	<GroupMembersSheet
+		open={showMembers}
+		{group}
+		memberNames={bots}
+		onclose={() => (showMembers = false)}
+		onsaved={(updated) => {
+			group = updated;
+		}}
+	/>
 	<GroupRolesSheet
 		open={showRoles}
 		{group}
