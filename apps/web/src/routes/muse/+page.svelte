@@ -316,7 +316,8 @@
 </script>
 
 <div class="mx-auto max-w-5xl px-4 py-6">
-	<h1 class="text-xl font-semibold text-terminal-fg">窗口</h1>
+	<a href="/" class="text-sm text-sky-300 hover:text-sky-200">← 返回主页</a>
+	<h1 class="mt-2 text-xl font-semibold text-terminal-fg">窗口</h1>
 	<p class="mt-2 text-sm leading-6 text-terminal-dim">
 		一个页面，多个窗口：每扇窗口都是一台独立的浏览器，各登各的账号、互不干扰。
 		Muse、Hark 这类网站都能登，窗口直接嵌在页面里，点画面就能用，不用再去别的桌面。
