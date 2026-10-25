@@ -1,0 +1,19 @@
+[Unit]
+Description=Window Bridge runner (veya rooms <-> browser windows)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/soffy/projects/veya/apps/web/scripts
+ExecStart=/usr/bin/python3 /data/soffy/projects/veya/apps/web/scripts/window-bridge.py
+Restart=always
+RestartSec=5
+Environment=BRIDGE_PORT=19450
+Environment=BRIDGE_CONFIG=/data/soffy/muse-sessions/bridge.json
+Environment=BRIDGE_SECRET_FILE=/data/soffy/muse-sessions/bridge-secret.txt
+Environment=BRIDGE_MANAGER=/data/soffy/projects/veya/apps/web/scripts/muse-sessions.py
+StandardOutput=append:/data/soffy/muse-sessions/bridge.log
+StandardError=append:/data/soffy/muse-sessions/bridge-error.log
+
+[Install]
+WantedBy=default.target
