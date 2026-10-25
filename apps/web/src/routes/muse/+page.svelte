@@ -57,14 +57,14 @@
 		}
 	}
 
-	async function act(action: string, target: string): Promise<void> {
+	async function act(action: string, target: string, extra: Record<string, unknown> = {}): Promise<void> {
 		busy = true;
 		error = "";
 		notice = "";
 		try {
 			const r = (await call("/muse-sessions", {
 				method: "POST",
-				body: JSON.stringify({ action, name: target }),
+				body: JSON.stringify({ action, name: target, ...extra }),
 			})) as { ok?: boolean; error?: string };
 			if (!r.ok) error = r.error ?? "操作失败";
 			else notice = `${action} ${target} 已执行`;
@@ -82,7 +82,7 @@
 			error = "会话名只允许字母、数字、_、- (1-32 位)";
 			return;
 		}
-		await act("create", n);
+		await act("create", n, { proxy: "127.0.0.1:7890" });
 		if (!error) name = "";
 	}
 
@@ -98,6 +98,7 @@
 		账号、互不影响。建好会话后, 去 Easel 桌面 (与此前登 X 用的同一块
 		:99 桌面) 找到对应的窗口, 由你本人在里面登录和使用;
 		登录态存在该窗口自己的配置目录里, 关掉再打开还在。
+		Muse 会话默认走本机代理出口, 登录页才能打开；登录本身仍是加密直达 Muse。
 		本页不碰你的密码, 也看不到任何会话的登录态。
 	</p>
 

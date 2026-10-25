@@ -15,6 +15,9 @@ import type { RequestHandler } from "./$types";
  * - 会话名只允许字母数字/_/- (防注入); 执行用 execFile (无 shell)。
  * - CDP 端口只绑 127.0.0.1 (见 muse-sessions.py), 公网够不着。
  * - profile 目录含登录态 cookie, 0700, 绝不经本路由外传。
+ * - Muse 会话默认走本机代理 (127.0.0.1:7890): 直连到不了 auth.muse.ai,
+ *   代理路 0.4 秒通；代理只转发 CONNECT, 登录仍是 HTTPS 加密直达 Muse。
+ *   proxy 参数只允许 127.0.0.1:端口。
  */
 
 const MANAGER = "/data/soffy/projects/veya/apps/web/scripts/muse-sessions.py";
@@ -58,7 +61,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
 export const POST: RequestHandler = async ({ request }) => {
 	await requireOwner(request);
-	let body: { action?: unknown; name?: unknown; url?: unknown };
+	let body: { action?: unknown; name?: unknown; url?: unknown; proxy?: unknown };
 	try {
 		body = await request.json();
 	} catch {
@@ -75,6 +78,12 @@ export const POST: RequestHandler = async ({ request }) => {
 	const args = [action as string, name];
 	if (action === "create" && typeof body.url === "string" && body.url.startsWith("https://")) {
 		args.push("--url", body.url);
+	}
+	if ((action === "create" || action === "open") && typeof body.proxy === "string") {
+		if (!/^127\.0\.0\.1:\d{1,5}$/.test(body.proxy) || Number(body.proxy.split(":")[1]) > 65535) {
+			error(400, "proxy 只允许 127.0.0.1:端口");
+		}
+		args.push("--proxy", body.proxy);
 	}
 	try {
 		return json(await runManager(args));

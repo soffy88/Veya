@@ -12,6 +12,12 @@ Security notes (read before touching this):
   or share a profile directory, and never print its contents.
 - CDP (--remote-debugging-port) binds 127.0.0.1 only by default. Never add
   --remote-debugging-address=0.0.0.0: anyone reaching CDP owns the session.
+- Proxy: pass --proxy 127.0.0.1:7890 to route a session through the host's
+  local sing-box proxy. Required for muse.ai login: the direct path cannot
+  reach auth.muse.ai from this host (20s timeout even to the real edge),
+  while the proxy path answers in ~0.4s. Only loopback proxies are
+  accepted. TLS stays end-to-end: the proxy forwards CONNECT and cannot
+  see credentials.
 - Login is always done by the account owner through the noVNC desktop
   (:99). This tool never handles usernames, passwords, or cookies.
 
@@ -25,6 +31,7 @@ Usage:
 
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -95,9 +102,13 @@ def wait_cdp(port: int, timeout: float = 25.0) -> bool:
     return False
 
 
-def launch(name: str, url: str) -> dict:
+def launch(name: str, url: str, proxy: str | None = None) -> dict:
     meta = load_meta()
     entry = meta.get(name, {})
+    if proxy is not None:
+        m = re.fullmatch(r"127\.0\.0\.1:(\d{1,5})", proxy)
+        if not m or not 1 <= int(m.group(1)) <= 65535:
+            return {"ok": False, "error": "proxy 只允许 127.0.0.1:端口"}
     if entry.get("pid") and pid_alive(entry["pid"]):
         return {"ok": False, "error": f"session {name!r} already running (pid {entry['pid']})"}
     used = {e["port"] for e in meta.values() if e.get("port")}
@@ -108,18 +119,21 @@ def launch(name: str, url: str) -> dict:
     LOGS.mkdir(parents=True, exist_ok=True)
     logf = open(LOGS / f"{name}.log", "ab", buffering=0)
     env = dict(os.environ, DISPLAY=DISPLAY)
+    chrome_args = [
+        CHROME,
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        f"--user-data-dir={profile}",
+        f"--remote-debugging-port={port}",
+        "--no-first-run",
+        "--window-size=1280,900",
+    ]
+    if proxy:
+        chrome_args.append(f"--proxy-server=http://{proxy}")
+    chrome_args.append(url)
     proc = subprocess.Popen(
-        [
-            CHROME,
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            f"--user-data-dir={profile}",
-            f"--remote-debugging-port={port}",
-            "--no-first-run",
-            "--window-size=1280,900",
-            url,
-        ],
+        chrome_args,
         stdout=logf,
         stderr=logf,
         stdin=subprocess.DEVNULL,
@@ -131,6 +145,7 @@ def launch(name: str, url: str) -> dict:
         "pid": proc.pid,
         "port": port,
         "url": url,
+        "proxy": proxy,
         "status": "running" if ok else "failed",
         "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -187,7 +202,7 @@ def list_sessions() -> dict:
         if e.get("status") != status and e.get("status") != "failed":
             e["status"] = status
             changed = True
-        out[name] = {"status": status, "port": e.get("port"), "url": e.get("url"), "pid": e.get("pid")}
+        out[name] = {"status": status, "port": e.get("port"), "url": e.get("url"), "pid": e.get("pid"), "proxy": e.get("proxy")}
     if changed:
         save_meta(meta)
     return out
@@ -202,7 +217,8 @@ def main(argv: list[str]) -> int:
         url = DEFAULT_URL
         if "--url" in argv:
             url = argv[argv.index("--url") + 1]
-        print(json.dumps(launch(name, url), ensure_ascii=False))
+        proxy = argv[argv.index("--proxy") + 1] if "--proxy" in argv else None
+        print(json.dumps(launch(name, url, proxy), ensure_ascii=False))
     elif cmd == "open" and name:
         meta = load_meta()
         url = DEFAULT_URL
@@ -210,7 +226,8 @@ def main(argv: list[str]) -> int:
             url = argv[argv.index("--url") + 1]
         elif meta.get(name, {}).get("url"):
             url = meta[name]["url"]
-        print(json.dumps(launch(name, url), ensure_ascii=False))
+        proxy = argv[argv.index("--proxy") + 1] if "--proxy" in argv else meta.get(name, {}).get("proxy")
+        print(json.dumps(launch(name, url, proxy), ensure_ascii=False))
     elif cmd == "list":
         print(json.dumps(list_sessions(), indent=2, ensure_ascii=False))
     elif cmd == "close" and name:
