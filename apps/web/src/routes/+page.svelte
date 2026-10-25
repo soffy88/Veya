@@ -530,6 +530,13 @@ import { sessionStore } from "$lib/sessionStore.svelte";
 				<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">远程控制</span>
 			</a>
 			<a
+				href="/accounts"
+				class="flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-left transition hover:bg-white/[0.05]"
+			>
+				<Columns3 class="size-3.5 shrink-0 text-sky-300/70" />
+				<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">多账号</span>
+			</a>
+			<a
 				href="/projects"
 				class="flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-left transition hover:bg-white/[0.05]"
 			>
