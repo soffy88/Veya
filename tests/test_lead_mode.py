@@ -163,6 +163,8 @@ async def test_lead_worker_pass_still_synthesizes(lead_env, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_lead_falls_back_when_admin_gone(lead_env, fake_master):
+    # Admin gone + one member left: the survivor answers directly instead
+    # of planning and synthesizing to itself.
     registry = _register(BotRegistry(), "beta")
     group = GroupStore(lead_env["root"]).create(
         name="lead-room",
@@ -178,8 +180,8 @@ async def test_lead_falls_back_when_admin_gone(lead_env, fake_master):
         conversations=ConversationStore(lead_env["root"]),
     )
     assert outcome["skipped"] == ["alpha"]
-    assert [r["bot_id"] for r in outcome["replies"]] == ["beta", "beta"]
-    assert [r["phase"] for r in outcome["replies"]] == ["plan", "synthesis"]
+    assert [r["bot_id"] for r in outcome["replies"]] == ["beta"]
+    assert [r["phase"] for r in outcome["replies"]] == ["direct"]
 
 
 def test_lead_mode_via_api(client, lead_env):
@@ -198,3 +200,62 @@ def test_lead_mode_via_api(client, lead_env):
     back = client.patch(f"/api/v1/bots/groups/{group_id}", json={"reply_mode": "everyone"})
     assert back.status_code == 200
     assert back.json()["group"]["reply_mode"] == "everyone"
+
+
+def test_select_lead_owner_rules(lead_env):
+    from server.bot_team.groups import select_lead_owner
+
+    registry = _register(BotRegistry(), "alpha", "beta")
+    assert select_lead_owner(text="请 Beta 说说看法", available=["alpha", "beta"], registry=registry) == "beta"
+    assert select_lead_owner(text="@Beta", available=["alpha", "beta"], registry=registry) == "beta"
+    assert select_lead_owner(text="让 Beta说", available=["alpha", "beta"], registry=registry) == "beta"
+    assert select_lead_owner(text="Beta2 来", available=["alpha", "beta"], registry=registry) is None
+    assert select_lead_owner(text="Alpha 和 Beta 都说", available=["alpha", "beta"], registry=registry) is None
+    assert select_lead_owner(text="没人被点名", available=["alpha", "beta"], registry=registry) is None
+    assert select_lead_owner(text="请 Alpha 说", available=["beta"], registry=registry) == "beta"
+    # Sole available member answers even when another name is mentioned;
+    # the absent member is reported via skipped by the cycle, not by routing.
+    assert select_lead_owner(text="随便说点", available=["beta"], registry=registry) == "beta"
+
+
+def test_select_lead_owner_prefix_overlap(lead_env):
+    from server.bot_team.groups import select_lead_owner
+
+    registry = _register(BotRegistry(), "muse", "muse-a")
+    assert (
+        select_lead_owner(text="请 Muse-a 说", available=["muse", "muse-a"], registry=registry)
+        == "muse-a"
+    )
+
+
+@pytest.mark.asyncio
+async def test_lead_direct_routing_on_mention(lead_env, monkeypatch):
+    import server.bot_team.groups as groups_mod
+
+    calls: list[str] = []
+
+    async def scripted(bot, text, context, user, workspace_id, conversations):
+        calls.append(bot.bot_id)
+        return SimpleNamespace(reply=f"DIRECT:{bot.bot_id}", task_id="t", session_id="s")
+
+    monkeypatch.setattr(groups_mod, "run_bot_turn", scripted)
+    registry = _register(BotRegistry(), "alpha", "beta")
+    group = GroupStore(lead_env["root"]).create(
+        name="lead-room",
+        bot_ids=["alpha", "beta"],
+        admin_bot_id="alpha",
+        reply_mode=LEAD_REPLY_MODE,
+    )
+    outcome = await run_group_turn(
+        group=group,
+        text="@Beta 请说说你的看法",
+        user=USER,
+        registry=registry,
+        conversations=ConversationStore(lead_env["root"]),
+    )
+    assert calls == ["beta"]
+    assert [r["bot_id"] for r in outcome["replies"]] == ["beta"]
+    assert [r["phase"] for r in outcome["replies"]] == ["direct"]
+    assert outcome["passed"] == [] and outcome["skipped"] == []
+    transcript = GroupStore(lead_env["root"]).messages(group.id, include_hidden=True)
+    assert [m.get("bot_id") or "user" for m in transcript] == ["user", "beta"]

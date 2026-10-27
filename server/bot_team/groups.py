@@ -18,6 +18,7 @@ not multiply it.
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -479,6 +480,50 @@ async def run_group_turn(
     }
 
 
+def select_lead_owner(
+    *,
+    text: str,
+    available: list[str],
+    registry: BotRegistry,
+) -> str | None:
+    """Deterministic owner routing for lead mode (OpenBot method, no model).
+
+    Returns a bot_id only in two unambiguous cases: the message names
+    exactly one available member (by bot_id or display name, bounded by
+    non-alphanumeric characters, so "Museb\u8bf4" matches but "Museb2" does
+    not), or exactly one member is available. Anything else returns None
+    and the caller runs the full lead cycle. A named member that is not
+    available is ignored, never broadcast; overlapping name matches keep
+    only the longest span, so a prefix name cannot fake ambiguity.
+    """
+
+    if len(available) == 1:
+        return available[0]
+    spans: list[tuple[int, int, str]] = []
+    for bot_id in available:
+        bot = registry.get(bot_id)
+        if bot is None:
+            continue
+        names = {bot_id}
+        if bot.name:
+            names.add(bot.name)
+        for name in names:
+            pattern = r"(?<![A-Za-z0-9_])" + re.escape(name) + r"(?![A-Za-z0-9_])"
+            for match in re.finditer(pattern, text):
+                spans.append((match.start(), match.end(), bot_id))
+    if not spans:
+        return None
+    spans.sort(key=lambda item: (item[1] - item[0]), reverse=True)
+    kept: list[tuple[int, int, str]] = []
+    for start, end, bot_id in spans:
+        if all(end <= kept_start or start >= kept_end for kept_start, kept_end, _ in kept):
+            kept.append((start, end, bot_id))
+    owners = {bot_id for _, _, bot_id in kept}
+    if len(owners) != 1:
+        return None
+    return owners.pop()
+
+
 async def run_lead_turn(
     *,
     group: GroupChat,
@@ -494,6 +539,12 @@ async def run_lead_turn(
     exists in the registry is reported as skipped rather than failing the
     cycle; if the admin is gone, the first available member acts as lead.
     ``rounds_per_message`` does not multiply a lead cycle.
+
+    Deterministic routing runs before the cycle: a message that names
+    exactly one available member, or a room with exactly one available
+    member, goes straight to that member as a single turn (phase
+    ``"direct"``) instead of plan/report/synthesis. Anything ambiguous
+    falls through to the full cycle; no model is involved in routing.
     """
 
     store = conversations if conversations is not None else ConversationStore()
@@ -515,7 +566,7 @@ async def run_lead_turn(
     lead_id = group.admin_bot_id if group.admin_bot_id in available else available[0]
     worker_ids = [bot_id for bot_id in available if bot_id != lead_id]
 
-    async def _turn(bot_id: str, header: str):
+    async def _turn(bot_id: str, header: str | None):
         bot = registry.get(bot_id)
         assert bot is not None
         turn = await run_bot_turn(
@@ -539,6 +590,32 @@ async def run_lead_turn(
         )
         return turn
 
+    # Deterministic owner routing (no model): a directly addressed member,
+    # or the sole available member, answers alone. Ambiguity falls through
+    # to the full lead cycle below.
+    owner_id = select_lead_owner(text=str(text or ""), available=available, registry=registry)
+    if owner_id is not None:
+        turn = await _turn(owner_id, None)
+        if turn.reply.strip() == PASS_SENTINEL:
+            passed.append(owner_id)
+        else:
+            replies.append(
+                {
+                    "bot_id": owner_id,
+                    "reply": turn.reply,
+                    "task_id": turn.task_id,
+                    "session_id": turn.session_id,
+                    "round": 1,
+                    "phase": "direct",
+                }
+            )
+        return {
+            "group_id": group.id,
+            "rounds": 1,
+            "replies": replies,
+            "passed": passed,
+            "skipped": skipped,
+        }
     plan = await _turn(lead_id, _lead_plan_header(group, worker_ids))
     if plan.reply.strip() == PASS_SENTINEL:
         passed.append(lead_id)
@@ -596,6 +673,7 @@ async def run_lead_turn(
 __all__ = [
     "DEFAULT_ROUNDS_PER_MESSAGE",
     "LEAD_REPLY_MODE",
+    "select_lead_owner",
     "MAX_GROUP_MEMBERS",
     "MAX_ROUNDS_PER_MESSAGE",
     "PASS_SENTINEL",
