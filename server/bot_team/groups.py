@@ -8,6 +8,11 @@ every member passes, the round stops early instead of spending more turns.
 
 Groups own no execution authority: each member turn is a normal product task
 for that bot (see :mod:`server.bot_team.turns`).
+
+Reply mode ``lead`` changes the shape of a round: the admin bot plans and
+delegates, the other members report, then the admin synthesizes one final
+conclusion. One lead cycle runs per user message; ``rounds_per_message`` does
+not multiply it.
 """
 
 from __future__ import annotations
@@ -43,6 +48,37 @@ _GROUP_CONTEXT_HEADER = (
     "The transcript below is the whole conversation so far. "
     "Answer only if you can add something the other members did not already say. "
     "If you have nothing to add, reply with exactly {pass_sentinel} and nothing else."
+)
+
+#: Reply mode where the admin bot leads instead of peers taking turns.
+LEAD_REPLY_MODE = "lead"
+
+# NOTE: every lead header below deliberately starts with "You are one of" and
+# is paired with a "Transcript:" section: the window bridge only types a
+# group-turn context block when it sees those two markers. Do not reword the
+# opening or the section title without updating the bridge gating too.
+_LEAD_PLAN_HEADER = (
+    "You are one of {count} bots in the group chat '{name}'. You are the LEAD of "
+    "this group. The workers are: {workers}. Read the transcript, then give a "
+    "delegation plan: what each worker should do and what counts as done. The "
+    "workers will reply after you, then you will synthesize their reports into "
+    "one final conclusion. If there is nothing worth delegating, reply with "
+    "exactly {pass_sentinel} and nothing else."
+)
+
+_LEAD_WORKER_HEADER = (
+    "You are one of {count} bots in the group chat '{name}'. You are a WORKER. "
+    "The lead is {lead}. Follow the lead's delegation plan in the transcript: "
+    "do only the part assigned to you. If nothing was assigned to you, reply "
+    "with exactly {pass_sentinel} and nothing else."
+)
+
+_LEAD_SYNTH_HEADER = (
+    "You are one of {count} bots in the group chat '{name}'. You are the LEAD of "
+    "this group. The workers have reported. Synthesize their replies into one "
+    "final conclusion: what is adopted, what is rejected, what is still "
+    "missing. Do not just pile up their words. If there is nothing to "
+    "synthesize, reply with exactly {pass_sentinel} and nothing else."
 )
 
 
@@ -293,15 +329,48 @@ class GroupStore:
         return [item for item in items if not item.get("hidden")]
 
 
-def transcript(group: GroupChat, messages: list[dict[str, Any]]) -> str:
+def _lead_plan_header(group: GroupChat, worker_ids: list[str]) -> str:
+    return _LEAD_PLAN_HEADER.format(
+        count=len(group.bot_ids),
+        name=group.name,
+        workers=", ".join(worker_ids) if worker_ids else "none",
+        pass_sentinel=PASS_SENTINEL,
+    )
+
+
+def _lead_worker_header(group: GroupChat, lead_id: str) -> str:
+    return _LEAD_WORKER_HEADER.format(
+        count=len(group.bot_ids),
+        name=group.name,
+        lead=lead_id,
+        pass_sentinel=PASS_SENTINEL,
+    )
+
+
+def _lead_synth_header(group: GroupChat) -> str:
+    return _LEAD_SYNTH_HEADER.format(
+        count=len(group.bot_ids),
+        name=group.name,
+        pass_sentinel=PASS_SENTINEL,
+    )
+
+
+def transcript(
+    group: GroupChat,
+    messages: list[dict[str, Any]],
+    *,
+    header: str | None = None,
+) -> str:
     """Render the group transcript that every member turn receives as context."""
 
-    lines = [
-        _GROUP_CONTEXT_HEADER.format(
+    if header is None:
+        header = _GROUP_CONTEXT_HEADER.format(
             count=len(group.bot_ids),
             name=group.name,
             pass_sentinel=PASS_SENTINEL,
-        ),
+        )
+    lines = [
+        header,
         "",
         "Transcript:",
     ]
@@ -328,6 +397,15 @@ async def run_group_turn(
     """
 
     store = conversations if conversations is not None else ConversationStore()
+    if (group.reply_mode or "everyone").strip().lower() == LEAD_REPLY_MODE:
+        return await run_lead_turn(
+            group=group,
+            text=text,
+            user=user,
+            registry=registry,
+            conversations=store,
+            workspace_id=workspace_id,
+        )
     # Same root as the bot conversations, so one VEYA_BOTS_ROOT moves everything.
     groups = GroupStore(store.root)
     groups.append_message(group.id, role="user", text=str(text or ""))
@@ -401,13 +479,129 @@ async def run_group_turn(
     }
 
 
+async def run_lead_turn(
+    *,
+    group: GroupChat,
+    text: str,
+    user: dict[str, Any],
+    registry: BotRegistry,
+    conversations: ConversationStore | None = None,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
+    """One lead cycle per user message: lead plans, workers report, lead synthesizes.
+
+    Returns the same shape as :func:`run_group_turn`. A member that no longer
+    exists in the registry is reported as skipped rather than failing the
+    cycle; if the admin is gone, the first available member acts as lead.
+    ``rounds_per_message`` does not multiply a lead cycle.
+    """
+
+    store = conversations if conversations is not None else ConversationStore()
+    groups = GroupStore(store.root)
+    groups.append_message(group.id, role="user", text=str(text or ""))
+
+    available = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is not None]
+    skipped = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is None]
+    replies: list[dict[str, Any]] = []
+    passed: list[str] = []
+    if not available:
+        return {
+            "group_id": group.id,
+            "rounds": 1,
+            "replies": replies,
+            "passed": passed,
+            "skipped": skipped,
+        }
+    lead_id = group.admin_bot_id if group.admin_bot_id in available else available[0]
+    worker_ids = [bot_id for bot_id in available if bot_id != lead_id]
+
+    async def _turn(bot_id: str, header: str):
+        bot = registry.get(bot_id)
+        assert bot is not None
+        turn = await run_bot_turn(
+            bot=bot,
+            text=str(text or ""),
+            context=transcript(
+                group,
+                groups.messages(group.id, include_hidden=True),
+                header=header,
+            ),
+            user=user,
+            workspace_id=workspace_id,
+            conversations=store,
+        )
+        groups.append_message(
+            group.id,
+            role="bot",
+            bot_id=bot_id,
+            text=turn.reply,
+            task_id=turn.task_id,
+        )
+        return turn
+
+    plan = await _turn(lead_id, _lead_plan_header(group, worker_ids))
+    if plan.reply.strip() == PASS_SENTINEL:
+        passed.append(lead_id)
+    else:
+        replies.append(
+            {
+                "bot_id": lead_id,
+                "reply": plan.reply,
+                "task_id": plan.task_id,
+                "session_id": plan.session_id,
+                "round": 1,
+                "phase": "plan",
+            }
+        )
+    for bot_id in worker_ids:
+        turn = await _turn(bot_id, _lead_worker_header(group, lead_id))
+        if turn.reply.strip() == PASS_SENTINEL:
+            if bot_id not in passed:
+                passed.append(bot_id)
+            continue
+        replies.append(
+            {
+                "bot_id": bot_id,
+                "reply": turn.reply,
+                "task_id": turn.task_id,
+                "session_id": turn.session_id,
+                "round": 1,
+                "phase": "report",
+            }
+        )
+    synth = await _turn(lead_id, _lead_synth_header(group))
+    if synth.reply.strip() == PASS_SENTINEL:
+        if lead_id not in passed:
+            passed.append(lead_id)
+    else:
+        replies.append(
+            {
+                "bot_id": lead_id,
+                "reply": synth.reply,
+                "task_id": synth.task_id,
+                "session_id": synth.session_id,
+                "round": 1,
+                "phase": "synthesis",
+            }
+        )
+    return {
+        "group_id": group.id,
+        "rounds": 1,
+        "replies": replies,
+        "passed": passed,
+        "skipped": skipped,
+    }
+
+
 __all__ = [
     "DEFAULT_ROUNDS_PER_MESSAGE",
+    "LEAD_REPLY_MODE",
     "MAX_GROUP_MEMBERS",
     "MAX_ROUNDS_PER_MESSAGE",
     "PASS_SENTINEL",
     "GroupChat",
     "GroupStore",
     "run_group_turn",
+    "run_lead_turn",
     "transcript",
 ]

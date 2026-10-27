@@ -31,6 +31,7 @@ from server.bot_team.chef import (
 )
 from server.bot_team.conversations import ConversationStore, default_bots_root, safe_bot_id
 from server.bot_team.groups import (
+    LEAD_REPLY_MODE,
     DEFAULT_ROUNDS_PER_MESSAGE,
     MAX_GROUP_MEMBERS,
     MAX_ROUNDS_PER_MESSAGE,
@@ -227,6 +228,13 @@ class GroupCreateRequest(BaseModel):
     rounds_per_message: int = Field(
         default=DEFAULT_ROUNDS_PER_MESSAGE, ge=1, le=MAX_ROUNDS_PER_MESSAGE
     )
+    reply_mode: str = "everyone"
+
+
+class GroupUpdateRequest(BaseModel):
+    name: str | None = None
+    bot_ids: list[str] | None = None
+    reply_mode: str | None = None
 
 
 class GroupMessageRequest(BaseModel):
@@ -234,9 +242,13 @@ class GroupMessageRequest(BaseModel):
     workspace_id: str | None = Field(default=None, max_length=512)
 
 
-class GroupUpdateRequest(BaseModel):
-    name: str | None = None
-    bot_ids: list[str] | None = None
+def _validate_reply_mode(value: str | None) -> str:
+    """Accept only known reply modes; anything else is a client error."""
+
+    mode = str(value or "everyone").strip().lower()
+    if mode not in ("everyone", "admin-first", "mention-only", LEAD_REPLY_MODE):
+        raise HTTPException(status_code=422, detail=f"unknown reply_mode: {value!r}")
+    return mode
 
 
 # ── groups and proposals are declared before ``/{bot_id}`` so a static path
@@ -256,6 +268,7 @@ async def create_group(
             status_code=422,
             detail=f"a group may have at most {MAX_GROUP_MEMBERS} members",
         )
+    mode = _validate_reply_mode(req.reply_mode)
     unknown = [
         bot_id
         for bot_id in req.bot_ids
@@ -268,6 +281,7 @@ async def create_group(
             name=req.name,
             bot_ids=list(req.bot_ids),
             rounds_per_message=req.rounds_per_message,
+            reply_mode=mode,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -397,6 +411,9 @@ async def update_group(
 
     group = _require_group(group_id, user["user_id"])
     registry = bot_registry()
+    new_mode: str | None = None
+    if req.reply_mode is not None:
+        new_mode = _validate_reply_mode(req.reply_mode)
     new_admin: str | None = None
     if req.bot_ids is not None:
         members: list[str] = []
@@ -430,6 +447,7 @@ async def update_group(
             name=req.name,
             bot_ids=req.bot_ids,
             admin_bot_id=new_admin,
+            reply_mode=new_mode,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
