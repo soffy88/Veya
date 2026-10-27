@@ -324,11 +324,15 @@ export async function patchGroupRoles(groupId: string, body: GroupRolesPatch): P
  * Change a group's members. The room and its transcript stay; the next
  * round offers a turn to whoever is a member then.
  */
-export async function patchGroupMembers(groupId: string, botIds: string[]): Promise<GroupView> {
+export async function patchGroupMembers(
+	groupId: string,
+	botIds: string[],
+	replyMode?: string,
+): Promise<GroupView> {
 	const data = await unwrap<{ group: GroupView }>(
 		await api("gateway", `api/v1/bots/groups/${encodeURIComponent(groupId)}`, {
 			method: "PATCH",
-			body: { bot_ids: botIds },
+			body: replyMode ? { bot_ids: botIds, reply_mode: replyMode } : { bot_ids: botIds },
 		}),
 	);
 	return data.group;

@@ -34,12 +34,14 @@
 		Object.keys(memberNames).filter((id) => !group.bot_ids.includes(id)),
 	);
 
-	async function apply(next: string[]): Promise<void> {
+	const currentMode = $derived(group.reply_mode ?? "everyone");
+
+	async function apply(next: string[], mode?: string): Promise<void> {
 		if (busy) return;
 		busy = true;
 		error = "";
 		try {
-			onsaved(await patchGroupMembers(group.id, next));
+			onsaved(await patchGroupMembers(group.id, next, mode));
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -74,6 +76,23 @@
 			<div class="flex items-center gap-2">
 				<h2 class="flex-1 text-base font-semibold">群成员（{group.bot_ids.length} 人）</h2>
 				<button class={actionClass} onclick={onclose} aria-label="取消"><X size={16} /></button>
+			</div>
+
+			<div>
+				<label class="mb-1 block text-xs opacity-60" for="group-reply-mode">发言方式</label>
+				<select
+					id="group-reply-mode"
+					class={inputClass}
+					value={currentMode}
+					disabled={busy}
+					onchange={(e) => void apply(group.bot_ids, (e.currentTarget as HTMLSelectElement).value)}
+				>
+					<option value="everyone">大家都说</option>
+					<option value="admin-first">队长先说</option>
+					<option value="mention-only">被点名才说</option>
+					<option value="lead">领队分工（领队分工→成员回报→领队综合）</option>
+				</select>
+				<p class="mt-1 text-xs opacity-60">领队分工：房主先分工，成员各自回报，最后房主综合成结论。</p>
 			</div>
 
 			<div>
