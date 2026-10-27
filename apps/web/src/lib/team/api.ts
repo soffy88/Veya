@@ -719,3 +719,64 @@ export async function listBotSecrets(botId: string): Promise<BotSecretView[]> {
 		}))
 		.filter((row) => row.name && (!botId || row.scope !== "this bot" || row.requesting_bot_id === botId));
 }
+
+// ── attention / board / inbox (Soulgent method, adapted) ──────────────
+
+export type AttentionItem = {
+	id: string;
+	bot_id: string | null;
+	group_id: string | null;
+	question: string;
+	context: string | null;
+	status: string;
+	created_ts: number;
+	answered_ts: number | null;
+	answer: string | null;
+};
+
+export type BoardRow = {
+	bot_id: string;
+	name: string;
+	status: "waiting" | "working" | "idle" | string;
+	open_attention: number;
+	last_active_ts: number | null;
+};
+
+export type InboxGroup = {
+	group_id: string;
+	name: string;
+	reply_mode: string;
+	member_count: number;
+	status: string;
+	open_attention: number;
+	last_active_ts: number | null;
+};
+
+export type InboxData = {
+	attention: AttentionItem[];
+	board: BoardRow[];
+	groups: InboxGroup[];
+};
+
+export async function getInbox(): Promise<InboxData> {
+	return unwrap<InboxData>(
+		await api("gateway", "api/v1/bots/inbox", { method: "GET" }),
+	);
+}
+
+export async function answerAttention(itemId: string, answer: string): Promise<void> {
+	await unwrap(
+		await api("gateway", `api/v1/bots/attention/${encodeURIComponent(itemId)}/answer`, {
+			method: "POST",
+			body: { answer },
+		}),
+	);
+}
+
+export async function dismissAttention(itemId: string): Promise<void> {
+	await unwrap(
+		await api("gateway", `api/v1/bots/attention/${encodeURIComponent(itemId)}/dismiss`, {
+			method: "POST",
+		}),
+	);
+}

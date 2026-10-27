@@ -28,6 +28,7 @@
 		X,
 		MonitorSmartphone,
 		FolderKanban,
+		Inbox,
 	} from "lucide-svelte";
 	import ChatConsole from "$lib/components/ChatConsole.svelte";
 											import SettingsPanel from "$lib/components/SettingsPanel.svelte";
@@ -521,6 +522,13 @@ import { sessionStore } from "$lib/sessionStore.svelte";
 			>
 				<Users class="size-3.5 shrink-0 text-sky-300/70" />
 				<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">Bot 团队</span>
+			</a>
+			<a
+				href="/inbox"
+				class="flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-left transition hover:bg-white/[0.05]"
+			>
+				<Inbox class="size-3.5 shrink-0 text-sky-300/70" />
+				<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">收件箱</span>
 			</a>
 			<a
 				href="/remote"

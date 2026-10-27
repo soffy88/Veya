@@ -30,6 +30,7 @@ from server.bot_team.chef import (
     record_team_proposal,
 )
 from server.bot_team.conversations import ConversationStore, default_bots_root, safe_bot_id
+from server.bot_team.attention import AttentionStore, build_board, build_inbox
 from server.bot_team.companions import create_companion, list_presets
 from server.bot_team.groups import (
     LEAD_REPLY_MODE,
@@ -66,6 +67,10 @@ def conversations() -> ConversationStore:
 
 def groups() -> GroupStore:
     return GroupStore()
+
+
+def attention_store() -> AttentionStore:
+    return AttentionStore()
 
 
 def proposals() -> ProposalStore:
@@ -459,6 +464,129 @@ async def update_group(
     if updated is None:
         raise HTTPException(status_code=404, detail=f"group {group_id!r} not found")
     return {"status": "updated", "group": updated.to_dict()}
+
+
+class AttentionCreateRequest(BaseModel):
+    bot_id: str | None = None
+    group_id: str | None = None
+    question: str = Field(..., min_length=1)
+    context: str | None = None
+
+
+class AttentionAnswerRequest(BaseModel):
+    answer: str = Field(..., min_length=1)
+
+
+@router.get("/attention")
+async def list_attention(
+    status: str = Query("open"),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Open question items waiting on the owner (status=all lists every item)."""
+
+    wanted = None if status == "all" else "open"
+    return {"attention": attention_store().list(status=wanted)}
+
+
+@router.post("/attention")
+async def create_attention(
+    req: AttentionCreateRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Queue a question for the owner; at least one target is required."""
+
+    question = req.question.strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="question must not be empty")
+    if not req.bot_id and not req.group_id:
+        raise HTTPException(status_code=422, detail="bot_id or group_id is required")
+    registry = bot_registry()
+    if req.bot_id and _resolve_bot(registry, req.bot_id, owner_id=user["user_id"]) is None:
+        raise HTTPException(status_code=404, detail=f"bot {req.bot_id!r} not found")
+    if req.group_id:
+        _require_group(req.group_id, user["user_id"])
+    item = attention_store().create(
+        question=question,
+        bot_id=req.bot_id,
+        group_id=req.group_id,
+        context=(req.context.strip() if req.context else None) or None,
+    )
+    return {"status": "created", "item": item}
+
+
+def _require_open_item(item_id: str) -> dict[str, Any]:
+    item = attention_store().get(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"attention {item_id!r} not found")
+    if item.get("status") != "open":
+        raise HTTPException(status_code=409, detail=f"attention {item_id!r} is already closed")
+    return item
+
+
+@router.post("/attention/{item_id}/answer")
+async def answer_attention(
+    item_id: str,
+    req: AttentionAnswerRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Answer a question and deliver it as a user message, so the bot sees it."""
+
+    item = _require_open_item(item_id)
+    answer = req.answer.strip()
+    if not answer:
+        raise HTTPException(status_code=422, detail="answer must not be empty")
+    if item.get("group_id"):
+        group = _require_group(item["group_id"], user["user_id"])
+        groups().append_message(group.id, role="user", text=answer)
+    elif item.get("bot_id"):
+        conversations().append(item["bot_id"], role="user", text=answer)
+    closed = attention_store().answer(item_id, answer)
+    assert closed is not None
+    return {"status": "answered", "item": closed}
+
+
+@router.post("/attention/{item_id}/dismiss")
+async def dismiss_attention(
+    item_id: str,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Close a question without delivering an answer."""
+
+    _require_open_item(item_id)
+    closed = attention_store().dismiss(item_id)
+    assert closed is not None
+    return {"status": "dismissed", "item": closed}
+
+
+@router.get("/board")
+async def get_board(
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Per-bot status: waiting / working / idle, derived from persisted state."""
+
+    return {
+        "board": build_board(
+            bot_registry(),
+            conversations=conversations(),
+            store=attention_store(),
+            owner_id=user["user_id"],
+        )
+    }
+
+
+@router.get("/inbox")
+async def get_inbox(
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """One payload for the mobile inbox: attention + board + groups."""
+
+    return build_inbox(
+        bot_registry(),
+        conversations=conversations(),
+        groups=groups(),
+        store=attention_store(),
+        owner_id=user["user_id"],
+    )
 
 
 @router.post("/proposals/{proposal_id}/accept")
