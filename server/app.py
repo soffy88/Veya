@@ -30,6 +30,7 @@ from server.routes.bot_memory import router as bot_memory_router
 from server.routes.bot_models import router as bot_models_router
 from server.routes.bot_runtime import router as bot_runtime_router
 from server.routes.bot_team import router as bots_router
+from server.routes.device_link import router as device_link_router
 from server.routes.cad_sales import router as cad_sales_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
@@ -640,6 +641,7 @@ app.include_router(personal_runtime_router)
 app.include_router(product_router)
 # Lorca P1/P2: the named bot team + group chat shell (same product path).
 app.include_router(bots_router)
+app.include_router(device_link_router)
 app.include_router(bot_memory_router)  # P3 per-bot Markdown memory
 # Bot runtime lifecycle + independent entry (owner-scoped, require_user).
 app.include_router(bot_runtime_router)
