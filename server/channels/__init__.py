@@ -22,6 +22,7 @@ from .feishu import FeishuAdapter
 from .linking import CodeStore, LinkRequest, claim_code, codes, issue_code
 from .slack import SlackAdapter
 from .telegram import TelegramAdapter
+from .wechat import WechatAdapter
 from .wecom import WeComAdapter
 
 _ADAPTERS: dict[str, type[ChannelAdapter]] = {
@@ -30,6 +31,8 @@ _ADAPTERS: dict[str, type[ChannelAdapter]] = {
     DingTalkAdapter.platform: DingTalkAdapter,
     WeComAdapter.platform: WeComAdapter,
     SlackAdapter.platform: SlackAdapter,
+    # Polling-only: no webhook route; verify() always refuses.
+    WechatAdapter.platform: WechatAdapter,
 }
 
 
@@ -55,6 +58,7 @@ __all__ = [
     "SignatureRejected",
     "SlackAdapter",
     "TelegramAdapter",
+    "WechatAdapter",
     "WeComAdapter",
     "adapter_for",
     "anonymous_ref",

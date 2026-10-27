@@ -16,6 +16,7 @@ The user id is pseudonymised before it is stored or handed to the omodul
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -262,6 +263,46 @@ async def slack_webhook(request: Request, _: None = Depends(require_channels)) -
 @router.post("/wecom/webhook")
 async def wecom_webhook(request: Request, _: None = Depends(require_channels)) -> dict[str, Any]:
     return await _handle_webhook(request, "wecom")
+
+
+@router.post("/wechat/inbound")
+async def wechat_inbound(request: Request) -> dict[str, Any]:
+    """Inbound from the WeChat edge poller: edge-secret auth, no user login.
+
+    The poller owns the iLink session; this endpoint only accepts its
+    forwarded items when the shared edge secret matches. Then it follows
+    the normal webhook path: parse -> claim -> bind -> dispatch. Replies
+    flow back through the poller client (see clients.client_for).
+    """
+
+    from server.channels.wechat import WechatAdapter
+
+    secret = os.environ.get("WECHAT_EDGE_SECRET", "")
+    if not secret or request.headers.get("Authorization") != f"Bearer {secret}":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="bad edge secret")
+    payload = await _json_body(request)
+    item = payload.get("message")
+    if not isinstance(item, dict):
+        raise HTTPException(status_code=400, detail="message item is required")
+    adapter = WechatAdapter()
+    message = adapter.parse_inbound(payload=item, headers=request.headers)
+    if message is None:
+        return {"ok": True, "status": "ignored"}
+    claimed = await _try_claim(
+        message.text.strip(),
+        platform="wechat",
+        external_chat_id=message.external_chat_id,
+        external_user_id=message.external_user_id,
+    )
+    if claimed is not None:
+        return claimed
+    store: ChannelBindingStore = binding_store()
+    binding = store.find_for_chat(
+        platform="wechat",
+        external_chat_id=message.external_chat_id,
+    )
+    outcome = await dispatch_inbound(message, binding=binding, adapter=adapter)
+    return outcome.to_dict()
 
 
 # --------------------------------------------------------------------------

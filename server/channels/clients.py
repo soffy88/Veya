@@ -70,6 +70,13 @@ async def client_for(platform: str) -> Any:
             token=os.environ.get("WECOM_TOKEN") or None,
             encoding_aes_key=os.environ.get("WECOM_ENCODING_AES_KEY") or None,
         )
+    elif platform == "wechat":
+        from server.channels.wechat import WechatPollerClient
+
+        try:
+            client = WechatPollerClient()
+        except ValueError as exc:
+            raise ChannelNotConfigured(str(exc)) from exc
     else:
         raise ChannelNotConfigured(f"unknown platform: {platform}")
 
