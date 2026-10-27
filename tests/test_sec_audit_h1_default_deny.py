@@ -89,6 +89,8 @@ def test_webhooks_are_public() -> None:
     for p in (
         "/api/v1/webhooks/github",
         "/api/v1/channels/telegram/webhook",
+        "/api/v1/channels/slack/webhook",
+        "/api/v1/channels/wechat/inbound",
         "/im/wechat/webhook",
         "/im/discord/webhook",
         "/automata/webhooks/x",

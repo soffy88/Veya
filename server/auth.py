@@ -469,6 +469,8 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/v1/channels/telegram/webhook",
     "/api/v1/channels/wecom/webhook",
     "/api/v1/channels/wecom/verify",
+    "/api/v1/channels/slack/webhook",
+    "/api/v1/channels/wechat/inbound",
     "/api/v1/webhooks",
     "/automata/webhooks",
     "/api/v1/automata/webhooks",

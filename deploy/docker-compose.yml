@@ -122,6 +122,8 @@ services:
       # 注意：注册即登录、无验证码无公开限流，注册用户可用主脑对话（走 LLM）；
       # 若遭滥用，改回 0 并重建即可立即关闭。
       - VEYA_PUBLIC_SIGNUP=1
+      # IM channels layer: webhooks + poller inbound (per-platform secrets still gate each platform).
+      - VEYA_CHANNELS=1
       # 公网主机头：Caddy 以 veya.aiinote.com（或桥接 IP）转发 /api/*；
       # 后端 TrustedHostMiddleware 默认只放行 localhost/127.0.0.1，
       # 不加这里公网 API 全是 400 Invalid host header。
