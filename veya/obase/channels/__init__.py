@@ -1,7 +1,7 @@
 """veya/obase/channels — 3O obase layer: HTTP/crypto clients for chat platforms.
 
 Single-source rule (§1.4): this package is the canonical home for all external
-chat-platform IO (Telegram, Feishu, DingTalk, WeCom). Pure formatting logic
+chat-platform IO (Telegram, Feishu, DingTalk, WeCom, Slack). Pure formatting logic
 lives in veya/oskill/im/ with re-exports here.
 
 Dependency direction (MUST): obase → NO 3O layers (oprim/oskill/omodul/oservi).
@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,8 +23,9 @@ PLATFORM_TELEGRAM = "telegram"
 PLATFORM_FEISHU = "feishu"
 PLATFORM_DINGTALK = "dingtalk"
 PLATFORM_WECOM = "wecom"
+PLATFORM_SLACK = "slack"
 
-PLATFORMS = (PLATFORM_TELEGRAM, PLATFORM_FEISHU, PLATFORM_DINGTALK, PLATFORM_WECOM)
+PLATFORMS = (PLATFORM_TELEGRAM, PLATFORM_FEISHU, PLATFORM_DINGTALK, PLATFORM_WECOM, PLATFORM_SLACK)
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,39 @@ def verify_telegram_signature(*, secret_token: str | None, provided: str | None)
     if not secret_token:
         return False
     return hmac.compare_digest(secret_token, provided or "")
+
+
+def verify_slack_signature(
+    *,
+    signing_secret: str | None,
+    timestamp: str | None,
+    raw_body: bytes | None,
+    provided: str | None,
+) -> bool:
+    """Verify the Slack ``X-Slack-Signature`` header against the raw body.
+
+    Documented scheme: ``hmac_sha256(key=signing_secret,
+    msg="v0:{timestamp}:{raw_body}")`` hex-compared against the header
+    (``"v0="`` prefix). Rejects stale timestamps (>300s skew) and any
+    missing input fail-closed: without the raw body there is nothing sound
+    to verify against.
+    """
+
+    if not (signing_secret and timestamp and raw_body is not None and provided):
+        return False
+    try:
+        ts = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+    if abs(time.time() - ts) > 300:
+        return False
+    base = f"v0:{timestamp}:".encode("utf-8") + raw_body
+    expected = "v0=" + hmac.new(
+        signing_secret.encode("utf-8"),
+        base,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, provided)
 
 
 def verify_feishu_signature(
@@ -146,6 +181,7 @@ TELEGRAM_MAX_LEN = 4096
 FEISHU_MAX_LEN = 1900  # conservative for post cards
 DINGTALK_MAX_LEN = 5000
 WECOM_MAX_LEN = 2048
+SLACK_MAX_LEN = 4000
 
 DEFAULT_MAX_LEN = 4096
 
@@ -154,6 +190,7 @@ PLATFORM_MAX_LEN = {
     PLATFORM_FEISHU: FEISHU_MAX_LEN,
     PLATFORM_DINGTALK: DINGTALK_MAX_LEN,
     PLATFORM_WECOM: WECOM_MAX_LEN,
+    PLATFORM_SLACK: SLACK_MAX_LEN,
 }
 
 
@@ -195,7 +232,9 @@ __all__ = [
     "PLATFORM_FEISHU",
     "PLATFORM_MAX_LEN",
     "PLATFORM_TELEGRAM",
+    "PLATFORM_SLACK",
     "PLATFORM_WECOM",
+    "SLACK_MAX_LEN",
     "TELEGRAM_MAX_LEN",
     "WECOM_MAX_LEN",
     "ChannelBinding",

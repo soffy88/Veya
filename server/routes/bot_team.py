@@ -30,6 +30,7 @@ from server.bot_team.chef import (
     record_team_proposal,
 )
 from server.bot_team.conversations import ConversationStore, default_bots_root, safe_bot_id
+from server.bot_team.companions import create_companion, list_presets
 from server.bot_team.groups import (
     LEAD_REPLY_MODE,
     DEFAULT_ROUNDS_PER_MESSAGE,
@@ -42,6 +43,7 @@ from server.bot_team.messaging import MAX_HOP_DEPTH, BotMessageRefused, BotMesse
 from server.bot_team.push import announce_bot_reply, announce_group_round
 from server.bot_team.runners import RunnerRegistry
 from server.bot_team.turns import run_bot_turn
+from server.goal_run.routine_registry import RoutineRegistry
 from server.goal_run.bot_identity import DEFAULT_BOT_ID, BotRegistry, BotSpec
 
 router = APIRouter(prefix="/api/v1/bots", tags=["bots"])
@@ -152,6 +154,9 @@ def _bot_view(spec: BotSpec) -> dict[str, Any]:
         "routine_registry_ref": spec.routine_registry_ref,
         "available_skill_ids": list(spec.available_skill_ids),
         "available_playbook_ids": list(spec.available_playbook_ids),
+        "kind": getattr(spec, "kind", "bot"),
+        "personality": getattr(spec, "personality", ""),
+        "avatar": getattr(spec, "avatar", ""),
         "model_source": spec.model_source,
         "model_source_config": spec.model_source_config,
         "public_share": getattr(spec, "public_share", False),
@@ -557,6 +562,61 @@ async def create_bot(
 
 
 # ── one bot ──────────────────────────────────────────────────────────────
+
+
+class CompanionCreateRequest(BaseModel):
+    preset_id: str
+    bot_id: str
+    name: str | None = None
+    runner_id: str = "local"
+
+
+@router.get("/companions/presets")
+async def list_companion_presets(
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Companion presets: persona + routine work, no execution."""
+
+    return {"presets": list_presets()}
+
+
+@router.post("/companions")
+async def create_companion_route(
+    req: CompanionCreateRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Create a companion bot from a preset, with its routine work attached."""
+
+    bot_id = req.bot_id.strip()
+    if not _BOT_ID_RE.match(bot_id):
+        raise HTTPException(
+            status_code=422,
+            detail="bot_id must be lowercase snake_case (letters, digits, '.', '_', '-')",
+        )
+    registry = bot_registry()
+    if registry.get(bot_id) is not None:
+        raise HTTPException(status_code=409, detail=f"bot {bot_id!r} already exists")
+    requested_runner = str(req.runner_id or "local").strip() or "local"
+    if requested_runner != "local" and RunnerRegistry().get(requested_runner) is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"runner {requested_runner!r} is not registered; register it before pointing a bot at it",
+        )
+    try:
+        spec, routine_ids = create_companion(
+            registry,
+            RoutineRegistry(bot_id=bot_id),
+            owner_id=user["user_id"],
+            preset_id=req.preset_id,
+            bot_id=bot_id,
+            name=req.name,
+            runner_id=requested_runner,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "created", "bot": _bot_view(spec), "routines": routine_ids}
 
 
 @router.get("/{bot_id}")

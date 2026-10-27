@@ -83,7 +83,7 @@ def owner_ref(user: dict[str, Any]) -> str:
 class LinkCodeRequest(BaseModel):
     """Ask for a one-time linking code to paste into the external chat."""
 
-    platform: str = Field(..., pattern="^(telegram|feishu|dingtalk|wecom)$")
+    platform: str = Field(..., pattern="^(telegram|feishu|dingtalk|wecom|slack)$")
     target_type: str = Field(..., pattern="^(bot|group)$")
     target_id: str = Field(..., min_length=1, max_length=128)
 
@@ -119,19 +119,26 @@ async def _handle_webhook(request: Request, platform: str) -> dict[str, Any]:
     adapter = adapter_for(platform)
     payload = await _json_body(request)
 
-    if platform == "feishu":
-        challenge: dict[str, Any] | None = adapter.challenge_response(  # type: ignore[attr-defined]
-            payload
-        )
+    # Challenge handshake is adapter-generic: feishu and slack both echo a
+    # url_verification challenge; adapters without one return None.
+    challenge_fn = getattr(adapter, "challenge_response", None)
+    if challenge_fn is not None:
+        challenge: dict[str, Any] | None = challenge_fn(payload)
         if challenge is not None:
             return challenge
 
+    # Slack signs the RAW body; every other adapter verifies parsed fields.
+    # The raw body is passed only to slack so the other verify() signatures
+    # keep rejecting unexpected kwargs fail-closed.
+    check_kwargs: dict[str, Any] = {
+        "payload": payload,
+        "headers": request.headers,
+        "query": dict(request.query_params),
+    }
+    if platform == "slack":
+        check_kwargs["raw_body"] = await request.body()
     try:
-        adapter.check(
-            payload=payload,
-            headers=request.headers,
-            query=dict(request.query_params),
-        )
+        adapter.check(**check_kwargs)
     except SignatureRejected as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
@@ -245,6 +252,11 @@ async def wecom_verify(
             status_code=status.HTTP_403_FORBIDDEN, detail="signature verification failed"
         )
     return {"echostr": echostr}
+
+
+@router.post("/slack/webhook")
+async def slack_webhook(request: Request, _: None = Depends(require_channels)) -> dict[str, Any]:
+    return await _handle_webhook(request, "slack")
 
 
 @router.post("/wecom/webhook")

@@ -32,11 +32,13 @@ async def client_for(platform: str) -> Any:
     from veya.obase.channels import (
         PLATFORM_DINGTALK,
         PLATFORM_FEISHU,
+        PLATFORM_SLACK,
         PLATFORM_TELEGRAM,
         PLATFORM_WECOM,
     )
     from veya.obase.channels.dingtalk import create_dingtalk_client
     from veya.obase.channels.feishu import create_feishu_client
+    from veya.obase.channels.slack import create_slack_client
     from veya.obase.channels.telegram import create_telegram_client
     from veya.obase.channels.wecom import create_wecom_client
 
@@ -57,6 +59,8 @@ async def client_for(platform: str) -> Any:
             webhook_url=os.environ.get("DINGTALK_WEBHOOK_URL") or None,
             webhook_secret=os.environ.get("DINGTALK_WEBHOOK_SECRET") or None,
         )
+    elif platform == PLATFORM_SLACK:
+        client = await create_slack_client(_require("SLACK_BOT_TOKEN"))
     elif platform == PLATFORM_WECOM:
         client = await create_wecom_client(
             corp_id=os.environ.get("WECOM_CORP_ID") or None,

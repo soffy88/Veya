@@ -20,6 +20,7 @@ from .dingtalk import DingTalkAdapter
 from .dispatch import DispatchOutcome, anonymous_ref, dispatch_inbound
 from .feishu import FeishuAdapter
 from .linking import CodeStore, LinkRequest, claim_code, codes, issue_code
+from .slack import SlackAdapter
 from .telegram import TelegramAdapter
 from .wecom import WeComAdapter
 
@@ -28,6 +29,7 @@ _ADAPTERS: dict[str, type[ChannelAdapter]] = {
     FeishuAdapter.platform: FeishuAdapter,
     DingTalkAdapter.platform: DingTalkAdapter,
     WeComAdapter.platform: WeComAdapter,
+    SlackAdapter.platform: SlackAdapter,
 }
 
 
@@ -51,6 +53,7 @@ __all__ = [
     "FeishuAdapter",
     "LinkRequest",
     "SignatureRejected",
+    "SlackAdapter",
     "TelegramAdapter",
     "WeComAdapter",
     "adapter_for",

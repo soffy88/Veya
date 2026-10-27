@@ -15,6 +15,7 @@ from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_history import RoutineHistoryStore
 from server.goal_run.routine_registry import RoutineRegistry
+from server.goal_run.routine_templates import build_template_spec, list_templates
 
 
 async def _require_owned_bot(
@@ -91,6 +92,26 @@ class RoutinePatchRequest(BaseModel):
 def list_routines(bot_id: str):
     registry = _get_registry(bot_id)
     return registry.list(include_disabled=True)
+
+
+@router.get("/templates")
+def list_routine_templates(bot_id: str):
+    """Builtin routine templates: reviewed starting points, no execution."""
+
+    return {"templates": list_templates()}
+
+
+@router.post("/templates/{template_id}/instantiate")
+def instantiate_routine_template(bot_id: str, template_id: str):
+    """Instantiate one template into this bot's registry (fresh routine_id)."""
+
+    registry = _get_registry(bot_id)
+    try:
+        spec = build_template_spec(template_id, bot_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    registry.register(spec)
+    return spec
 
 
 @router.post("")
