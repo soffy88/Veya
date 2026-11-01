@@ -208,6 +208,7 @@ def test_registry_add_list_remove_roundtrip(runner_env):
         "last_seen": None,
         "status": "local",
         "implicit": True,
+        "kind": "veya",
     }
     assert [view["runner_id"] for view in views[1:]] == ["mac"]
 
