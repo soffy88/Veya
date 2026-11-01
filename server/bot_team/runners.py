@@ -202,6 +202,7 @@ def local_runner_view() -> dict[str, Any]:
         "last_seen": None,
         "status": STATUS_LOCAL,
         "implicit": True,
+        "kind": RUNNER_KIND_VEYA,
     }
 
 
