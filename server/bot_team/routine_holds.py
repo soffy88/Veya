@@ -67,6 +67,9 @@ class RoutineHoldStore:
         items = self._load()
         items.append(hold)
         self._save(items)
+        from server.bot_team.rev import bump_rev
+
+        bump_rev(root=self.root)
         return hold
 
     def list(
@@ -104,6 +107,9 @@ class RoutineHoldStore:
                 if note is not None:
                     item["resolution_note"] = note
                 self._save(items)
+                from server.bot_team.rev import bump_rev
+
+                bump_rev(root=self.root)
                 return item
         return None
 

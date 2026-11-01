@@ -226,6 +226,8 @@ class BotMessageRequest(BaseModel):
     #: Optional client-supplied message id (NANO-W10 item 1). When present it is
     #: the idempotency key, so a client retry never opens a second turn.
     message_id: str | None = Field(default=None, max_length=200)
+    #: Id of a message in this same transcript to quote (server-resolved).
+    reply_to: str | None = Field(default=None, max_length=200)
 
 
 class BotToBotMessageRequest(BaseModel):
@@ -252,6 +254,8 @@ class GroupUpdateRequest(BaseModel):
 class GroupMessageRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=20_000)
     workspace_id: str | None = Field(default=None, max_length=512)
+    #: Id of a message in this same transcript to quote (server-resolved).
+    reply_to: str | None = Field(default=None, max_length=200)
 
 
 def _validate_reply_mode(value: str | None) -> str:
@@ -362,6 +366,17 @@ async def post_group_message(
     """
 
     group = _require_group(group_id, user["user_id"])
+    # Quote replies: the server builds the snapshot from this transcript.
+    reply_to: dict[str, Any] | None = None
+    if req.reply_to:
+        try:
+            from server.bot_team.quote import build_quote
+
+            reply_to = build_quote(
+                groups().messages(group_id, include_hidden=True), req.reply_to
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     from server.nano_w9.flags import flag_enabled
     if flag_enabled("VEYA_EVENT_TRIGGERS") or flag_enabled("VEYA_ROUTINE_TRIGGERS"):
         try:
@@ -386,6 +401,7 @@ async def post_group_message(
             registry=bot_registry(),
             conversations=conversations(),
             workspace_id=req.workspace_id,
+            reply_to=reply_to,
         )
         return JSONResponse(status_code=202, content=ref.to_dict())
     try:
@@ -396,6 +412,7 @@ async def post_group_message(
             registry=bot_registry(),
             conversations=conversations(),
             workspace_id=req.workspace_id,
+            reply_to=reply_to,
         )
     except OSError as exc:
         raise HTTPException(status_code=503, detail="bot conversation is not writable") from exc
@@ -568,13 +585,17 @@ async def get_board(
 ) -> dict[str, Any]:
     """Per-bot status: waiting / working / idle, derived from persisted state."""
 
+    from server.bot_team.usage import usage_snapshot
+
     return {
         "board": build_board(
             bot_registry(),
             conversations=conversations(),
             store=attention_store(),
             owner_id=user["user_id"],
-        )
+        ),
+        # Cached read only: the board must never spawn a subprocess.
+        "usage": usage_snapshot(),
     }
 
 
@@ -591,6 +612,86 @@ async def get_inbox(
         store=attention_store(),
         owner_id=user["user_id"],
     )
+
+
+@router.get("/usage")
+async def get_usage(
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Cached provider usage/quota snapshot (see server/bot_team/usage.py)."""
+
+    from server.bot_team.usage import usage_snapshot
+
+    return usage_snapshot()
+
+
+@router.post("/usage/refresh")
+async def refresh_usage_endpoint(
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Re-read the configured usage commands and cache the snapshot."""
+
+    from server.bot_team.usage import refresh_usage
+
+    return refresh_usage()
+
+
+@router.get("/delegations")
+async def list_delegations(
+    status: str | None = None,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Queued and finished bot-to-bot delegations (delegations.py)."""
+
+    from server.bot_team.delegations import DelegationStore
+
+    if status is not None and status not in ("queued", "running", "done", "failed"):
+        raise HTTPException(status_code=422, detail=f"unknown status: {status!r}")
+    return {"delegations": DelegationStore().list(status=status)}
+
+
+@router.post("/delegations/process")
+async def process_delegations_endpoint(
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Manually drain the delegation queue (the turn-end hook drains it too)."""
+
+    from server.bot_team.delegations import process_delegations
+
+    outcomes = await process_delegations(user={"user_id": user["user_id"]})
+    return {"processed": outcomes}
+
+
+@router.get("/sync")
+async def get_sync(
+    since: int = Query(0, ge=0),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """One cheap read: has anything changed since revision *since*?"""
+
+    from server.bot_team.rev import current_rev
+
+    rev = current_rev()
+    return {"rev": rev, "changed": rev != since}
+
+
+class ReadMarkRequest(BaseModel):
+    rev: int = Field(ge=0)
+
+
+@router.post("/groups/{group_id}/read")
+async def mark_group_read(
+    group_id: str,
+    req: ReadMarkRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Record that the owner has read *group_id* up to revision *req.rev*."""
+
+    _require_group(group_id, user["user_id"])
+    from server.bot_team.rev import ReadMarkStore
+
+    read_rev = ReadMarkStore().mark(user["user_id"], group_id, req.rev)
+    return {"group_id": group_id, "read_rev": read_rev}
 
 
 @router.post("/proposals/{proposal_id}/accept")
@@ -1104,6 +1205,7 @@ def _intake_through_turn_queue(
     conversation_ref: str,
     req: BotMessageRequest,
     user: dict[str, Any],
+    user_meta: dict[str, Any] | None = None,
 ) -> Any | None:
     """Run an inbound bot message through the item-1 turn queue (W10 item 1).
 
@@ -1150,7 +1252,9 @@ def _intake_through_turn_queue(
         # A direct message mid-turn steers it; it does not wait for it.  It is
         # still the user's message, so it lands in the conversation (W11 S3).
         with contextlib.suppress(Exception):
-            conversations().append(conversation_ref, role="user", text=str(req.text or ""))
+            conversations().append(
+                conversation_ref, role="user", text=str(req.text or ""), meta=user_meta
+            )
         return JSONResponse(
             status_code=202,
             content={
@@ -1186,6 +1290,18 @@ async def post_bot_message(
     """
 
     spec = _require_bot(bot_registry(), bot_id, owner_id=user["user_id"])
+    # Quote replies: the server builds the snapshot from this transcript.
+    user_meta: dict[str, Any] | None = None
+    if req.reply_to:
+        try:
+            from server.bot_team.quote import build_quote
+
+            _quote = build_quote(
+                conversations().list(bot_id, include_hidden=True), req.reply_to
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        user_meta = {"reply_to": _quote}
     from server.nano_w9.flags import flag_enabled
     if flag_enabled("VEYA_EVENT_TRIGGERS") or flag_enabled("VEYA_ROUTINE_TRIGGERS"):
         try:
@@ -1202,7 +1318,7 @@ async def post_bot_message(
             await _routine_router().handle(signal)
         except Exception:
             pass
-    queued = _intake_through_turn_queue(spec.bot_id, req, user)
+    queued = _intake_through_turn_queue(spec.bot_id, req, user, user_meta=user_meta)
     if queued is not None:
         return queued
     if async_mode:
@@ -1212,6 +1328,7 @@ async def post_bot_message(
             user=dict(user),
             workspace_id=req.workspace_id,
             conversations=conversations(),
+            user_meta=user_meta,
         )
         return JSONResponse(status_code=202, content=ref.to_dict())
     try:
@@ -1221,6 +1338,7 @@ async def post_bot_message(
             user=dict(user),
             workspace_id=req.workspace_id,
             conversations=conversations(),
+            user_meta=user_meta,
         )
     except OSError as exc:
         raise HTTPException(status_code=503, detail="bot conversation is not writable") from exc

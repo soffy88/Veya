@@ -66,6 +66,24 @@ HEALTH_PATH = "/health"
 
 _TURN_PAYLOAD_VERSION = 1
 
+#: Oldest runner protocol version this hub still talks to. Additive
+#: changes leave it at 1; a breaking payload change raises it, and any
+#: runner older than that gets a clean 426 instead of a half-run turn.
+_MIN_RUNNER_VERSION = 1
+
+
+def check_runner_protocol(
+    min_runner_version: int, *, runner_version: int = _TURN_PAYLOAD_VERSION
+) -> None:
+    """Raise :class:`ValueError` when the hub needs a newer runner."""
+
+    required = int(min_runner_version or 1)
+    if required > runner_version:
+        raise ValueError(
+            f"hub requires runner protocol >= {required}, "
+            f"this runner speaks {runner_version}; upgrade the runner"
+        )
+
 
 def _timeout_from_env(name: str, default: float) -> float:
     raw = str(os.environ.get(name) or "").strip()
@@ -334,6 +352,7 @@ def build_turn_payload(
 
     payload: dict[str, Any] = {
         "version": _TURN_PAYLOAD_VERSION,
+        "min_runner_version": _MIN_RUNNER_VERSION,
         "runner_id": bot.runner_id,
         "trace_id": str(trace_id or ""),
         "user": {

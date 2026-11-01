@@ -137,6 +137,10 @@ class ConversationStore:
                 "meta": dict(meta) if meta else None,
             }
         )
+        # Global rev (Codync): every durable change bumps one counter.
+        from server.bot_team.rev import bump_rev
+
+        message["rev"] = bump_rev(root=self.root)
         messages = self.list(bot_id, include_hidden=True)
         messages.append(message)
         atomic_write_json(self._path(bot_id), messages)

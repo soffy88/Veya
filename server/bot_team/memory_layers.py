@@ -262,6 +262,11 @@ class LayeredMemoryStore:
         store = self._team_store if scope == TEAM_SCOPE_ID else self._store
         if scope == TEAM_SCOPE_ID and not team_memory_enabled():
             raise PermissionError("team memory is off; set VEYA_TEAM_MEMORY=1 to enable it")
+        # Deterministic memory gate (Codync codync-mem method): refuse
+        # poisoned writes whole, before anything reaches disk.
+        from server.bot_team.memory_gate import refuse_memory_text
+
+        refuse_memory_text(text)
         limit = TEAM_MEMORY_MAX_CHARS if scope == TEAM_SCOPE_ID else CORE_MEMORY_MAX_CHARS
         anchor = source or f"part 1 #{self.bot_id[:8]}"
         when = added or time.strftime("%Y-%m-%d", time.gmtime())

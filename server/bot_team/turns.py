@@ -362,6 +362,7 @@ async def begin_bot_turn(
     workspace_id: str | None = None,
     conversations: ConversationStore | None = None,
     trace_id: str | None = None,
+    user_meta: dict[str, Any] | None = None,
 ) -> BotTurnStart:
     """Open one turn: the product-task projection and the user's message.
 
@@ -382,7 +383,7 @@ async def begin_bot_turn(
         trace_id=trace_id,
     )
     store = conversations if conversations is not None else conversation_store()
-    store.append(bot.bot_id, role="user", text=str(text or ""), task_id=task_id)
+    store.append(bot.bot_id, role="user", text=str(text or ""), task_id=task_id, meta=user_meta)
     # W11-E S4: the turn is now in flight. Marking the conversation running is
     # what lets a correction typed mid-turn reach this turn instead of 409ing.
     queue = _turn_queue()
@@ -507,6 +508,19 @@ async def finish_bot_turn(
             status=_status_of(response),
             session_id=start.session_id,
         )
+    # Async delegation drain (Codync team method): a delegate_bot call made
+    # during this turn queued work; the reply arrives as a new turn of the
+    # source bot. Best-effort and guarded, so draining never fails the
+    # turn that triggered it. The same funnel serves sync turns (via
+    # run_bot_turn) and async turns (via async_turns.finish).
+    with contextlib.suppress(Exception):
+        from server.bot_team.delegations import process_delegations
+
+        await process_delegations(
+            conversations=store,
+            user=user,
+            workspace_id=workspace_id,
+        )
     return BotTurnResult(
         bot_id=bot.bot_id,
         task_id=start.task_id,
@@ -527,6 +541,7 @@ async def run_bot_turn(
     conversations: ConversationStore | None = None,
     trace_id: str | None = None,
     reply_meta: dict[str, Any] | None = None,
+    user_meta: dict[str, Any] | None = None,
 ) -> BotTurnResult:
     """Run one turn of ``bot`` and record both sides in its conversation.
 
@@ -612,6 +627,7 @@ async def run_bot_turn(
         context=context,
         workspace_id=workspace_id,
         conversations=conversations,
+        user_meta=user_meta,
     )
     finishing = finish_bot_turn(
         bot=bot,

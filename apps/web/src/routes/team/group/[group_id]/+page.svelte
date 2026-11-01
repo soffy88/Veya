@@ -23,6 +23,7 @@
 	import GroupRolesSheet from "./GroupRolesSheet.svelte";
 	import GroupMembersSheet from "./GroupMembersSheet.svelte";
 	import AttentionCards from "$lib/team/AttentionCards.svelte";
+	import QuoteBlock from "$lib/team/QuoteBlock.svelte";
 	import NeedsYouWidget from "../../NeedsYouWidget.svelte";
 
 	let { data } = $props<{ data: { groupId: string } }>();
@@ -30,6 +31,7 @@
 	let group = $state<GroupView | null>(null);
 	let bots = $state<Record<string, string>>({});
 	let messages = $state<BotMessage[]>([]);
+	let replyingTo = $state<BotMessage | null>(null);
 	let draft = $state("");
 	let loading = $state(true);
 	let sending = $state(false);
@@ -102,15 +104,31 @@
 	async function submit(): Promise<void> {
 		const text = draft.trim();
 		if (!text || sending) return;
+		const quoted = replyingTo;
+		replyingTo = null;
 		draft = "";
 		sending = true;
 		error = "";
-		messages = [...messages, { id: `local-${Date.now()}`, role: "user", text, ts: Date.now() / 1000 }];
+		messages = [
+			...messages,
+			{
+				id: `local-${Date.now()}`,
+				role: "user",
+				text,
+				ts: Date.now() / 1000,
+				...(quoted
+					? { reply_to: { id: quoted.id, author: quoted.bot_id ?? "user", text: quoted.text } }
+					: {}),
+			},
+		];
 		await tick();
 		if (thread) thread.scrollTop = thread.scrollHeight;
 		expectedCount = messages.length + (group?.bot_ids.length ?? 1);
 		try {
-			await sendGroupMessage(groupId, text, { background: true });
+			await sendGroupMessage(groupId, text, {
+				background: true,
+				...(quoted ? { replyTo: quoted.id } : {}),
+			});
 			stopPolling();
 			timer = setInterval(() => void poll(), 2500);
 			await poll();
@@ -118,6 +136,16 @@
 			error = err instanceof Error ? err.message : String(err);
 			sending = false;
 		}
+	}
+
+	function quoteAuthor(quote: { author: string }): string {
+		if (quote.author === "user") return "你";
+		return bots[quote.author] ?? quote.author;
+	}
+
+	function displayAuthor(message: BotMessage): string {
+		if (message.role === "user") return "你";
+		return bots[String(message.bot_id ?? "")] ?? String(message.bot_id ?? "");
 	}
 
 	/** W-5: append "@bot " to the draft — the backend matches @bot ids verbatim. */
@@ -188,7 +216,17 @@
 			{#if message.role === "user"}
 				<div class="flex justify-end">
 					<div class="max-w-[85%] rounded-2xl bg-gradient-to-br from-sky-500/90 to-violet-600/90 px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words text-white">
+						{#if message.reply_to}
+							<QuoteBlock quote={message.reply_to} authorName={quoteAuthor(message.reply_to)} />
+						{/if}
 						{message.text}
+						<button
+							type="button"
+							class="mt-1 block text-[11px] text-white/60 hover:text-white"
+							onclick={() => (replyingTo = message)}
+						>
+							引用
+						</button>
 					</div>
 				</div>
 			{:else}
@@ -200,8 +238,20 @@
 						{(bots[String(message.bot_id ?? "")] ?? "bot").slice(0, 2)}
 					</span>
 					<div class="max-w-[78%] min-w-0">
-						<p class="text-[10px] opacity-50">{bots[String(message.bot_id ?? "")] ?? message.bot_id}</p>
+						<div class="flex items-center justify-between gap-2">
+							<p class="text-[10px] opacity-50">{bots[String(message.bot_id ?? "")] ?? message.bot_id}</p>
+							<button
+								type="button"
+								class="text-[11px] text-sky-300/80 hover:text-sky-200"
+								onclick={() => (replyingTo = message)}
+							>
+								引用
+							</button>
+						</div>
 						<div class="rounded-2xl bg-white/[0.05] px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words">
+							{#if message.reply_to}
+								<QuoteBlock quote={message.reply_to} authorName={quoteAuthor(message.reply_to)} />
+							{/if}
 							{message.text}
 						</div>
 					</div>
@@ -228,6 +278,23 @@
 		</div>
 	{/if}
 
+	{#if replyingTo}
+		<div
+			class="flex shrink-0 items-center gap-2 border-t border-white/[0.07] bg-white/[0.03] px-3 py-2 text-xs"
+		>
+			<span class="min-w-0 flex-1 truncate opacity-70">
+				引用 {displayAuthor(replyingTo)}：{replyingTo.text}
+			</span>
+			<button
+				type="button"
+				class="shrink-0 opacity-60 hover:opacity-100"
+				onclick={() => (replyingTo = null)}
+				aria-label="取消引用"
+			>
+				✕
+			</button>
+		</div>
+	{/if}
 	<form
 		class="flex shrink-0 items-end gap-2 border-t border-white/[0.07] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
 		onsubmit={(event) => {

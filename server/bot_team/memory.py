@@ -174,6 +174,9 @@ class BotMemoryStore:
             if name.upper() == USER_GLOBAL_FILE.upper():
                 raise PermissionError("USER_GLOBAL.md is user-written and read-only to agents")
             require_same_bot(caller_bot_id, self.bot_id, f"memory:{name}")
+        from server.bot_team.memory_gate import refuse_memory_text
+
+        refuse_memory_text(text)
         path = self._path(name)
         encoded = text.encode("utf-8")
         if len(encoded) > MAX_FILE_BYTES:

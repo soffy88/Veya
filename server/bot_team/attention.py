@@ -74,6 +74,9 @@ class AttentionStore:
         items = self._load()
         items.append(item)
         self._save(items)
+        from server.bot_team.rev import bump_rev
+
+        bump_rev(root=self.root)
         return item
 
     def list(self, *, status: str | None = None) -> list[dict[str, Any]]:
@@ -99,6 +102,9 @@ class AttentionStore:
                 if answer is not None:
                     item["answer"] = answer
                 self._save(items)
+                from server.bot_team.rev import bump_rev
+
+                bump_rev(root=self.root)
                 return item
         return None
 
@@ -180,11 +186,15 @@ def build_inbox(
     store: AttentionStore,
     owner_id: str | None = None,
 ) -> dict[str, Any]:
+    from server.bot_team.rev import ReadMarkStore, unread_for_group
+
+    marks = ReadMarkStore(groups.root)
     group_rows = []
     for group in groups.list():
         messages = groups.messages(group.id)
         open_attention = store.open_count(group_id=group.id)
         status, last_ts = _status_from_messages(messages, open_attention=open_attention)
+        read_rev = marks.get(owner_id or "", group.id)
         group_rows.append(
             {
                 "group_id": group.id,
@@ -194,6 +204,8 @@ def build_inbox(
                 "status": status,
                 "open_attention": open_attention,
                 "last_active_ts": last_ts,
+                "read_rev": read_rev,
+                "unread": unread_for_group(messages, open_attention, read_rev),
             }
         )
     return {

@@ -300,7 +300,12 @@ async def test_group_stops_when_every_member_has_passed(lorca_env, monkeypatch):
     async def fake_execute(request: Any) -> GoalRunResponse:
         bot_id = str(request.constraints.metadata.get("bot_id") or "")
         seen.append(bot_id)
-        summary = PASS_SENTINEL if bot_id == "gamma" else f"say:{bot_id}"
+        if bot_id == "gamma":
+            summary = PASS_SENTINEL
+        elif bot_id == "alpha":
+            summary = "@beta, over to you"
+        else:
+            summary = f"say:{bot_id}"
         return GoalRunResponse(
             goal_id=f"goal-{bot_id}",
             status=GoalStatus.completed,
@@ -314,15 +319,15 @@ async def test_group_stops_when_every_member_has_passed(lorca_env, monkeypatch):
 
     result = await _run_group(group=group, registry=registry, store=store, text="ideas?")
 
-    # Round 1: alpha, beta, gamma(pass). Not all passed, so round 2 runs and
-    # gamma passes again → 5 turns, no third round.
+    # Round 1: alpha, beta, gamma(pass). Alpha's reply names @beta, so the
+    # mention chain calls beta alone in round 2; gamma, who passed, is
+    # never called again. 4 turns, no third round.
     assert result["rounds"] == 2
-    assert seen == ["alpha", "beta", "gamma", "alpha", "beta", "gamma"]
+    assert seen == ["alpha", "beta", "gamma", "beta"]
     assert result["passed"] == ["gamma"]
     assert [item["bot_id"] for item in result["replies"]] == [
         "alpha",
         "beta",
-        "alpha",
         "beta",
     ]
 

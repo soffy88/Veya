@@ -100,6 +100,7 @@ async def start_bot_turn_async(
     user: dict[str, Any],
     workspace_id: str | None = None,
     conversations: ConversationStore | None = None,
+    user_meta: dict[str, Any] | None = None,
 ) -> AsyncTurnRef:
     """Open a bot turn, answer with its id, and finish it in the background."""
 
@@ -109,6 +110,7 @@ async def start_bot_turn_async(
         user=user,
         workspace_id=workspace_id,
         conversations=conversations,
+        user_meta=user_meta,
     )
     ref = AsyncTurnRef(
         task_id=start.task_id,
@@ -139,6 +141,7 @@ async def start_group_turn_async(
     registry: BotRegistry,
     workspace_id: str | None = None,
     conversations: ConversationStore | None = None,
+    reply_to: dict[str, Any] | None = None,
 ) -> AsyncTurnRef:
     """Offer the group a round, answer now, finish it in the background."""
     store = conversations if conversations is not None else ConversationStore()
@@ -159,6 +162,7 @@ async def start_group_turn_async(
             registry=registry,
             workspace_id=workspace_id,
             conversations=store,
+            reply_to=reply_to,
         ),
     )
     return ref
@@ -223,6 +227,7 @@ async def _run_group_turn(
     registry: BotRegistry,
     workspace_id: str | None,
     conversations: ConversationStore,
+    reply_to: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Finish a deferred group round and announce who spoke first."""
 
@@ -233,6 +238,7 @@ async def _run_group_turn(
         registry=registry,
         conversations=conversations,
         workspace_id=workspace_id,
+        reply_to=reply_to,
     )
     announce_group_round(
         group_name=group.name,

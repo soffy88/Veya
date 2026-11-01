@@ -44,12 +44,14 @@
 	import { turnStore } from "$lib/team/turns.svelte";
 	import { actionClass, inputClass, primaryClass } from "$lib/team/ui";
 	import AttentionCards from "$lib/team/AttentionCards.svelte";
+	import QuoteBlock from "$lib/team/QuoteBlock.svelte";
 	import type { ToolStep } from "$lib/chatTypes";
 
 	let { botId, botName, mode }: { botId: string; botName: string; mode: "background" | "inline" } =
 		$props();
 
 	let messages = $state<BotMessage[]>([]);
+	let replyingTo = $state<BotMessage | null>(null);
 	let draft = $state("");
 	let loading = $state(true);
 	let sending = $state(false);
@@ -306,18 +308,47 @@
 		}
 	}
 
+	function quoteAuthor(quote: { author: string }): string {
+		if (quote.author === "user") return "你";
+		return quote.author === botId ? botName : quote.author;
+	}
+
 	async function send(text: string): Promise<void> {
 		const trimmed = text.trim();
 		if (!trimmed || sending) return;
+		const quoted = replyingTo;
+		replyingTo = null;
 		draft = "";
 		sending = true;
 		error = "";
 		proposal = null;
 		lastAttempt = trimmed;
-		messages = [...messages, { id: `local-${Date.now()}`, role: "user", text: trimmed, ts: Date.now() / 1000 }];
+		messages = [
+			...messages,
+			{
+				id: `local-${Date.now()}`,
+				role: "user",
+				text: trimmed,
+				ts: Date.now() / 1000,
+				...(quoted
+					? {
+							meta: {
+								reply_to: {
+									id: quoted.id,
+									author: quoted.bot_id ?? "user",
+									text: quoted.text,
+								},
+							},
+						}
+					: {}),
+			},
+		];
 		await scrollToEnd();
 		try {
-			const result = await sendBotMessage(botId, trimmed, { background: mode === "background" });
+			const result = await sendBotMessage(botId, trimmed, {
+				background: mode === "background",
+				...(quoted ? { replyTo: quoted.id } : {}),
+			});
 			const pending = result as PendingPushTask;
 			if (pending.task_id) {
 				pendingTaskId = pending.task_id;
@@ -401,12 +432,30 @@
 							? 'bg-gradient-to-br from-sky-500/90 to-violet-600/90 text-white'
 							: 'bg-white/[0.05] text-terminal-fg'}"
 					>
+						{#if message.reply_to ?? message.meta?.reply_to}
+							{@const quote = message.reply_to ?? message.meta?.reply_to}
+							<QuoteBlock {quote} authorName={quoteAuthor(quote)} />
+						{/if}
 						{#if message.role === "user"}
 							<div class="whitespace-pre-wrap break-words">{message.text}</div>
+							<button
+								type="button"
+								class="mt-1 block text-[11px] text-white/60 hover:text-white"
+								onclick={() => (replyingTo = message)}
+							>
+								引用
+							</button>
 						{:else}
 							<EvidenceReportBlock text={message.text} />
 							<div class="mt-2 flex items-center justify-between border-t border-white/5 pt-2 text-[11px] text-white/40">
 								<span>{botName}</span>
+								<button
+									type="button"
+									class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-sky-300 transition hover:bg-sky-500/10 hover:text-sky-200"
+									onclick={() => (replyingTo = message)}
+								>
+									引用
+								</button>
 								<button
 									type="button"
 									class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-sky-300 transition hover:bg-sky-500/10 hover:text-sky-200"
@@ -497,6 +546,23 @@
 		</div>
 	{/if}
 
+	{#if replyingTo}
+		<div
+			class="flex shrink-0 items-center gap-2 border-t border-white/[0.07] bg-white/[0.03] px-3 py-2 text-xs"
+		>
+			<span class="min-w-0 flex-1 truncate opacity-70">
+				引用 {replyingTo.role === "user" ? "你" : botName}：{replyingTo.text}
+			</span>
+			<button
+				type="button"
+				class="shrink-0 opacity-60 hover:opacity-100"
+				onclick={() => (replyingTo = null)}
+				aria-label="取消引用"
+			>
+				✕
+			</button>
+		</div>
+	{/if}
 	<form
 		class="flex shrink-0 items-end gap-2 border-t border-white/[0.07] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
 		onsubmit={(event) => {

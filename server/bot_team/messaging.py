@@ -203,6 +203,52 @@ class BotMessenger:
             goal_run_id=str(result.goal_run_id or ""),
         )
 
+    async def delegate(
+        self,
+        source_bot_id: str,
+        target_bot_id: str,
+        text: str,
+        *,
+        depth: int = 0,
+    ) -> dict[str, Any]:
+        """Queue an async delegation: same refusals as :meth:`message_bot`.
+
+        The request is stored and the caller continues at once. The
+        dispatcher (:func:`server.bot_team.delegations.process_delegations`)
+        runs the target's turn through :meth:`message_bot` and delivers the
+        reply as a new turn of the source bot. Refusals raise
+        :class:`BotMessageRefused`, exactly like the synchronous path, so a
+        bad target is reported at enqueue time, not lost in the queue.
+        """
+
+        source = self._bot_or_refuse(source_bot_id)
+        target = self._bot_or_refuse(target_bot_id)
+        if source.bot_id == target.bot_id:
+            raise BotMessageRefused("a bot cannot delegate to itself")
+        if depth < 0:
+            raise BotMessageRefused(f"hop depth must be >= 0, got {depth}")
+        if depth >= MAX_HOP_DEPTH:
+            raise BotMessageRefused(
+                f"hop limit reached: a chain of bot messages may not be deeper "
+                f"than {MAX_HOP_DEPTH} hops (depth={depth})"
+            )
+        from server.bot_team.delegations import DelegationStore
+
+        store = DelegationStore(root=self.conversations.root)
+        item = store.create(
+            from_bot_id=source.bot_id,
+            to_bot_id=target.bot_id,
+            text=str(text or ""),
+            depth=depth,
+        )
+        return {
+            "ok": True,
+            "delegation_id": item["id"],
+            "status": item["status"],
+            "from_bot_id": source.bot_id,
+            "target_bot_id": target.bot_id,
+        }
+
 
 def messenger(
     registry: BotRegistry,

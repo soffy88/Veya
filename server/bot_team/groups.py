@@ -281,6 +281,7 @@ class GroupStore:
         text: str,
         bot_id: str | None = None,
         task_id: str | None = None,
+        reply_to: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Append one message to the group transcript."""
 
@@ -310,6 +311,11 @@ class GroupStore:
             # Same rule as a bot conversation: a PASS reply is stored, never shown.
             "hidden": body.strip() == PASS_SENTINEL,
         }
+        if reply_to is not None:
+            message["reply_to"] = dict(reply_to)
+        from server.bot_team.rev import bump_rev
+
+        message["rev"] = bump_rev(root=self.root)
         path = self.messages_path(group_id)
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -393,6 +399,7 @@ async def run_group_turn(
     registry: BotRegistry,
     conversations: ConversationStore | None = None,
     workspace_id: str | None = None,
+    reply_to: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Offer every member one turn per round, in order, then stop.
 
@@ -411,6 +418,7 @@ async def run_group_turn(
             registry=registry,
             conversations=store,
             workspace_id=workspace_id,
+            reply_to=reply_to,
         )
     if (group.reply_mode or "everyone").strip().lower() == LEAD_REPLY_MODE:
         return await run_lead_turn(
@@ -420,10 +428,11 @@ async def run_group_turn(
             registry=registry,
             conversations=store,
             workspace_id=workspace_id,
+            reply_to=reply_to,
         )
     # Same root as the bot conversations, so one VEYA_BOTS_ROOT moves everything.
     groups = GroupStore(store.root)
-    groups.append_message(group.id, role="user", text=str(text or ""))
+    groups.append_message(group.id, role="user", text=str(text or ""), reply_to=reply_to)
 
     # A member that is gone is reported, never blocking the others.
     from server.feature_flags import enabled as flag_enabled
@@ -445,9 +454,20 @@ async def run_group_turn(
     passed: list[str] = []
     skipped: list[str] = []
     rounds_run = 0
+    visible_rounds = 0
+    spoken: set[str] = set()
+    round_candidates = list(candidate_ids)
     for _round in range(max(1, group.rounds_per_message)):
+        if not round_candidates:
+            break
+        # Rotate the starting speaker each round.
+        if _round and len(round_candidates) > 1:
+            shift = _round % len(round_candidates)
+            round_candidates = round_candidates[shift:] + round_candidates[:shift]
         rounds_run += 1
-        for bot_id in candidate_ids:
+        round_replies: list[str] = []
+        round_visible = False
+        for bot_id in round_candidates:
             bot: BotSpec | None = registry.get(bot_id)
             if bot is None:
                 skipped.append(bot_id)
@@ -460,6 +480,11 @@ async def run_group_turn(
                 workspace_id=workspace_id,
                 conversations=store,
             )
+            # Round 1 answers the user, not a mention: only speech in a
+            # chain round (round 2+) excludes a member from later rounds.
+            # A pass excludes in any round (handled via `passed` below).
+            if _round >= 1:
+                spoken.add(bot_id)
             # The group transcript records the reply (a PASS reply is stored
             # hidden here and in the bot's own conversation).
             groups.append_message(
@@ -473,6 +498,8 @@ async def run_group_turn(
                 if bot_id not in passed:
                     passed.append(bot_id)
                 continue
+            round_visible = True
+            round_replies.append(turn.reply)
             replies.append(
                 {
                     "bot_id": bot_id,
@@ -482,16 +509,67 @@ async def run_group_turn(
                     "round": rounds_run,
                 }
             )
+        if round_visible:
+            visible_rounds += 1
         if len(passed) >= len(available):
             # Everybody that can speak has passed: no further round adds anything.
             break
+        # Mention chain: the next round calls only members newly @-mentioned
+        # in this round's replies who have not spoken or passed yet.
+        round_candidates = [
+            bot_id
+            for bot_id in mentioned_bot_ids(round_replies, available, registry)
+            if bot_id not in spoken and bot_id not in passed
+        ]
     return {
         "group_id": group.id,
-        "rounds": rounds_run,
+        # A round that only passed consumes no round: the count is the
+        # rounds that produced a visible reply, floored at 1 as before.
+        "rounds": max(1, visible_rounds),
         "replies": replies,
         "passed": passed,
         "skipped": skipped,
     }
+
+
+def mentioned_bot_ids(
+    texts: list[str],
+    available: list[str],
+    registry: Any,
+) -> list[str]:
+    """Bot ids newly @-mentioned in *texts*, in first-mention order.
+
+    A mention is ``@`` + bot_id or display name, bounded by
+    non-alphanumeric characters on both sides -- the same discipline as
+    :func:`select_lead_owner`, so ``@beta`` matches but ``@beta2`` and
+    ``beta@example`` do not.
+    """
+
+    found: list[str] = []
+    for text in texts:
+        body = str(text or "")
+        hits: list[tuple[int, str]] = []
+        for bot_id in available:
+            if bot_id in found:
+                continue
+            spec = registry.get(bot_id)
+            tokens = {bot_id}
+            if spec is not None and getattr(spec, "name", ""):
+                tokens.add(str(spec.name))
+            earliest: int | None = None
+            for token in tokens:
+                pattern = re.compile(
+                    r"(?<![A-Za-z0-9_])@" + re.escape(token) + r"(?![A-Za-z0-9_])",
+                    re.IGNORECASE,
+                )
+                match = pattern.search(body)
+                if match is not None and (earliest is None or match.start() < earliest):
+                    earliest = match.start()
+            if earliest is not None:
+                hits.append((earliest, bot_id))
+        hits.sort()
+        found.extend(bot_id for _, bot_id in hits)
+    return found
 
 
 def select_lead_owner(
@@ -547,6 +625,7 @@ async def run_lead_turn(
     conversations: ConversationStore | None = None,
     workspace_id: str | None = None,
     _skip_append: bool = False,
+    reply_to: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One lead cycle per user message: lead plans, workers report, lead synthesizes.
 
@@ -565,7 +644,7 @@ async def run_lead_turn(
     store = conversations if conversations is not None else ConversationStore()
     groups = GroupStore(store.root)
     if not _skip_append:
-        groups.append_message(group.id, role="user", text=str(text or ""))
+        groups.append_message(group.id, role="user", text=str(text or ""), reply_to=reply_to)
 
     available = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is not None]
     skipped = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is None]
@@ -766,6 +845,7 @@ async def run_auto_turn(
     registry: BotRegistry,
     conversations: ConversationStore | None = None,
     workspace_id: str | None = None,
+    reply_to: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Auto reply mode: direct answer when the addressee is clear, else lead.
 
@@ -779,7 +859,7 @@ async def run_auto_turn(
 
     store = conversations if conversations is not None else ConversationStore()
     groups = GroupStore(store.root)
-    groups.append_message(group.id, role="user", text=str(text or ""))
+    groups.append_message(group.id, role="user", text=str(text or ""), reply_to=reply_to)
 
     available = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is not None]
     skipped = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is None]
@@ -850,6 +930,7 @@ async def run_auto_turn(
         conversations=store,
         workspace_id=workspace_id,
         _skip_append=True,
+        reply_to=reply_to,
     )
 
 
@@ -857,6 +938,7 @@ __all__ = [
     "DEFAULT_ROUNDS_PER_MESSAGE",
     "LEAD_REPLY_MODE",
     "AUTO_REPLY_MODE",
+    "mentioned_bot_ids",
     "run_auto_turn",
     "select_auto_responder",
     "select_lead_owner",

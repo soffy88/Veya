@@ -67,8 +67,14 @@ class RunnerTurnBot(BaseModel):
     owner_id: str = ""
 
 
+#: Protocol version this runner speaks. Bumped only on a breaking
+#: payload change, in step with the hub's ``_TURN_PAYLOAD_VERSION``.
+RUNNER_PROTOCOL_VERSION = 1
+
+
 class RunnerTurnRequest(BaseModel):
     version: int = 1
+    min_runner_version: int = 1
     runner_id: str = ""
     trace_id: str = ""
     user: dict[str, Any] = Field(default_factory=dict)
@@ -127,6 +133,15 @@ async def run_runner_turn(
             status_code=403,
             detail="this runner token may not execute turns (requires the write permission)",
         )
+
+    # Protocol handshake (Codync minApp/minHost): a hub that needs a newer
+    # runner than this one gets 426, never a half-executed turn.
+    from server.bot_team.runner_client import check_runner_protocol
+
+    try:
+        check_runner_protocol(req.min_runner_version, runner_version=RUNNER_PROTOCOL_VERSION)
+    except ValueError as exc:
+        raise HTTPException(status_code=426, detail=str(exc)) from exc
 
     user_id = str(req.user.get("user_id") or "").strip()
     if not user_id:

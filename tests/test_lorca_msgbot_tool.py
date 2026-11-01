@@ -133,9 +133,10 @@ def test_register_tools_is_idempotent(lorca_env):
     from server.tool_registry import MasterToolRegistry
 
     fresh = MasterToolRegistry()
-    assert register_tools(fresh) == 1
+    # Codync graft: the team tools are message_bot + list_bots + delegate_bot.
+    assert register_tools(fresh) == 3
     assert register_tools(fresh) == 0
-    assert fresh.list_tools() == [TOOL_NAME]
+    assert sorted(fresh.list_tools()) == ["delegate_bot", "list_bots", TOOL_NAME]
 
 
 # ── the source bot comes from the running turn ────────────────────────────

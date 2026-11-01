@@ -33,6 +33,8 @@ export interface BotView {
 }
 
 export interface BotMessageMeta {
+	/** Server-built snapshot of the message this message quotes, if any. */
+	reply_to?: { id: string; author: string; text: string };
 	/** NANO-W10 W5: "finish_checkpoint" marks a card the user can answer. */
 	kind?: string;
 	card_id?: string;
@@ -45,9 +47,13 @@ export interface BotMessage {
 	id: string;
 	role: "user" | "bot";
 	text: string;
+	/** Group transcripts carry the quote at top level; 1:1 chats in meta. */
+	reply_to?: { id: string; author: string; text: string };
 	bot_id?: string | null;
 	task_id?: string | null;
 	ts: number;
+	/** Global revision at which this message landed (absent pre-graft). */
+	rev?: number;
 	meta?: BotMessageMeta | null;
 }
 
@@ -211,6 +217,8 @@ export async function listBotMessages(botId: string): Promise<BotMessage[]> {
 export interface SendTurnOptions {
 	/** `true` → 202 + background finish (a bot turn can take minutes). */
 	background?: boolean;
+	/** Id of a message in the same transcript to quote (server-resolved). */
+	replyTo?: string;
 	workspaceId?: string | null;
 }
 
@@ -224,7 +232,7 @@ export async function sendBotMessage(
 	if (options.workspaceId) query.workspace_id = options.workspaceId;
 	const result = await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/messages`, {
 		method: "POST",
-		body: { text },
+		body: { text, ...(options.replyTo ? { reply_to: options.replyTo } : {}) },
 		query,
 	});
 	if (result.status === 202) return unwrap<PendingPushTask>(result);
@@ -355,7 +363,7 @@ export async function sendGroupMessage(
 	if (options.workspaceId) query.workspace_id = options.workspaceId;
 	const result = await api("gateway", `api/v1/bots/groups/${encodeURIComponent(groupId)}/messages`, {
 		method: "POST",
-		body: { text },
+		body: { text, ...(options.replyTo ? { reply_to: options.replyTo } : {}) },
 		query,
 	});
 	if (result.status === 202) return unwrap<PendingPushTask>(result);
