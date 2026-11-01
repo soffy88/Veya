@@ -407,11 +407,15 @@ async def finish_bot_turn(
     workspace_id: str | None = None,
     conversations: ConversationStore | None = None,
     reply_meta: dict[str, Any] | None = None,
+    thread_id: str = "",
 ) -> BotTurnResult:
     """Run the turn opened by :func:`begin_bot_turn` and record the reply.
 
     ``reply_meta`` tags the bot's reply (a routine turn marks it
     ``{"source": "routine", "routine_id": …}`` so the UI can tell it apart).
+
+    ``thread_id`` is the usage-ledger key (a room id for group turns); empty
+    means this bot's own conversation.
     """
 
     from server.routes import product as product_routes
@@ -426,50 +430,79 @@ async def finish_bot_turn(
         burst = [str(t).strip() for t in queue.drain_steers(bot.bot_id) if str(t or "").strip()]
         if burst:
             text = "\n".join([str(text or ""), *burst])
+    from server.bot_team.repeat_guard import bind_repeat_detector, reset_repeat_detector
+    from server.bot_team.thread_usage import (
+        bind_turn_usage,
+        record_turn,
+        reset_turn_usage,
+    )
+    from server.bot_team.turn_lock import bot_turn_lock
+    from server.bot_team.turn_watchdog import stall_note, turn_deadline, turn_timeout_s
+
+    repeat_token = bind_repeat_detector()
+    turn_usage, usage_token = bind_turn_usage()
     objective = build_objective(bot=bot, text=text, context=context)
+    stalled = False
+    deadline = None
+    deadline_s = turn_timeout_s()
     try:
-        response = await product_routes._run_product_task(
-            task_id=start.task_id,
-            session_id=start.session_id,
-            objective=objective,
-            provider=bot.provider or None,
-            model=bot.model or None,
-            config={},
-            user=dict(user),
-            project_root=workspace_id or "/repo",
-            bot_id=bot.bot_id,
-        )
-        # W11-E S4: a correction that arrived after the model's last call was
-        # not seen by it.  Answer again with the correction in view, inside the
-        # same turn, so the reply the user gets follows what they asked last.
-        rounds = 0
-        while queue is not None and rounds < 2:
-            late = queue.drain_steers(bot.bot_id)
-            late = [str(t).strip() for t in late if str(t or "").strip()]
-            if not late:
-                break
-            rounds += 1
-            corrected = (
-                f"{text}\n\n用户在你回答过程中又发来了消息（一起回答；与前面冲突时以新消息为准）："
-                + "；".join(late)
-            )
-            response = await product_routes._run_product_task(
-                task_id=start.task_id,
-                session_id=start.session_id,
-                objective=build_objective(bot=bot, text=corrected, context=context),
-                provider=bot.provider or None,
-                model=bot.model or None,
-                config={},
-                user=dict(user),
-                project_root=workspace_id or "/repo",
-                bot_id=bot.bot_id,
-            )
-    finally:
-        # W11-E S4: the turn is over (or failed) — release the conversation so
-        # the next correction is not steered into a turn that no longer runs.
-        if queue is not None:
-            queue.mark_finished(bot.bot_id)
+        async with turn_deadline() as deadline:
+            async with bot_turn_lock(bot.bot_id):
+                try:
+                    response = await product_routes._run_product_task(
+                        task_id=start.task_id,
+                        session_id=start.session_id,
+                        objective=objective,
+                        provider=bot.provider or None,
+                        model=bot.model or None,
+                        config={},
+                        user=dict(user),
+                        project_root=workspace_id or "/repo",
+                        bot_id=bot.bot_id,
+                    )
+                    # W11-E S4: a correction that arrived after the model's last call was
+                    # not seen by it.  Answer again with the correction in view, inside the
+                    # same turn, so the reply the user gets follows what they asked last.
+                    rounds = 0
+                    while queue is not None and rounds < 2:
+                        late = queue.drain_steers(bot.bot_id)
+                        late = [str(t).strip() for t in late if str(t or "").strip()]
+                        if not late:
+                            break
+                        rounds += 1
+                        corrected = (
+                            f"{text}\n\n用户在你回答过程中又发来了消息（一起回答；与前面冲突时以新消息为准）："
+                            + "；".join(late)
+                        )
+                        response = await product_routes._run_product_task(
+                            task_id=start.task_id,
+                            session_id=start.session_id,
+                            objective=build_objective(bot=bot, text=corrected, context=context),
+                            provider=bot.provider or None,
+                            model=bot.model or None,
+                            config={},
+                            user=dict(user),
+                            project_root=workspace_id or "/repo",
+                            bot_id=bot.bot_id,
+                        )
+                finally:
+                    # W11-E S4: the turn is over (or failed) — release the conversation so
+                    # the next correction is not steered into a turn that no longer runs.
+                    reset_repeat_detector(repeat_token)
+                    reset_turn_usage(usage_token)
+                    if queue is not None:
+                        queue.mark_finished(bot.bot_id)
+    except TimeoutError:
+        # Only the deadline's own expiry is a stall; a TimeoutError from
+        # inside the turn (a tool timeout) is the turn's own failure.
+        if deadline is not None and deadline.expired():
+            stalled = True
+            response = None
+        else:
+            raise
     reply = extract_reply(response, bot=bot)
+    if stalled:
+        reply = stall_note(deadline_s)
     try:
         from server.feature_flags import enabled as _flag_enabled
 
@@ -521,12 +554,19 @@ async def finish_bot_turn(
             user=user,
             workspace_id=workspace_id,
         )
+    status = "stalled" if stalled else _status_of(response)
+    record_turn(
+        thread_id or f"bot:{bot.bot_id}",
+        bot_id=bot.bot_id,
+        status=status,
+        usage=turn_usage,
+    )
     return BotTurnResult(
         bot_id=bot.bot_id,
         task_id=start.task_id,
         session_id=start.session_id,
         reply=reply,
-        status=_status_of(response),
+        status=status,
         trace_id=start.trace_id,
     )
 
@@ -542,6 +582,7 @@ async def run_bot_turn(
     trace_id: str | None = None,
     reply_meta: dict[str, Any] | None = None,
     user_meta: dict[str, Any] | None = None,
+    thread_id: str = "",
 ) -> BotTurnResult:
     """Run one turn of ``bot`` and record both sides in its conversation.
 
@@ -638,6 +679,7 @@ async def run_bot_turn(
         workspace_id=workspace_id,
         conversations=conversations,
         reply_meta=reply_meta,
+        thread_id=thread_id,
     )
     if not _approval_gates_on():
         return await finishing

@@ -104,13 +104,14 @@ def test_sync_and_read_endpoints(rev_env, client):
     group = store.create(name="room", bot_ids=["chef"], admin_bot_id="chef")
     sync = client.get("/api/v1/bots/sync", params={"since": 0})
     assert sync.status_code == 200
-    assert sync.json() == {"rev": 0, "changed": False}
+    assert sync.json()["rev"] == 0 and sync.json()["changed"] is False
+    assert sync.json()["queue"] == {"enabled": False, "running": [], "pending": []}
 
     store.append_message(group.id, role="user", text="hello")
     changed = client.get("/api/v1/bots/sync", params={"since": 0})
-    assert changed.json() == {"rev": 1, "changed": True}
+    assert changed.json()["rev"] == 1 and changed.json()["changed"] is True
     same = client.get("/api/v1/bots/sync", params={"since": 1})
-    assert same.json() == {"rev": 1, "changed": False}
+    assert same.json()["rev"] == 1 and same.json()["changed"] is False
 
     marked = client.post(f"/api/v1/bots/groups/{group.id}/read", json={"rev": 1})
     assert marked.status_code == 200

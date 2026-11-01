@@ -43,6 +43,7 @@ from veya.oskill.pure.memory_layers import (
     TOPIC_MEMORY_MAX_CHARS,
     cap_report,
     daily_log_line,
+    entry_expired,
     gardening_proposals,
     gc_expired_scratch,
     memory_search_hits,
@@ -249,6 +250,8 @@ class LayeredMemoryStore:
         source: str = "",
         added: str = "",
         caller_bot_id: str | None = None,
+        kind: str = "",
+        until: str = "",
     ) -> dict[str, Any]:
         """Append one normalised entry to the core memory, honouring the cap.
 
@@ -274,7 +277,12 @@ class LayeredMemoryStore:
         # bytes on disk must agree, or a "successful" save would silently drop
         # the tail the user just dictated. The 300-char entry format is the
         # *review* pass's rule (veya.omodul.memory_review) and is applied there.
-        entry = normalize_entry(text, source=anchor, added=when, bot_id=self.bot_id, max_chars=None)
+        # kind/until are validated inside normalize_entry; a bad value
+        # refuses the whole write, like a cap failure.
+        entry = normalize_entry(
+            text, source=anchor, added=when, bot_id=self.bot_id, max_chars=None,
+            kind=kind, until=until,
+        )
         existing = store.read(CORE_FILE)
         prospective = len(existing) + (2 if existing else 0) + len(entry) + 1
         if prospective > limit:
@@ -493,6 +501,15 @@ _REMEMBER_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": 'Anchor for the entry, e.g. "part 2 #1234". Default: current turn.',
         },
+        "kind": {
+            "type": "string",
+            "description": "Entry kind: fact, preference, decision, candidate, or evidence. Omit when unsure.",
+            "enum": ["fact", "preference", "decision", "candidate", "evidence"],
+        },
+        "until": {
+            "type": "string",
+            "description": "Expiry date YYYY-MM-DD; after it, recall and search stop showing the entry. Omit for no expiry.",
+        },
     },
     "required": ["text"],
 }
@@ -595,16 +612,21 @@ def bot_memory_search(query: str, limit: int = 10) -> str:
     )
 
 
-def remember(text: str, source: str = "") -> str:
+def remember(text: str, source: str = "", kind: str = "", until: str = "") -> str:
     """Save one fact/decision to the running bot's core memory.
 
     Replaces the older ``bot_memory_note`` behaviour: the entry is normalised
     into the ``[source: ...; added: ...; by: ...]`` format and the character cap
-    is enforced instead of the file growing unbounded.
+    is enforced instead of the file growing unbounded. ``kind`` classifies the
+    entry (fact/preference/decision/candidate/evidence); ``until`` is a
+    ``YYYY-MM-DD`` expiry after which recall and search stop showing it.
+    Either, when invalid, refuses the whole write.
     """
     bot_id = _bound_bot()
     try:
-        result = LayeredMemoryStore(bot_id).append_entry(text, source=source, caller_bot_id=bot_id)
+        result = LayeredMemoryStore(bot_id).append_entry(
+            text, source=source, caller_bot_id=bot_id, kind=kind, until=until
+        )
     except (ValueError, PermissionError) as exc:
         return json.dumps({"ok": False, "bot_id": bot_id, "error": str(exc)}, ensure_ascii=False)
     from server.bot_team.memory_v2_mirror import mirror_remember
@@ -632,7 +654,7 @@ def recall(limit: int = 10) -> str:
     core = [
         line
         for line in store.core_text("bot").splitlines()
-        if line.strip() and not line.startswith("#")
+        if line.strip() and not line.startswith("#") and not entry_expired(line)
     ]
     return json.dumps(
         {

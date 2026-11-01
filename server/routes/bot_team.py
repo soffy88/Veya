@@ -614,6 +614,21 @@ async def get_inbox(
     )
 
 
+@router.get("/thread-usage")
+async def get_thread_usage(
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Per-thread turn usage (see server/bot_team/thread_usage.py).
+
+    Token metering is ``none``: the harness records no provider usage, so
+    token/cost fields in each row are explicit nulls, never estimates.
+    """
+
+    from server.bot_team.thread_usage import thread_usage_snapshot
+
+    return {"token_metering": "none", "threads": thread_usage_snapshot()}
+
+
 @router.get("/usage")
 async def get_usage(
     user: dict[str, Any] = Depends(auth_mod.require_user),
@@ -670,9 +685,10 @@ async def get_sync(
     """One cheap read: has anything changed since revision *since*?"""
 
     from server.bot_team.rev import current_rev
+    from server.nano_w10.turn_queue import queue_snapshot
 
     rev = current_rev()
-    return {"rev": rev, "changed": rev != since}
+    return {"rev": rev, "changed": rev != since, "queue": queue_snapshot()}
 
 
 class ReadMarkRequest(BaseModel):

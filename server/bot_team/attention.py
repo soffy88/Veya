@@ -28,6 +28,11 @@ from server.goal_run.bot_identity import BotRegistry, BotSpec
 ATTENTION_FILENAME = "attention.json"
 
 OPEN = "open"
+
+#: What an attention item is waiting on. ``question`` is the
+#: default; ``escalation`` is a room handing a stuck round to a human;
+#: ``incident`` is a failed delegation or job reporting itself.
+ATTENTION_KINDS = ("question", "escalation", "incident")
 ANSWERED = "answered"
 DISMISSED = "dismissed"
 
@@ -59,13 +64,17 @@ class AttentionStore:
         bot_id: str | None = None,
         group_id: str | None = None,
         context: str | None = None,
+        kind: str = "question",
     ) -> dict[str, Any]:
+        if kind not in ATTENTION_KINDS:
+            raise ValueError(f"unknown attention kind: {kind!r}")
         item = {
             "id": f"att_{uuid.uuid4().hex[:16]}",
             "bot_id": bot_id,
             "group_id": group_id,
             "question": question,
             "context": context,
+            "kind": kind,
             "status": OPEN,
             "created_ts": time.time(),
             "answered_ts": None,
@@ -208,8 +217,17 @@ def build_inbox(
                 "unread": unread_for_group(messages, open_attention, read_rev),
             }
         )
+    open_items = store.list(status=OPEN)
+    # Escalations wait on a human's decision: they pin above ordinary
+    # questions, in creation order within each kind.
+    open_items.sort(
+        key=lambda item: (
+            0 if item.get("kind") == "escalation" else 1,
+            float(item.get("created_ts") or 0.0),
+        )
+    )
     return {
-        "attention": store.list(status=OPEN),
+        "attention": open_items,
         "board": build_board(
             registry, conversations=conversations, store=store, owner_id=owner_id
         ),

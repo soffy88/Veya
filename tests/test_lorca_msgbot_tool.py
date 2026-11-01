@@ -117,7 +117,13 @@ def test_message_bot_is_a_registered_tool():
     description = function["description"].lower()
     assert "bot" in description and "reply" in description
     parameters = function["parameters"]
-    assert set(parameters["properties"]) == {"target_bot_id", "text"}
+    assert set(parameters["properties"]) == {
+        "target_bot_id",
+        "text",
+        "consult",
+        "done_when",
+        "rework",
+    }
     assert parameters["required"] == ["target_bot_id", "text"]
     # The source bot is not an argument: a model cannot name who is speaking.
     assert "source_bot_id" not in parameters["properties"]
@@ -133,10 +139,15 @@ def test_register_tools_is_idempotent(lorca_env):
     from server.tool_registry import MasterToolRegistry
 
     fresh = MasterToolRegistry()
-    # Codync graft: the team tools are message_bot + list_bots + delegate_bot.
-    assert register_tools(fresh) == 3
+    # Team tools: message_bot + list_bots + delegate_bot + delegation_status.
+    assert register_tools(fresh) == 4
     assert register_tools(fresh) == 0
-    assert sorted(fresh.list_tools()) == ["delegate_bot", "list_bots", TOOL_NAME]
+    assert sorted(fresh.list_tools()) == [
+        "delegate_bot",
+        "delegation_status",
+        "list_bots",
+        TOOL_NAME,
+    ]
 
 
 # ── the source bot comes from the running turn ────────────────────────────

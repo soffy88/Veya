@@ -723,6 +723,21 @@ class MasterToolRegistry:
                 )
             )
 
+        # Repeat guard (OpenMausBot loop-guard method): identical calls
+        # in one turn are counted here, at the single execution funnel,
+        # and steered at the result. Outside a turn there is no detector.
+        from server.bot_team.repeat_guard import attach_steer, current_repeat_detector
+        from server.bot_team.thread_usage import note_tool_call
+
+        _tool_started = time.monotonic()
+
+        _repeat_detector = current_repeat_detector()
+        _repeat_count = (
+            _repeat_detector.observe(name, kwargs)
+            if _repeat_detector is not None
+            else 0
+        )
+
         def _event(topic: str, **payload: Any) -> None:
             # Event persistence is observability, never a reason to fail a tool.
             with contextlib.suppress(Exception):
@@ -792,7 +807,8 @@ class MasterToolRegistry:
                 )
                 _checkpoint("after")
                 _event("tool.completed", governance="action_gateway", result_chars=len(result))
-                return result
+                note_tool_call(result, (time.monotonic() - _tool_started) * 1000)
+                return attach_steer(result, name, _repeat_count)
             except asyncio.CancelledError:
                 _checkpoint("after_cancelled")
                 _event("tool.cancelled", governance="action_gateway")
@@ -837,7 +853,8 @@ class MasterToolRegistry:
                     "duration_ms": round((time.time() - _span_start) * 1000, 3),
                 }
             )
-            return result
+            note_tool_call(result, (time.monotonic() - _tool_started) * 1000)
+            return attach_steer(result, name, _repeat_count)
         except asyncio.CancelledError:
             _checkpoint("after_cancelled")
             _event(

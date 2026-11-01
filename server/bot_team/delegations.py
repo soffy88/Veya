@@ -38,6 +38,10 @@ DELEGATIONS_FILE = "delegations.json"
 #: A drain processes this many queued items per trigger.
 DRAIN_LIMIT = 3
 
+#: A crashing target turn is retried this many times before the
+#: delegation fails and an incident attention item goes to a human.
+MAX_DELEGATION_RETRIES = 2
+
 #: A running item older than this is presumed stranded and re-queued.
 STALE_AFTER_S = 600
 
@@ -80,6 +84,10 @@ class DelegationStore:
         to_bot_id: str,
         text: str,
         depth: int,
+        reply_mode: str = "resume",
+        consult: bool = False,
+        done_when: str = "",
+        rework: bool = False,
     ) -> dict[str, Any]:
         """Enqueue one delegation and return it."""
 
@@ -92,6 +100,11 @@ class DelegationStore:
             "status": QUEUED,
             "reply": None,
             "error": None,
+            "reply_mode": str(reply_mode or "resume"),
+            "consult": bool(consult),
+            "done_when": str(done_when or ""),
+            "rework": bool(rework),
+            "retries": 0,
             "created_ts": time.time(),
             "updated_ts": time.time(),
         }
@@ -151,6 +164,28 @@ class DelegationStore:
     def fail(self, delegation_id: str, *, error: str) -> dict[str, Any] | None:
         return self._finish(delegation_id, status=FAILED, reply=None, error=error)
 
+    def retry(self, delegation_id: str, *, limit: int = 2) -> dict[str, Any] | None:
+        """Re-queue a running item for another attempt, bounded by *limit*.
+
+        Returns the item when re-queued, ``None`` when the retry budget is
+        spent (the caller then fails it) or the item is not running.
+        """
+
+        items = self._load()
+        for item in items:
+            if item.get("id") == delegation_id:
+                if item.get("status") != RUNNING:
+                    return None
+                retries = int(item.get("retries") or 0)
+                if retries >= limit:
+                    return None
+                item["status"] = QUEUED
+                item["retries"] = retries + 1
+                item["updated_ts"] = time.time()
+                self._save(items)
+                return item
+        return None
+
     def reset_stale(self, *, timeout_s: float = STALE_AFTER_S) -> int:
         """Re-queue running items older than *timeout_s*; returns how many."""
 
@@ -168,6 +203,27 @@ class DelegationStore:
         if reset:
             self._save(items)
         return reset
+
+
+def _report_incident(
+    store: DelegationStore, item: dict[str, Any], error: str
+) -> None:
+    """Hand an exhausted delegation to a human; never fail the drain."""
+
+    try:
+        from server.bot_team.attention import AttentionStore
+
+        AttentionStore(store.root).create(
+            question=(
+                f"委托失败：{item['from_bot_id']} 交给 {item['to_bot_id']} "
+                "的事连试 3 次都失败了，等你定夺。"
+            ),
+            bot_id=str(item["from_bot_id"]),
+            kind="incident",
+            context=f"delegation={item['id']} error={error}",
+        )
+    except Exception:
+        pass
 
 
 async def process_delegations(
@@ -235,6 +291,9 @@ async def _drain(
                 depth=int(item["depth"]),
                 user=caller,
                 workspace_id=workspace_id,
+                consult=bool(item.get("consult")),
+                done_when=str(item.get("done_when") or ""),
+                rework=bool(item.get("rework")),
             )
         except BotMessageRefused as exc:
             store.fail(delegation_id, error=str(exc))
@@ -243,21 +302,39 @@ async def _drain(
             )
             continue
         except Exception as exc:  # one bad target turn never stops the drain
-            store.fail(delegation_id, error=f"{exc.__class__.__name__}: {exc}")
+            error = f"{exc.__class__.__name__}: {exc}"
+            retried = store.retry(delegation_id, limit=MAX_DELEGATION_RETRIES)
+            if retried is not None:
+                outcomes.append(
+                    {
+                        "delegation_id": delegation_id,
+                        "status": "retrying",
+                        "retries": retried["retries"],
+                        "error": error,
+                    }
+                )
+                continue
+            store.fail(delegation_id, error=error)
+            _report_incident(store, item, error)
             outcomes.append(
                 {
                     "delegation_id": delegation_id,
                     "status": FAILED,
-                    "error": f"{exc.__class__.__name__}: {exc}",
+                    "error": error,
                 }
             )
             continue
         reply = str(outcome.reply or "")
         store.complete(delegation_id, reply=reply)
+        reply_mode = str(item.get("reply_mode") or "resume")
         # The reply arrives as a new turn of the delegating bot, one hop
         # deeper, so a delegation made inside it counts against the limit.
+        # reply_mode "none" is fire-and-forget: the target turn ran, the
+        # reply is recorded, and nothing comes back. The follow-up turn
+        # runs only for the bot that delegated (source binding): there is
+        # no cross-thread notice channel for a reply to leak through.
         source = registry.get(str(item["from_bot_id"]))
-        if source is not None:
+        if reply_mode != "none" and source is not None:
             hop_token = bind_hop_depth(int(item["depth"]) + 1)
             try:
                 await run_bot_turn(
@@ -265,8 +342,8 @@ async def _drain(
                     text=reply,
                     context=(
                         f"Reply from bot {str(item['to_bot_id'])!r} to the request "
-                        "you delegated. Answer or act on it as your one job, "
-                        "then stop."
+                        f"you delegated (delegation {delegation_id}). Answer or "
+                        "act on it as your one job, then stop."
                     ),
                     user=caller,
                     workspace_id=workspace_id,
@@ -279,7 +356,12 @@ async def _drain(
             finally:
                 reset_hop_depth(hop_token)
         outcomes.append(
-            {"delegation_id": delegation_id, "status": DONE, "reply": reply}
+            {
+                "delegation_id": delegation_id,
+                "status": DONE,
+                "reply": reply,
+                "reply_mode": reply_mode,
+            }
         )
     return outcomes
 

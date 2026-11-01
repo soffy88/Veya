@@ -296,16 +296,20 @@ async def test_group_stops_when_every_member_has_passed(lorca_env, monkeypatch):
     group = store.create(name="Mixed", bot_ids=["alpha", "beta", "gamma"], rounds_per_message=2)
 
     seen: list[str] = []
+    calls: dict[str, int] = {}
 
     async def fake_execute(request: Any) -> GoalRunResponse:
         bot_id = str(request.constraints.metadata.get("bot_id") or "")
         seen.append(bot_id)
+        calls[bot_id] = calls.get(bot_id, 0) + 1
         if bot_id == "gamma":
             summary = PASS_SENTINEL
         elif bot_id == "alpha":
             summary = "@beta, over to you"
         else:
-            summary = f"say:{bot_id}"
+            # A second call in the same round must not repeat the first
+            # reply verbatim: the post budget refuses that, by design.
+            summary = f"say:{bot_id}-{calls[bot_id]}"
         return GoalRunResponse(
             goal_id=f"goal-{bot_id}",
             status=GoalStatus.completed,

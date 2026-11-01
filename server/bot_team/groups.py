@@ -21,10 +21,11 @@ import json
 import re
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from server.bot_team.post_budget import room_budget
 from server.bot_team.conversations import (
     PASS_SENTINEL,
     ConversationStore,
@@ -99,6 +100,8 @@ class GroupChat:
     admin_bot_id: str = ""
     reply_mode: str = "everyone"
     notice: str = ""
+    held_bot_ids: tuple[str, ...] = ()
+    held_messages: dict[str, tuple[str, ...]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -110,6 +113,11 @@ class GroupChat:
             "admin_bot_id": self.admin_bot_id,
             "reply_mode": self.reply_mode,
             "notice": self.notice,
+            "held_bot_ids": list(self.held_bot_ids),
+            "held_messages": {
+                key: list(value)
+                for key, value in (self.held_messages or {}).items()
+            },
         }
 
     @classmethod
@@ -129,6 +137,14 @@ class GroupChat:
             admin_bot_id=str(value.get("admin_bot_id") or ""),
             reply_mode=str(value.get("reply_mode") or "everyone"),
             notice=str(value.get("notice") or ""),
+            held_bot_ids=tuple(
+                str(bot_id) for bot_id in (value.get("held_bot_ids") or [])
+            ),
+            held_messages={
+                str(key): tuple(str(item) for item in (value or []))
+                for key, value in (value.get("held_messages") or {}).items()
+                if isinstance(value, list)
+            },
         )
 
 
@@ -214,6 +230,8 @@ class GroupStore:
         admin_bot_id: str | None = None,
         reply_mode: str | None = None,
         notice: str | None = None,
+        held_bot_ids: list[str] | None = None,
+        held_messages: dict[str, list[str]] | None = None,
     ) -> GroupChat | None:
         """Update metadata, members, admin, reply mode or notice of an existing group."""
         items = self._load()
@@ -247,6 +265,16 @@ class GroupStore:
             raise ValueError(f"admin bot {new_admin!r} must be a member of the group")
         new_mode = str(reply_mode).strip().lower() if reply_mode is not None else current.reply_mode
         new_notice = str(notice).strip() if notice is not None else current.notice
+        new_held = (
+            tuple(str(bot_id) for bot_id in held_bot_ids)
+            if held_bot_ids is not None
+            else current.held_bot_ids
+        )
+        new_stash = (
+            {str(key): tuple(value) for key, value in held_messages.items()}
+            if held_messages is not None
+            else current.held_messages
+        )
 
         updated = GroupChat(
             id=current.id,
@@ -257,10 +285,56 @@ class GroupStore:
             admin_bot_id=new_admin,
             reply_mode=new_mode,
             notice=new_notice,
+            held_bot_ids=new_held,
+            held_messages=new_stash,
         )
         items[updated.id] = updated.to_dict()
         self._save(items)
         return updated
+
+    def stash_held_message(self, group_id: str, bot_id: str, text: str) -> None:
+        """Stash one room message for a held member (cap 20, oldest dropped)."""
+
+        from server.bot_team.hold_directives import STASH_CAP
+
+        body = str(text or "").strip()
+        if not body:
+            return
+        items = self._load()
+        raw = items.get(str(group_id))
+        if raw is None:
+            return
+        group = GroupChat.from_dict(raw)
+        if bot_id not in group.held_bot_ids:
+            return
+        stashed = dict(group.held_messages or {})
+        queue = list(stashed.get(bot_id, ())) + [body]
+        stashed[bot_id] = tuple(queue[-STASH_CAP:])
+        items[group.id] = replace(group, held_messages=stashed).to_dict()
+        self._save(items)
+
+    def held_context(self, group_id: str, bot_id: str) -> list[str]:
+        """Stashed messages waiting for a held member (peek, no clear)."""
+
+        group = self.get(str(group_id))
+        if group is None:
+            return []
+        return list((group.held_messages or {}).get(bot_id, ()))
+
+    def clear_held_context(self, group_id: str, bot_id: str) -> None:
+        """Drop a member's stash after its turn consumed it."""
+
+        items = self._load()
+        raw = items.get(str(group_id))
+        if raw is None:
+            return
+        group = GroupChat.from_dict(raw)
+        stashed = dict(group.held_messages or {})
+        if bot_id not in stashed:
+            return
+        del stashed[bot_id]
+        items[group.id] = replace(group, held_messages=stashed).to_dict()
+        self._save(items)
 
     def delete(self, group_id: str) -> bool:
         items = self._load()
@@ -309,7 +383,7 @@ class GroupStore:
             "task_id": task_id,
             "ts": time.time(),
             # Same rule as a bot conversation: a PASS reply is stored, never shown.
-            "hidden": body.strip() == PASS_SENTINEL,
+            "hidden": body.strip() in ("", PASS_SENTINEL),
         }
         if reply_to is not None:
             message["reply_to"] = dict(reply_to)
@@ -409,10 +483,53 @@ async def run_group_turn(
     """
 
     store = conversations if conversations is not None else ConversationStore()
-    _mode = (group.reply_mode or "everyone").strip().lower()
+    groups = GroupStore(store.root)
+    # The store is the source of truth: a caller may pass a group object
+    # read before a hold changed it.
+    stored = groups.get(group.id)
+    if stored is not None:
+        group = stored
+    # Room-member holds (OpenMausBot room-holds method): "@beta stop" holds
+    # a member, "@beta resume" releases one, a bare resume word releases
+    # all. A directive is control traffic, not content: it changes state
+    # and ends the round with no member turns.
+    from server.bot_team.hold_directives import classify_hold_directive
+
+    directive = classify_hold_directive(
+        str(text or ""), list(group.bot_ids), registry
+    )
+    if directive is not None:
+        groups.append_message(
+            group.id, role="user", text=str(text or ""), reply_to=reply_to
+        )
+        held, resumed = _apply_hold_directive(groups, group, directive)
+        return {
+            "group_id": group.id,
+            "rounds": 1,
+            "replies": [],
+            "passed": [],
+            "skipped": [],
+            "held": held,
+            "resumed": resumed,
+        }
+    # A human spoke: the post budget lifts its breaker and resets the
+    # unanswered streak for this room.
+    room_budget(group.id).note_user_message()
+    # Content for held members is stashed and delivered when they are next
+    # selected for a turn; held members never speak until released.
+    held_now = [bot_id for bot_id in group.held_bot_ids if bot_id in group.bot_ids]
+    for bot_id in held_now:
+        groups.stash_held_message(group.id, bot_id, str(text or ""))
+    effective = group
+    if held_now:
+        effective = replace(
+            group,
+            bot_ids=tuple(bot_id for bot_id in group.bot_ids if bot_id not in held_now),
+        )
+    _mode = (effective.reply_mode or "everyone").strip().lower()
     if _mode == AUTO_REPLY_MODE:
         return await run_auto_turn(
-            group=group,
+            group=effective,
             text=text,
             user=user,
             registry=registry,
@@ -420,9 +537,9 @@ async def run_group_turn(
             workspace_id=workspace_id,
             reply_to=reply_to,
         )
-    if (group.reply_mode or "everyone").strip().lower() == LEAD_REPLY_MODE:
+    if (effective.reply_mode or "everyone").strip().lower() == LEAD_REPLY_MODE:
         return await run_lead_turn(
-            group=group,
+            group=effective,
             text=text,
             user=user,
             registry=registry,
@@ -430,8 +547,9 @@ async def run_group_turn(
             workspace_id=workspace_id,
             reply_to=reply_to,
         )
-    # Same root as the bot conversations, so one VEYA_BOTS_ROOT moves everything.
-    groups = GroupStore(store.root)
+    # From here the filtered copy is the group: held members are never
+    # candidates, in either the roles branch or the plain list below.
+    group = effective
     groups.append_message(group.id, role="user", text=str(text or ""), reply_to=reply_to)
 
     # A member that is gone is reported, never blocking the others.
@@ -453,6 +571,7 @@ async def run_group_turn(
     replies: list[dict[str, Any]] = []
     passed: list[str] = []
     skipped: list[str] = []
+    blocked: list[str] = []
     rounds_run = 0
     visible_rounds = 0
     spoken: set[str] = set()
@@ -472,14 +591,26 @@ async def run_group_turn(
             if bot is None:
                 skipped.append(bot_id)
                 continue
+            stashed = groups.held_context(group.id, bot_id)
+            context = transcript(group, groups.messages(group.id, include_hidden=True))
+            if stashed:
+                context = (
+                    "[你在被 hold 期间收到的房内消息，先处理这些：]\n"
+                    + "\n".join(f"- {item}" for item in stashed)
+                    + "\n\n"
+                    + context
+                )
             turn = await run_bot_turn(
                 bot=bot,
                 text=str(text or ""),
-                context=transcript(group, groups.messages(group.id, include_hidden=True)),
+                context=context,
                 user=user,
                 workspace_id=workspace_id,
                 conversations=store,
+                thread_id=group.id,
             )
+            if stashed:
+                groups.clear_held_context(group.id, bot_id)
             # Round 1 answers the user, not a mention: only speech in a
             # chain round (round 2+) excludes a member from later rounds.
             # A pass excludes in any round (handled via `passed` below).
@@ -487,6 +618,28 @@ async def run_group_turn(
                 spoken.add(bot_id)
             # The group transcript records the reply (a PASS reply is stored
             # hidden here and in the bot's own conversation).
+            if turn.reply.strip() in ("", PASS_SENTINEL):
+                groups.append_message(
+                    group.id,
+                    role="bot",
+                    bot_id=bot_id,
+                    # An empty reply is a pass: store the sentinel so it
+                    # stays hidden, exactly like an explicit pass.
+                    text=turn.reply if turn.reply.strip() else PASS_SENTINEL,
+                    task_id=turn.task_id,
+                )
+                if bot_id not in passed:
+                    passed.append(bot_id)
+                continue
+            # The post budget judges every visible post before it lands: a
+            # refused post is never stored and never counts as a round.
+            decision = room_budget(group.id).decide(bot_id, turn.reply)
+            if not decision.allowed:
+                if bot_id not in blocked:
+                    blocked.append(bot_id)
+                if decision.escalate:
+                    _escalate_attention(groups, group, bot_id, decision.reason)
+                continue
             groups.append_message(
                 group.id,
                 role="bot",
@@ -494,10 +647,6 @@ async def run_group_turn(
                 text=turn.reply,
                 task_id=turn.task_id,
             )
-            if turn.reply.strip() == PASS_SENTINEL:
-                if bot_id not in passed:
-                    passed.append(bot_id)
-                continue
             round_visible = True
             round_replies.append(turn.reply)
             replies.append(
@@ -529,7 +678,52 @@ async def run_group_turn(
         "replies": replies,
         "passed": passed,
         "skipped": skipped,
+        "blocked": blocked,
     }
+
+
+def _apply_hold_directive(
+    groups: GroupStore, group: GroupChat, directive: Any
+) -> tuple[list[str], list[str]]:
+    """Apply a parsed directive to the group record; return (held, resumed)."""
+
+    current = [bot_id for bot_id in group.held_bot_ids if bot_id in group.bot_ids]
+    if directive.resume_all:
+        resumed = list(current)
+        groups.update(group.id, held_bot_ids=[])
+        return [], resumed
+    held = list(current)
+    resumed: list[str] = []
+    for bot_id in directive.resumes:
+        if bot_id in held:
+            held.remove(bot_id)
+            resumed.append(bot_id)
+    for bot_id in directive.holds:
+        if bot_id not in held and bot_id in group.bot_ids:
+            held.append(bot_id)
+    groups.update(group.id, held_bot_ids=held)
+    return held, resumed
+
+
+def _escalate_attention(
+    groups: GroupStore, group: GroupChat, bot_id: str, reason: str
+) -> None:
+    """Hand an unanswered round to a human; never fail the round itself."""
+
+    try:
+        from server.bot_team.attention import AttentionStore
+
+        AttentionStore(groups.root).create(
+            question=(
+                f"房内发帖无人接：{bot_id} 在 {group.name} 连发无人接，"
+                "自动暂停发帖 5 分钟，等你定夺。"
+            ),
+            group_id=group.id,
+            kind="escalation",
+            context=f"reason={reason}",
+        )
+    except Exception:
+        pass
 
 
 def mentioned_bot_ids(
@@ -664,23 +858,35 @@ async def run_lead_turn(
     async def _turn(bot_id: str, header: str | None):
         bot = registry.get(bot_id)
         assert bot is not None
+        stashed = groups.held_context(group.id, bot_id)
+        context = transcript(
+            group,
+            groups.messages(group.id, include_hidden=True),
+            header=header,
+        )
+        if stashed:
+            context = (
+                "[你在被 hold 期间收到的房内消息，先处理这些：]\n"
+                + "\n".join(f"- {item}" for item in stashed)
+                + "\n\n"
+                + context
+            )
         turn = await run_bot_turn(
             bot=bot,
             text=str(text or ""),
-            context=transcript(
-                group,
-                groups.messages(group.id, include_hidden=True),
-                header=header,
-            ),
+            context=context,
             user=user,
             workspace_id=workspace_id,
             conversations=store,
+            thread_id=group.id,
         )
+        if stashed:
+            groups.clear_held_context(group.id, bot_id)
         groups.append_message(
             group.id,
             role="bot",
             bot_id=bot_id,
-            text=turn.reply,
+            text=turn.reply if turn.reply.strip() else PASS_SENTINEL,
             task_id=turn.task_id,
         )
         return turn
@@ -691,7 +897,7 @@ async def run_lead_turn(
     owner_id = select_lead_owner(text=str(text or ""), available=available, registry=registry)
     if owner_id is not None:
         turn = await _turn(owner_id, None)
-        if turn.reply.strip() == PASS_SENTINEL:
+        if turn.reply.strip() in ("", PASS_SENTINEL):
             passed.append(owner_id)
         else:
             replies.append(
@@ -712,7 +918,7 @@ async def run_lead_turn(
             "skipped": skipped,
         }
     plan = await _turn(lead_id, _lead_plan_header(group, worker_ids))
-    if plan.reply.strip() == PASS_SENTINEL:
+    if plan.reply.strip() in ("", PASS_SENTINEL):
         passed.append(lead_id)
     else:
         replies.append(
@@ -727,7 +933,7 @@ async def run_lead_turn(
         )
     for bot_id in worker_ids:
         turn = await _turn(bot_id, _lead_worker_header(group, lead_id))
-        if turn.reply.strip() == PASS_SENTINEL:
+        if turn.reply.strip() in ("", PASS_SENTINEL):
             if bot_id not in passed:
                 passed.append(bot_id)
             continue
@@ -742,7 +948,7 @@ async def run_lead_turn(
             }
         )
     synth = await _turn(lead_id, _lead_synth_header(group))
-    if synth.reply.strip() == PASS_SENTINEL:
+    if synth.reply.strip() in ("", PASS_SENTINEL):
         if lead_id not in passed:
             passed.append(lead_id)
     else:
@@ -884,22 +1090,34 @@ async def run_auto_turn(
     if target_id is not None:
         bot = registry.get(target_id)
         assert bot is not None
+        stashed = groups.held_context(group.id, target_id)
+        context = transcript(group, groups.messages(group.id, include_hidden=True))
+        if stashed:
+            context = (
+                "[你在被 hold 期间收到的房内消息，先处理这些：]\n"
+                + "\n".join(f"- {item}" for item in stashed)
+                + "\n\n"
+                + context
+            )
         turn = await run_bot_turn(
             bot=bot,
             text=str(text or ""),
-            context=transcript(group, groups.messages(group.id, include_hidden=True)),
+            context=context,
             user=user,
             workspace_id=workspace_id,
             conversations=store,
+            thread_id=group.id,
         )
+        if stashed:
+            groups.clear_held_context(group.id, target_id)
         groups.append_message(
             group.id,
             role="bot",
             bot_id=target_id,
-            text=turn.reply,
+            text=turn.reply if turn.reply.strip() else PASS_SENTINEL,
             task_id=turn.task_id,
         )
-        if turn.reply.strip() == PASS_SENTINEL:
+        if turn.reply.strip() in ("", PASS_SENTINEL):
             passed.append(target_id)
         else:
             replies.append(

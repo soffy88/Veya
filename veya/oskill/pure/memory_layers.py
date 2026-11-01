@@ -20,6 +20,7 @@ system clock.
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -50,10 +51,13 @@ TOPIC_MEMORY_MAX_CHARS: int = 16000
 TEAM_MEMORY_MAX_CHARS: int = 16000
 ENTRY_MAX_CHARS: int = 300
 
-#: ``[source: <anchor>; added: YYYY-MM-DD; by: <bot>]``
+#: ``[source: <anchor>; added: YYYY-MM-DD; by: <bot>]``, optionally
+#: followed by ``; kind: <kind>`` and ``; until: YYYY-MM-DD``.
 _ENTRY_SUFFIX_RE = re.compile(
-    r"\[source:[^\]]*;\s*added:\s*\d{4}-\d{2}-\d{2};\s*by:\s*[^\]]+\]\s*$"
+    r"\[source:[^\]]*;\s*added:\s*\d{4}-\d{2}-\d{2};\s*by:\s*[^;\]]+"
+    r"(?:;\s*kind:\s*[^;\]]+)?(?:;\s*until:\s*\d{4}-\d{2}-\d{2})?\]\s*$"
 )
+_UNTIL_RE = re.compile(r";\s*until:\s*(\d{4}-\d{2}-\d{2})\]\s*$")
 
 #: Scratch entries are ``- <epoch> <text>`` bullets.
 _SCRATCH_LINE_RE = re.compile(r"^-\s*(\d{9,}(?:\.\d+)?)\s+(.*)$")
@@ -363,6 +367,8 @@ def memory_search_hits(
     hits: list[dict[str, Any]] = []
     for name in sorted(files):
         for line_no, line in enumerate(str(files.get(name) or "").splitlines(), start=1):
+            if entry_expired(line):
+                continue
             lowered = line.lower()
             score = sum(1 for token in tokens if token in lowered)
             if phrase and phrase in lowered:
@@ -410,6 +416,60 @@ def entry_allowed(text: str) -> tuple[bool, str]:
     return (True, "")
 
 
+#: The kinds a memory entry may carry. ``candidate`` is an unconfirmed
+#: lead (upstream memory-capture method); ``evidence`` is a sourced fact
+#: that backs a decision. Anything else is refused at write time.
+MEMORY_KINDS: tuple[str, ...] = ("fact", "preference", "decision", "candidate", "evidence")
+
+
+def _today_utc() -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def validate_entry_kind(kind: str) -> str:
+    """Normalise *kind* ("" means unset) or raise ``ValueError``."""
+
+    kind = str(kind or "").strip().lower()
+    if kind and kind not in MEMORY_KINDS:
+        raise ValueError(
+            f"unknown memory kind {kind!r} — expected one of {', '.join(MEMORY_KINDS)}"
+        )
+    return kind
+
+
+def validate_entry_until(until: str, *, today: str | None = None) -> str:
+    """Normalise *until* ("" means no expiry) or raise ``ValueError``.
+
+    Must be ``YYYY-MM-DD`` and must not already be past: a write that is
+    born expired is a mistake, refused whole like any other bad write.
+    """
+
+    until = str(until or "").strip()
+    if not until:
+        return ""
+    try:
+        time.strptime(until, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(f"until must be YYYY-MM-DD, got {until!r}") from None
+    if until < (today or _today_utc()):
+        raise ValueError(f"until {until} is already past")
+    return until
+
+
+def entry_until(line: str) -> str | None:
+    """The ``until:`` date recorded on one entry line, or ``None``."""
+
+    match = _UNTIL_RE.search(str(line or ""))
+    return match.group(1) if match else None
+
+
+def entry_expired(line: str, *, today: str | None = None) -> bool:
+    """Whether one entry line is past its ``until:`` date (no date: live)."""
+
+    until = entry_until(line)
+    return until is not None and until < (today or _today_utc())
+
+
 def normalize_entry(
     text: str,
     *,
@@ -417,6 +477,8 @@ def normalize_entry(
     added: str,
     bot_id: str,
     max_chars: int | None = ENTRY_MAX_CHARS,
+    kind: str = "",
+    until: str = "",
 ) -> str:
     """Render one memory entry in the canonical one-line format.
 
@@ -450,8 +512,15 @@ def normalize_entry(
         'yyy'
     """
     body = " ".join(str(text or "").split())
+    kind = validate_entry_kind(kind)
+    until = validate_entry_until(until)
     body = _ENTRY_SUFFIX_RE.sub("", body).strip()
-    suffix = f" [source: {source}; added: {added}; by: {bot_id}]"
+    parts = [f"source: {source}", f"added: {added}", f"by: {bot_id}"]
+    if kind:
+        parts.append(f"kind: {kind}")
+    if until:
+        parts.append(f"until: {until}")
+    suffix = " [" + "; ".join(parts) + "]"
     if max_chars is None:
         return f"{body}{suffix}"
     budget = max(1, int(max_chars) - len(suffix))

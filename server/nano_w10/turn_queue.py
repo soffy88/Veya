@@ -339,6 +339,25 @@ def _rank(envelope: dict[str, Any]) -> int:
 _QUEUE: TurnQueue | None = None
 
 
+def queue_snapshot() -> dict[str, Any]:
+    """Running + queued turns for the sync surface.
+
+    Empty (and ``enabled: False``) while the queue flag is off: the queue
+    only exists when ``VEYA_TURN_QUEUE`` is on, and a sync poll must never
+    pretend otherwise. Each pending row names the conversation, the bot
+    it waits for, how many envelopes wait, and their kinds.
+    """
+
+    if not turn_queue_enabled():
+        return {"enabled": False, "running": [], "pending": []}
+    queue = get_turn_queue()
+    return {
+        "enabled": True,
+        "running": queue.running_snapshot(),
+        "pending": queue.pending_snapshot(),
+    }
+
+
 def get_turn_queue() -> TurnQueue:
     """The process-wide :class:`TurnQueue`."""
 

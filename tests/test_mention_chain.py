@@ -48,15 +48,25 @@ def _register(registry: BotRegistry, *bot_ids: str) -> BotRegistry:
     return registry
 
 
-def _fake_master(monkeypatch, replies: dict[str, str], seen: list[str]):
+def _fake_master(
+    monkeypatch, replies: dict[str, str | list[str]], seen: list[str]
+):
     async def fake_execute(request: Any) -> GoalRunResponse:
         bot_id = str(request.constraints.metadata.get("bot_id") or "")
         seen.append(bot_id)
+        value = replies.get(bot_id, f"say:{bot_id}")
+        if isinstance(value, list):
+            # Per-call replies: pop until the last one sticks, so a member
+            # never posts byte-identical text twice in one round (the post
+            # budget refuses that, by design).
+            summary = value.pop(0) if len(value) > 1 else value[0]
+        else:
+            summary = value
         return GoalRunResponse(
             goal_id=f"goal-{bot_id}",
             status=GoalStatus.completed,
             phase="finalized",
-            summary=replies.get(bot_id, f"say:{bot_id}"),
+            summary=summary,
         )
 
     from server.coordinator_master import master_coordinator
@@ -92,7 +102,11 @@ async def test_chain_calls_only_mentioned(chain_env, monkeypatch):
     seen: list[str] = []
     _fake_master(
         monkeypatch,
-        {"alpha": "@gamma, your turn", "beta": "nothing to add", "gamma": "done"},
+        {
+            "alpha": "@gamma, your turn",
+            "beta": "nothing to add",
+            "gamma": ["done", "done, further"],
+        },
         seen,
     )
     result = await _run(chain_env, registry, group, "ideas?")
@@ -125,7 +139,11 @@ async def test_round_two_opener_rotates(chain_env, monkeypatch):
     seen: list[str] = []
     _fake_master(
         monkeypatch,
-        {"alpha": "@beta @gamma, both of you", "beta": "ok", "gamma": "ok"},
+        {
+            "alpha": "@beta @gamma, both of you",
+            "beta": ["ok", "ok, second"],
+            "gamma": ["ok", "ok, second"],
+        },
         seen,
     )
     result = await _run(chain_env, registry, group, "ideas?")

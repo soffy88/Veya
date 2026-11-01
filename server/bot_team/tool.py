@@ -43,7 +43,10 @@ _TOOL_DESCRIPTION = (
     "reply is returned here. Use it when another bot on the team owns the work "
     "you are being asked about. target_bot_id must be a bot on the team: you "
     "cannot message yourself, a bot outside the team is refused, and a chain of "
-    f"bot messages may not be deeper than {MAX_HOP_DEPTH} hops."
+    f"bot messages may not be deeper than {MAX_HOP_DEPTH} hops. "
+    "consult asks without acting (answer only, change nothing), "
+    "done_when states the acceptance bar in one sentence, rework marks "
+    "a correction of a previous result rather than a new request."
 )
 
 _TOOL_PARAMETERS: dict[str, Any] = {
@@ -59,6 +62,56 @@ _TOOL_PARAMETERS: dict[str, Any] = {
         "text": {
             "type": "string",
             "description": ("The message in plain text: what you need that bot to do or answer."),
+        },
+        "consult": {
+            "type": "boolean",
+            "description": ("Ask only: the target answers from what it already knows and changes nothing."),
+        },
+        "done_when": {
+            "type": "string",
+            "description": ("One-sentence acceptance bar: the target is done only when this holds."),
+        },
+        "rework": {
+            "type": "boolean",
+            "description": ("This corrects a previous result; it is not a new request."),
+        },
+    },
+    "required": ["target_bot_id", "text"],
+    "additionalProperties": False,
+}
+
+_DELEGATE_TOOL_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "target_bot_id": {
+            "type": "string",
+            "description": (
+                "The bot_id of the teammate you are delegating to (the same ids the "
+                "bots API lists, e.g. 'chef' or 'researcher')."
+            ),
+        },
+        "text": {
+            "type": "string",
+            "description": ("The request in plain text: what you need that bot to do or answer."),
+        },
+        "reply": {
+            "type": "string",
+            "description": (
+                "'resume' (default): the reply arrives later as a new turn of yours. "
+                "'none': fire-and-forget, nothing comes back; use it for notices."
+            ),
+        },
+        "consult": {
+            "type": "boolean",
+            "description": ("Ask only: the target answers from what it already knows and changes nothing."),
+        },
+        "done_when": {
+            "type": "string",
+            "description": ("One-sentence acceptance bar: the target is done only when this holds."),
+        },
+        "rework": {
+            "type": "boolean",
+            "description": ("This corrects a previous result; it is not a new request."),
         },
     },
     "required": ["target_bot_id", "text"],
@@ -82,7 +135,13 @@ def reset_hop_depth(token: contextvars.Token) -> None:
     _hop_depth_ctx.reset(token)
 
 
-async def message_bot(target_bot_id: str, text: str) -> str:
+async def message_bot(
+    target_bot_id: str,
+    text: str,
+    consult: bool = False,
+    done_when: str = "",
+    rework: bool = False,
+) -> str:
     """Send a message to another bot on the team and return its reply.
 
     The source bot is the running turn's bot, never an argument. Refusals
@@ -100,7 +159,15 @@ async def message_bot(target_bot_id: str, text: str) -> str:
     messenger = BotMessenger(BotRegistry(), conversations=None)
     token = bind_hop_depth(depth + 1)
     try:
-        outcome = await messenger.message_bot(source_bot_id, target_bot_id, text, depth=depth)
+        outcome = await messenger.message_bot(
+            source_bot_id,
+            target_bot_id,
+            text,
+            depth=depth,
+            consult=consult,
+            done_when=done_when,
+            rework=rework,
+        )
     finally:
         reset_hop_depth(token)
     return json.dumps(outcome.to_dict(), ensure_ascii=False)
@@ -141,13 +208,24 @@ def register_tools(registry: Any) -> int:
         registry.register(
             DELEGATE_TOOL_NAME,
             _DELEGATE_TOOL_DESCRIPTION,
-            _TOOL_PARAMETERS,
+            _DELEGATE_TOOL_PARAMETERS,
             delegate_bot,
             max_result_chars=8000,
             # Queueing a delegation is process work through the same
             # boundary message_bot crosses; recovery is manual-only.
             side_effect=SideEffect.PROCESS_EXEC,
             effect_capability="manual_only",
+        )
+        count += 1
+    if not registry.has(STATUS_TOOL_NAME):
+        registry.register(
+            STATUS_TOOL_NAME,
+            _STATUS_TOOL_DESCRIPTION,
+            _STATUS_TOOL_PARAMETERS,
+            delegation_status,
+            max_result_chars=8000,
+            parallel_safe=True,
+            side_effect=SideEffect.PURE_READ,
         )
         count += 1
     return count
@@ -177,7 +255,9 @@ _DELEGATE_TOOL_DESCRIPTION = (
     "be a bot on the team: you cannot delegate to yourself, a bot "
     "outside the team is refused, and a chain of bot messages may not "
     f"be deeper than {MAX_HOP_DEPTH} hops. For an answer you need "
-    "before you reply, use message_bot instead."
+    "before you reply, use message_bot instead. reply 'none' is "
+    "fire-and-forget: nothing comes back, use it for notices. consult, "
+    "done_when and rework carry the same meanings as in message_bot."
 )
 
 _LIST_TOOL_PARAMETERS: dict[str, Any] = {
@@ -215,7 +295,14 @@ async def list_bots() -> str:
     return json.dumps({"bots": bots}, ensure_ascii=False)
 
 
-async def delegate_bot(target_bot_id: str, text: str) -> str:
+async def delegate_bot(
+    target_bot_id: str,
+    text: str,
+    reply: str = "resume",
+    consult: bool = False,
+    done_when: str = "",
+    rework: bool = False,
+) -> str:
     """Queue an async delegation and return its receipt at once.
 
     The source bot is the running turn's bot, never an argument. Refusals
@@ -229,10 +316,91 @@ async def delegate_bot(target_bot_id: str, text: str) -> str:
             "delegate_bot has no running bot to speak as: the source bot "
             "comes from the running turn, never from the tool arguments"
         )
+    if reply not in ("resume", "none"):
+        raise ValueError(f"reply must be 'resume' or 'none', got {reply!r}")
     depth = current_hop_depth()
     messenger = BotMessenger(BotRegistry(), conversations=None)
-    receipt = await messenger.delegate(source_bot_id, target_bot_id, text, depth=depth)
+    receipt = await messenger.delegate(
+        source_bot_id,
+        target_bot_id,
+        text,
+        depth=depth,
+        reply_mode=reply,
+        consult=consult,
+        done_when=done_when,
+        rework=rework,
+    )
     return json.dumps(receipt, ensure_ascii=False)
+
+STATUS_TOOL_NAME = "delegation_status"
+
+_STATUS_TOOL_DESCRIPTION = (
+    "Check the status of delegations you made with delegate_bot: one "
+    "delegation by id, or everything of yours still queued or running. "
+    "Read-only. The reply to a delegation arrives as a new turn of yours "
+    "on its own; do not use this tool to wait for it. A delegation made "
+    "with reply none never comes back."
+)
+
+_STATUS_TOOL_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "delegation_id": {
+            "type": "string",
+            "description": "The delegation_id from a delegate_bot receipt. Omit it to list your open delegations.",
+        },
+    },
+    "additionalProperties": False,
+}
+
+
+def _summarize_delegation(item: dict[str, Any]) -> dict[str, Any]:
+    reply = item.get("reply")
+    return {
+        "delegation_id": item.get("id"),
+        "target_bot_id": item.get("to_bot_id"),
+        "status": item.get("status"),
+        "reply_mode": item.get("reply_mode") or "resume",
+        "depth": item.get("depth"),
+        "retries": item.get("retries") or 0,
+        "reply": str(reply)[:500] if isinstance(reply, str) else reply,
+        "error": item.get("error"),
+        "created_ts": item.get("created_ts"),
+        "updated_ts": item.get("updated_ts"),
+    }
+
+
+async def delegation_status(delegation_id: str | None = None) -> str:
+    """Read-only status of the running bot's own delegations."""
+
+    from server.bot_team.delegations import DelegationStore
+
+    source_bot_id = current_bot_id()
+    if not source_bot_id:
+        raise BotMessageRefused(
+            "delegation_status has no running bot to speak as: the source bot "
+            "comes from the running turn, never from the tool arguments"
+        )
+    store = DelegationStore()
+    if delegation_id:
+        item = store.get(str(delegation_id))
+        if item is None or str(item.get("from_bot_id")) != source_bot_id:
+            return json.dumps(
+                {"ok": False, "error": f"unknown delegation: {delegation_id!r}"},
+                ensure_ascii=False,
+            )
+        return json.dumps(
+            {"ok": True, "delegation": _summarize_delegation(item)},
+            ensure_ascii=False,
+        )
+    open_items = [
+        _summarize_delegation(item)
+        for item in store.list()
+        if str(item.get("from_bot_id")) == source_bot_id
+        and item.get("status") in ("queued", "running")
+    ]
+    return json.dumps({"ok": True, "delegations": open_items}, ensure_ascii=False)
+
 
 __all__ = [
     "TOOL_NAME",
@@ -243,6 +411,8 @@ __all__ = [
     "DELEGATE_TOOL_NAME",
     "list_bots",
     "delegate_bot",
+    "STATUS_TOOL_NAME",
+    "delegation_status",
     "register_tools",
     "reset_hop_depth",
 ]
