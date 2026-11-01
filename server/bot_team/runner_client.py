@@ -28,9 +28,12 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from server.bot_team.conversations import ConversationStore, conversation_store
+if TYPE_CHECKING:
+    from server.bot_team.mcp_runner import McpRunnerClient
+
 from server.bot_team.runners import (
     LOCAL_RUNNER_ID,
     RunnerError,
@@ -383,6 +386,7 @@ async def forward_bot_turn(
     conversations: ConversationStore | None = None,
     client: RunnerClient | None = None,
     registry: RunnerRegistry | None = None,
+    mcp_client: McpRunnerClient | None = None,
 ) -> BotTurnResult:
     """Run one turn of a remote bot and record both sides on the hub.
 
@@ -410,18 +414,32 @@ async def forward_bot_turn(
             raise RunnerError(
                 f"its token secret is not reachable (token_ref={token_ref_label(record.token_ref)})"
             )
-        outcome = await client.forward_turn(
-            record,
-            build_turn_payload(
-                bot=bot,
+        if record.kind == "mcp":
+            from server.bot_team.mcp_runner import forward_mcp_turn
+
+            outcome = await forward_mcp_turn(
+                record,
+                bot_id=bot.bot_id,
                 text=text,
-                user=user,
                 context=context,
-                workspace_id=workspace_id,
                 trace_id=hub_trace,
-            ),
-            token=token,
-        )
+                workspace_id=workspace_id,
+                token=token,
+                client=mcp_client,
+            )
+        else:
+            outcome = await client.forward_turn(
+                record,
+                build_turn_payload(
+                    bot=bot,
+                    text=text,
+                    user=user,
+                    context=context,
+                    workspace_id=workspace_id,
+                    trace_id=hub_trace,
+                ),
+                token=token,
+            )
     except RunnerError as exc:
         outcome = ForwardOutcome(ok=False, error=str(exc))
 

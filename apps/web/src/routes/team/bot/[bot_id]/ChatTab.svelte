@@ -43,6 +43,7 @@
 	import { latestBotMessage, markRead } from "$lib/team/unread";
 	import { turnStore } from "$lib/team/turns.svelte";
 	import { actionClass, inputClass, primaryClass } from "$lib/team/ui";
+	import AttentionCards from "$lib/team/AttentionCards.svelte";
 	import type { ToolStep } from "$lib/chatTypes";
 
 	let { botId, botName, mode }: { botId: string; botName: string; mode: "background" | "inline" } =
@@ -366,6 +367,7 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
+	<AttentionCards botId={botId} />
 	<div bind:this={thread} class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
 		{#if loading}
 			<p class="text-sm opacity-60">加载对话…</p>

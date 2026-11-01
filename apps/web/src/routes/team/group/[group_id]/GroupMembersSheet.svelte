@@ -91,8 +91,10 @@
 					<option value="admin-first">队长先说</option>
 					<option value="mention-only">被点名才说</option>
 					<option value="lead">领队分工（领队分工→成员回报→领队综合）</option>
+					<option value="auto">自动选人（提到谁／最对口的先回，拿不准走领队分工）</option>
 				</select>
 				<p class="mt-1 text-xs opacity-60">领队分工：房主先分工，成员各自回报，最后房主综合成结论。</p>
+				<p class="mt-1 text-xs opacity-60">自动选人：先看消息点名了谁、谁的活最对口，对口的单独回；拿不准就走领队分工。</p>
 			</div>
 
 			<div>

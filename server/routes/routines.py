@@ -14,6 +14,8 @@ from server.bot_team.routine_clock import _default_handoff_consumer
 from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_history import RoutineHistoryStore
+from server.bot_team.attention import AttentionStore
+from server.bot_team.routine_holds import RoutineHoldStore
 from server.goal_run.routine_registry import RoutineRegistry
 from server.goal_run.routine_templates import build_template_spec, list_templates
 
@@ -356,6 +358,101 @@ def get_history(bot_id: str, routine_id: str, limit: int = 50):
         return {"status": "ok", "routine_id": routine_id, "history": history[-limit:]}
     except Exception as exc:
         return {"status": "ok", "routine_id": routine_id, "history": []}
+
+
+class HoldCreateRequest(BaseModel):
+    reason: str
+    question: str | None = None
+    attention_id: str | None = None
+    run_id: str | None = None
+
+
+class HoldResumeRequest(BaseModel):
+    note: str | None = None
+
+
+def _require_routine(bot_id: str, routine_id: str):
+    registry = _get_registry(bot_id)
+    spec = registry.get(routine_id)
+    if not spec:
+        raise HTTPException(status_code=404, detail="Routine not found")
+    require_same_bot(spec.bot_id, bot_id, f"routine:{routine_id}")
+    return spec
+
+
+def _record_hold_history(bot_id: str, routine_id: str, hold: dict[str, Any], status: str) -> None:
+    with contextlib.suppress(Exception):
+        RoutineHistoryStore(bot_id=bot_id).add_record(
+            routine_id,
+            {
+                "trigger_id": f"hold:{hold['id']}",
+                "status": status,
+                "hold_id": hold["id"],
+                "reason": hold.get("reason"),
+                "dispatched_at": time.time(),
+            },
+        )
+
+
+@router.get("/{routine_id}/holds")
+def list_holds(bot_id: str, routine_id: str, status: str = "held"):
+    _require_routine(bot_id, routine_id)
+    wanted = None if status == "all" else "held"
+    return {
+        "holds": RoutineHoldStore().list(
+            bot_id=bot_id, routine_id=routine_id, status=wanted
+        )
+    }
+
+
+@router.post("/{routine_id}/holds")
+def create_hold(bot_id: str, routine_id: str, req: HoldCreateRequest):
+    _require_routine(bot_id, routine_id)
+    reason = (req.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="reason must not be empty")
+    attention = None
+    attention_id = req.attention_id
+    if req.question and req.question.strip():
+        attention = AttentionStore().create(
+            question=req.question.strip(), bot_id=bot_id
+        )
+        attention_id = attention["id"]
+    elif attention_id:
+        attention = AttentionStore().get(attention_id)
+        if attention is None:
+            raise HTTPException(
+                status_code=404, detail=f"attention {attention_id!r} not found"
+            )
+        if attention.get("status") != "open":
+            raise HTTPException(
+                status_code=409, detail=f"attention {attention_id!r} is already closed"
+            )
+    hold = RoutineHoldStore().create(
+        bot_id=bot_id,
+        routine_id=routine_id,
+        reason=reason,
+        run_id=req.run_id,
+        attention_id=attention_id,
+    )
+    _record_hold_history(bot_id, routine_id, hold, "held")
+    return {"status": "held", "hold": hold, "attention": attention}
+
+
+@router.post("/{routine_id}/holds/{hold_id}/resume")
+def resume_hold(bot_id: str, routine_id: str, hold_id: str, req: HoldResumeRequest):
+    _require_routine(bot_id, routine_id)
+    store = RoutineHoldStore()
+    hold = store.get(hold_id)
+    if hold is None or hold.get("routine_id") != routine_id:
+        raise HTTPException(status_code=404, detail=f"hold {hold_id!r} not found")
+    resolved = store.resolve(
+        hold_id, status="resumed", note=(req.note or "").strip() or None
+    )
+    if resolved is None:
+        raise HTTPException(status_code=409, detail=f"hold {hold_id!r} is already closed")
+    _record_hold_history(bot_id, routine_id, resolved, "resumed")
+    return {"status": "resumed", "hold": resolved}
 
 
 @router.post("/webhook")

@@ -195,6 +195,7 @@ def test_registry_add_list_remove_roundtrip(runner_env):
         "token_ref": SECRET_REF,
         "last_seen": None,
         "status": "unknown",
+        "kind": "veya",
     }
 
     # The implicit local runner is always present, first, and has no record.

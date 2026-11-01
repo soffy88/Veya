@@ -22,6 +22,8 @@
 	import { actionClass, inputClass, primaryClass } from "$lib/team/ui";
 	import GroupRolesSheet from "./GroupRolesSheet.svelte";
 	import GroupMembersSheet from "./GroupMembersSheet.svelte";
+	import AttentionCards from "$lib/team/AttentionCards.svelte";
+	import NeedsYouWidget from "../../NeedsYouWidget.svelte";
 
 	let { data } = $props<{ data: { groupId: string } }>();
 
@@ -174,6 +176,8 @@
 		</p>
 	{/if}
 
+	<NeedsYouWidget />
+	<AttentionCards groupId={groupId} />
 	<div bind:this={thread} class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
 		{#if loading}
 			<p class="text-sm opacity-60">加载群聊…</p>

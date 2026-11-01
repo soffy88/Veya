@@ -39,6 +39,12 @@ STATUS_OFFLINE = "offline"
 
 KNOWN_STATUSES = (STATUS_LOCAL, STATUS_UNKNOWN, STATUS_ONLINE, STATUS_OFFLINE)
 
+#: Runner kinds: "veya" speaks the runner turn contract; "mcp" speaks
+#: MCP Streamable HTTP and calls the veya_turn tool.
+RUNNER_KIND_VEYA = "veya"
+RUNNER_KIND_MCP = "mcp"
+RUNNER_KINDS = (RUNNER_KIND_VEYA, RUNNER_KIND_MCP)
+
 #: A runner id names a machine, so it is restricted like a bot id.
 _RUNNER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
@@ -141,6 +147,7 @@ class RunnerRecord:
     token_ref: str
     last_seen: float | None = None
     status: str = STATUS_UNKNOWN
+    kind: str = RUNNER_KIND_VEYA
 
     @property
     def is_local(self) -> bool:
@@ -154,6 +161,7 @@ class RunnerRecord:
             "token_ref": self.token_ref,
             "last_seen": self.last_seen,
             "status": self.status,
+            "kind": self.kind,
         }
 
     @classmethod
@@ -166,6 +174,7 @@ class RunnerRecord:
             token_ref=str(value.get("token_ref") or ""),
             last_seen=(float(value["last_seen"]) if value.get("last_seen") else None),
             status=status if status in KNOWN_STATUSES else STATUS_UNKNOWN,
+        kind=str(value.get("kind") or RUNNER_KIND_VEYA),
         )
 
     def to_view(self) -> dict[str, Any]:
@@ -178,6 +187,7 @@ class RunnerRecord:
             "token_ref": self.token_ref,
             "last_seen": self.last_seen,
             "status": self.status,
+            "kind": self.kind,
         }
 
 
@@ -267,6 +277,7 @@ class RunnerRegistry:
         name: str,
         base_url: str,
         token_ref: str,
+        kind: str = RUNNER_KIND_VEYA,
     ) -> RunnerRecord:
         """Register one runner. Refused, never repaired, on a bad field."""
 
@@ -289,11 +300,17 @@ class RunnerRegistry:
                 "token_ref must be an environment variable name or a file path that holds the"
                 " runner's secret"
             )
+        kind = str(kind or RUNNER_KIND_VEYA).strip().lower()
+        if kind not in RUNNER_KINDS:
+            raise RunnerError(
+                f"unknown runner kind {kind!r}; expected one of {list(RUNNER_KINDS)}"
+            )
         record = RunnerRecord(
             runner_id=value,
             name=str(name or "").strip() or value,
             base_url=url,
             token_ref=ref,
+            kind=kind,
         )
         self._items[value] = record
         self._save()

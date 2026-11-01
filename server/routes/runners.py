@@ -51,6 +51,8 @@ class RunnerCreateRequest(BaseModel):
     base_url: str = Field(..., min_length=1, max_length=512)
     #: Env var name or file path holding the runner's secret. Never the secret.
     token_ref: str = Field(..., min_length=1, max_length=512)
+    #: "veya" (runner turn contract) or "mcp" (MCP veya_turn tool).
+    kind: str = Field(default="veya", max_length=32)
 
 
 class RunnerTurnBot(BaseModel):
@@ -196,6 +198,7 @@ async def add_runner(
             name=req.name,
             base_url=req.base_url,
             token_ref=req.token_ref,
+            kind=req.kind,
         )
     except RunnerError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

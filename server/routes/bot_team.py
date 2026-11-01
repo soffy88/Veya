@@ -31,9 +31,11 @@ from server.bot_team.chef import (
 )
 from server.bot_team.conversations import ConversationStore, default_bots_root, safe_bot_id
 from server.bot_team.attention import AttentionStore, build_board, build_inbox
+from server.bot_team.routine_holds import RoutineHoldStore
 from server.bot_team.companions import create_companion, list_presets
 from server.bot_team.groups import (
     LEAD_REPLY_MODE,
+    AUTO_REPLY_MODE,
     DEFAULT_ROUNDS_PER_MESSAGE,
     MAX_GROUP_MEMBERS,
     MAX_ROUNDS_PER_MESSAGE,
@@ -256,7 +258,7 @@ def _validate_reply_mode(value: str | None) -> str:
     """Accept only known reply modes; anything else is a client error."""
 
     mode = str(value or "everyone").strip().lower()
-    if mode not in ("everyone", "admin-first", "mention-only", LEAD_REPLY_MODE):
+    if mode not in ("everyone", "admin-first", "mention-only", LEAD_REPLY_MODE, AUTO_REPLY_MODE):
         raise HTTPException(status_code=422, detail=f"unknown reply_mode: {value!r}")
     return mode
 
@@ -542,6 +544,7 @@ async def answer_attention(
         conversations().append(item["bot_id"], role="user", text=answer)
     closed = attention_store().answer(item_id, answer)
     assert closed is not None
+    RoutineHoldStore().resume_holds_for_attention(item_id, outcome="answered")
     return {"status": "answered", "item": closed}
 
 
@@ -555,6 +558,7 @@ async def dismiss_attention(
     _require_open_item(item_id)
     closed = attention_store().dismiss(item_id)
     assert closed is not None
+    RoutineHoldStore().resume_holds_for_attention(item_id, outcome="dismissed")
     return {"status": "dismissed", "item": closed}
 
 

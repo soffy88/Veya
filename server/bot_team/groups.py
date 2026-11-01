@@ -54,6 +54,10 @@ _GROUP_CONTEXT_HEADER = (
 #: Reply mode where the admin bot leads instead of peers taking turns.
 LEAD_REPLY_MODE = "lead"
 
+#: Reply mode where one clearly addressed or clearly matching member answers
+#: alone, and anything ambiguous falls back to the lead cycle.
+AUTO_REPLY_MODE = "auto"
+
 # NOTE: every lead header below deliberately starts with "You are one of" and
 # is paired with a "Transcript:" section: the window bridge only types a
 # group-turn context block when it sees those two markers. Do not reword the
@@ -398,6 +402,16 @@ async def run_group_turn(
     """
 
     store = conversations if conversations is not None else ConversationStore()
+    _mode = (group.reply_mode or "everyone").strip().lower()
+    if _mode == AUTO_REPLY_MODE:
+        return await run_auto_turn(
+            group=group,
+            text=text,
+            user=user,
+            registry=registry,
+            conversations=store,
+            workspace_id=workspace_id,
+        )
     if (group.reply_mode or "everyone").strip().lower() == LEAD_REPLY_MODE:
         return await run_lead_turn(
             group=group,
@@ -532,6 +546,7 @@ async def run_lead_turn(
     registry: BotRegistry,
     conversations: ConversationStore | None = None,
     workspace_id: str | None = None,
+    _skip_append: bool = False,
 ) -> dict[str, Any]:
     """One lead cycle per user message: lead plans, workers report, lead synthesizes.
 
@@ -549,7 +564,8 @@ async def run_lead_turn(
 
     store = conversations if conversations is not None else ConversationStore()
     groups = GroupStore(store.root)
-    groups.append_message(group.id, role="user", text=str(text or ""))
+    if not _skip_append:
+        groups.append_message(group.id, role="user", text=str(text or ""))
 
     available = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is not None]
     skipped = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is None]
@@ -670,9 +686,179 @@ async def run_lead_turn(
     }
 
 
+#: Words too generic to route on (English function words + common Chinese
+#: particles). Everything else in the message is a routing keyword.
+_AUTO_STOPWORDS = frozenset(
+    {
+        "the", "and", "for", "with", "that", "this", "from", "into", "about",
+        "please", "help", "want", "need", "what", "when", "where", "which",
+        "there", "here", "your", "yours", "have", "has", "been", "will",
+        "would", "could", "should", "does", "doing", "done", "make", "take",
+        "帮我", "请帮", "一下", "怎么", "什么", "我的", "我们", "你们",
+        "这个", "那个", "这里", "那里", "然后", "还有", "以及", "或者",
+    }
+)
+
+
+def _auto_keywords(text: str) -> set[str]:
+    """Routing keywords: English words (len>=3) + Chinese 2-char windows."""
+
+    lowered = str(text or "").lower()
+    words: set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", lowered):
+        if len(token) >= 3 and token not in _AUTO_STOPWORDS:
+            words.add(token)
+    for run in re.findall(r"[\u4e00-\u9fff]+", lowered):
+        if len(run) <= 4:
+            words.add(run)
+        for i in range(len(run) - 1):
+            pair = run[i : i + 2]
+            if pair not in _AUTO_STOPWORDS:
+                words.add(pair)
+    return words
+
+
+def select_auto_responder(
+    text: str, *, available: list[str], registry: BotRegistry
+) -> str | None:
+    """Pick the one member whose job clearly matches the message, or None.
+
+    A keyword scores 3 in the bot id/name, 2 in its description, 1 in its
+    instructions. The winner needs at least 4 points and a margin of 2 over
+    the runner-up; anything closer is ambiguous and falls back to the lead
+    cycle. Deterministic: no model, no randomness.
+    """
+
+    keywords = _auto_keywords(text)
+    if not keywords or not available:
+        return None
+    scored: list[tuple[int, str]] = []
+    for bot_id in available:
+        spec = registry.get(bot_id)
+        if spec is None:
+            continue
+        name = f"{spec.bot_id} {spec.name or ''}".lower()
+        desc = (spec.description or "").lower()
+        instr = (spec.instructions or "").lower()
+        score = 0
+        for keyword in keywords:
+            if keyword in name:
+                score += 3
+            elif keyword in desc:
+                score += 2
+            elif keyword in instr:
+                score += 1
+        scored.append((score, bot_id))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    best, second = scored[0], (scored[1] if len(scored) > 1 else (0, ""))
+    if best[0] >= 4 and best[0] - second[0] >= 2:
+        return best[1]
+    return None
+
+
+async def run_auto_turn(
+    *,
+    group: GroupChat,
+    text: str,
+    user: dict[str, Any],
+    registry: BotRegistry,
+    conversations: ConversationStore | None = None,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
+    """Auto reply mode: direct answer when the addressee is clear, else lead.
+
+    Order: (1) a message naming exactly one available member goes straight
+    to that member (phase ``"direct"``, same rule as the lead mode);
+    (2) a message whose keywords clearly match one member's job goes to
+    that member alone (phase ``"auto"``); (3) anything ambiguous runs the
+    full lead cycle (plan/report/synthesis), with the user message
+    appended exactly once. Returns the same shape as :func:`run_lead_turn`.
+    """
+
+    store = conversations if conversations is not None else ConversationStore()
+    groups = GroupStore(store.root)
+    groups.append_message(group.id, role="user", text=str(text or ""))
+
+    available = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is not None]
+    skipped = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is None]
+    replies: list[dict[str, Any]] = []
+    passed: list[str] = []
+    if not available:
+        return {
+            "group_id": group.id,
+            "rounds": 1,
+            "replies": replies,
+            "passed": passed,
+            "skipped": skipped,
+        }
+
+    target_id = select_lead_owner(text=str(text or ""), available=available, registry=registry)
+    phase = "direct"
+    if target_id is None:
+        target_id = select_auto_responder(
+            str(text or ""), available=available, registry=registry
+        )
+        phase = "auto"
+    if target_id is not None:
+        bot = registry.get(target_id)
+        assert bot is not None
+        turn = await run_bot_turn(
+            bot=bot,
+            text=str(text or ""),
+            context=transcript(group, groups.messages(group.id, include_hidden=True)),
+            user=user,
+            workspace_id=workspace_id,
+            conversations=store,
+        )
+        groups.append_message(
+            group.id,
+            role="bot",
+            bot_id=target_id,
+            text=turn.reply,
+            task_id=turn.task_id,
+        )
+        if turn.reply.strip() == PASS_SENTINEL:
+            passed.append(target_id)
+        else:
+            replies.append(
+                {
+                    "bot_id": target_id,
+                    "reply": turn.reply,
+                    "task_id": turn.task_id,
+                    "session_id": turn.session_id,
+                    "round": 1,
+                    "phase": phase,
+                }
+            )
+        return {
+            "group_id": group.id,
+            "rounds": 1,
+            "replies": replies,
+            "passed": passed,
+            "skipped": skipped,
+        }
+
+    # Ambiguous: the lead cycle decides. The user message is already in the
+    # transcript, so the cycle must not append it a second time.
+    return await run_lead_turn(
+        group=group,
+        text=text,
+        user=user,
+        registry=registry,
+        conversations=store,
+        workspace_id=workspace_id,
+        _skip_append=True,
+    )
+
+
 __all__ = [
     "DEFAULT_ROUNDS_PER_MESSAGE",
     "LEAD_REPLY_MODE",
+    "AUTO_REPLY_MODE",
+    "run_auto_turn",
+    "select_auto_responder",
     "select_lead_owner",
     "MAX_GROUP_MEMBERS",
     "MAX_ROUNDS_PER_MESSAGE",
