@@ -497,6 +497,8 @@ class AttentionCreateRequest(BaseModel):
     context: str | None = None
     options: list[str] | None = None
     bypass_standing: bool = False
+    category: str | None = None
+    tell: str | None = None
 
 
 class AttentionAnswerRequest(BaseModel):
@@ -540,6 +542,8 @@ async def create_attention(
             context=(req.context.strip() if req.context else None) or None,
             options=req.options,
             bypass_standing=req.bypass_standing,
+            category=req.category,
+            tell=req.tell,
         )
     except StandingRefusedError as exc:
         # Not a client error: the owner's own standing rule answered it.

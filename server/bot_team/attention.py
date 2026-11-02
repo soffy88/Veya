@@ -27,6 +27,76 @@ from server.goal_run.bot_identity import BotRegistry, BotSpec
 
 ATTENTION_FILENAME = "attention.json"
 
+#: Decision categories worth interrupting the owner for. Anything else
+#: defaults to silent (recorded, never pushed). Policy lives in code, not
+#: config, so changing what interrupts the owner is a reviewed change.
+DECISION_CATEGORIES: dict[str, str] = {
+    "delete-data": "needed",
+    "stop-service": "needed",
+    "spend-money": "needed",
+    "outbound-message": "needed",
+    "product-direction": "needed",
+    "key-rotation": "needed",
+    "permission-change": "needed",
+    "publish-external": "needed",
+}
+
+#: How loudly an item may reach the owner. ``silent`` records only;
+#: ``digest`` parks a digest event; ``needed``/``always`` may use the
+#: existing push/channel delivery. ``always`` is only for an explicit
+#: owner call; rule files (item 3) may never raise themselves to it.
+TELLS = ("silent", "digest", "needed", "always")
+DEFAULT_TELL = "silent"
+
+#: Feature flag gating tell enforcement (digest recording). Storage of
+#: category/tell is unconditional metadata; the flag only gates new
+#: behaviour (the digest event).
+TELL_POLICY_FLAG = "VEYA_TELL_POLICY"
+
+
+def resolve_tell(*, category: str | None = None, tell: str | None = None) -> str:
+    """Resolve an item's tell: explicit tell > category default > silent.
+
+    Unknown categories and tells are producer bugs: refuse the whole
+    write (ValueError) instead of storing a meaningless label.
+    """
+    if tell is not None:
+        t = str(tell).strip().lower()
+        if t not in TELLS:
+            raise ValueError(f"unknown tell: {tell!r}")
+        return t
+    if category is not None:
+        c = str(category).strip()
+        if c not in DECISION_CATEGORIES:
+            raise ValueError(f"unknown attention category: {category!r}")
+        return DECISION_CATEGORIES[c]
+    return DEFAULT_TELL
+
+
+def tell_for(item: dict[str, Any]) -> str:
+    """An item's effective tell, including legacy items.
+
+    Items written before categories existed carry neither field; they
+    were created expecting to be seen, so they read as ``needed``.
+    """
+    stored = item.get("tell")
+    if isinstance(stored, str) and stored in TELLS:
+        return stored
+    category = item.get("category")
+    if isinstance(category, str) and category in DECISION_CATEGORIES:
+        return DECISION_CATEGORIES[category]
+    return "needed"
+
+
+def tell_policy_enabled() -> bool:
+    """Is tell enforcement on? Off by default; off never crashes."""
+    try:
+        from server.nano_w10.flags import flag_enabled
+
+        return bool(flag_enabled(TELL_POLICY_FLAG))
+    except Exception:
+        return False
+
 
 class StandingRefusedError(ValueError):
     """Raised when a standing *declined* rule refuses a new question.
@@ -39,6 +109,24 @@ class StandingRefusedError(ValueError):
     def __init__(self, standing: dict[str, Any]) -> None:
         self.standing = standing
         super().__init__(f"refused by standing rule {standing.get('id')}: {standing.get('statement', '')[:80]}")
+
+
+def _record_tell_digest(item: dict[str, Any]) -> None:
+    """Park a digest event for a silent item; never fails the write."""
+    try:
+        from server.events import append_canonical_event
+
+        append_canonical_event(
+            "attention.digest",
+            {
+                "item_id": item.get("id"),
+                "question": str(item.get("question") or "")[:200],
+                "category": item.get("category"),
+            },
+            actor="system",
+        )
+    except Exception:
+        pass
 
 
 def _record_standing_refusal(standing: dict[str, Any], question: str) -> None:
@@ -133,9 +221,12 @@ class AttentionStore:
         kind: str = "question",
         options: list[str] | None = None,
         bypass_standing: bool = False,
+        category: str | None = None,
+        tell: str | None = None,
     ) -> dict[str, Any]:
         if kind not in ATTENTION_KINDS:
             raise ValueError(f"unknown attention kind: {kind!r}")
+        resolved_tell = resolve_tell(category=category, tell=tell)
         # Standing gate (item 1): questions only. Escalations and incidents
         # are already human-bound by definition and always pass through.
         standing_id: str | None = None
@@ -161,6 +252,8 @@ class AttentionStore:
             "context": context,
             "kind": kind,
             "options": _validate_options(options),
+            "category": category,
+            "tell": resolved_tell,
             "status": OPEN,
             "created_ts": time.time(),
             "answered_ts": None,
@@ -173,6 +266,8 @@ class AttentionStore:
         from server.bot_team.rev import bump_rev
 
         bump_rev(root=self.root)
+        if resolved_tell == "silent" and tell_policy_enabled():
+            _record_tell_digest(item)
         return item
 
     def list(self, *, status: str | None = None) -> list[dict[str, Any]]:
