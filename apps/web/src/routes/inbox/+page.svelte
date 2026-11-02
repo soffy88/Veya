@@ -72,6 +72,20 @@
 		}
 	}
 
+	async function answerOption(item: AttentionItem, option: string): Promise<void> {
+		if (!option || busyId) return;
+		busyId = item.id;
+		error = "";
+		try {
+			await answerAttention(item.id, option);
+			await load();
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			busyId = "";
+		}
+	}
+
 	async function dismiss(item: AttentionItem): Promise<void> {
 		if (busyId) return;
 		busyId = item.id;
@@ -119,6 +133,17 @@
 							来自 {item.bot_id ?? `房间 ${item.group_id ?? ""}`}
 							{#if item.context} · {item.context}{/if}
 						</p>
+						{#if item.options?.length}
+							<div class="mt-2 flex flex-wrap gap-2">
+								{#each item.options as option (option)}
+									<button
+										class="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50"
+										disabled={busyId === item.id}
+										onclick={() => void answerOption(item, option)}>{option}</button
+									>
+								{/each}
+							</div>
+						{/if}
 						<textarea
 							class="mt-2 w-full rounded-lg border px-2 py-1.5 text-sm"
 							rows="2"

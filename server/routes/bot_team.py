@@ -490,6 +490,7 @@ class AttentionCreateRequest(BaseModel):
     group_id: str | None = None
     question: str = Field(..., min_length=1)
     context: str | None = None
+    options: list[str] | None = None
 
 
 class AttentionAnswerRequest(BaseModel):
@@ -524,12 +525,16 @@ async def create_attention(
         raise HTTPException(status_code=404, detail=f"bot {req.bot_id!r} not found")
     if req.group_id:
         _require_group(req.group_id, user["user_id"])
-    item = attention_store().create(
-        question=question,
-        bot_id=req.bot_id,
-        group_id=req.group_id,
-        context=(req.context.strip() if req.context else None) or None,
-    )
+    try:
+        item = attention_store().create(
+            question=question,
+            bot_id=req.bot_id,
+            group_id=req.group_id,
+            context=(req.context.strip() if req.context else None) or None,
+            options=req.options,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"status": "created", "item": item}
 
 

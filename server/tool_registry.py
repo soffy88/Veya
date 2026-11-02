@@ -4224,7 +4224,7 @@ def _search_tools_payload_fits(payload: dict) -> bool:
     return len(json.dumps(payload, ensure_ascii=False)) <= _SEARCH_TOOLS_RESULT_CHARS
 
 
-def _lazy_search_tools(query: str, top_k: int = 8) -> str:
+def _lazy_search_tools(query: str, top_k: int = 8, offset: int = 0) -> str:
     """Model-triggered discovery for VEYA_LAZY_TOOLS sessions.
 
     Returns complete OpenAI tool schemas and records the hits in the current
@@ -4236,15 +4236,21 @@ def _lazy_search_tools(query: str, top_k: int = 8) -> str:
     Hits are added one at a time while the serialized payload still fits; when
     the full schemas do not fit, the same hits are re-serialized with the
     compact schema (name + description + required arguments).
+
+    Pagination (oversized-result follow-up): matches are ranked deterministically
+    for a given query and catalog, so ``offset`` pages through them without any
+    server-side result storage. Each page loads only its own tools; repeat the
+    same query with the next offset to see the rest. ``total_matches`` and
+    ``offset`` in the payload say where the page sits.
     """
     from server import lazy_tools
 
     top_k = max(1, min(int(top_k or 8), 20))
+    offset = max(0, int(offset or 0))
     q = (query or "").lower().strip()
     q_tokens = _search_tokens(q)
     catalog = lazy_tools.current_catalog() or list(master_tools._schemas)
     session_id = _current_master_session.get()
-    already = set(lazy_tools.loaded_tools(session_id))
     resident = set(lazy_tools.resident_tool_names())
     scored: list[tuple[int, str, dict]] = []
     for schema in catalog:
@@ -4256,24 +4262,41 @@ def _lazy_search_tools(query: str, top_k: int = 8) -> str:
         score = 5 if q and q in hay else 0
         score += len(q_tokens & _search_tokens(hay))
         # Prefer tools that are not already visible without letting relevance
-        # disappear entirely.
-        if name in already or name in resident:
+        # disappear entirely. Only the resident set is penalised: the loaded
+        # set grows as pages are read, so penalising it would re-rank matches
+        # between pages and break offset paging (the ranking must depend
+        # only on the query, the catalog, and resident configuration).
+        if name in resident:
             score = max(0, score - 1)
         scored.append((score, name, function))
     scored.sort(key=lambda row: (-row[0], row[1]))
-    hits = [row for row in scored if row[0] > 0][:top_k]
-    if not hits:
-        hits = scored[:top_k]
-    names = [row[1] for row in hits]
+    matches = [row for row in scored if row[0] > 0] or list(scored)
+    total_matches = len(matches)
+    page = matches[offset : offset + top_k]
+    names = [row[1] for row in page]
     loaded = lazy_tools.load_tools(session_id, names)
+    note = (
+        "These full schemas are now available on the next round and remain "
+        "loaded for this session."
+    )
+    if page and total_matches > offset + len(page):
+        note += (
+            f" {total_matches - offset - len(page)} more match(es); call "
+            f"search_tools with the same query and offset={offset + len(page)} "
+            "for the next page."
+        )
+    elif not page:
+        note = (
+            f"No further matches at offset {offset} "
+            f"({total_matches} total matches)."
+        )
     payload: dict[str, Any] = {
         "loaded": names,
         "session_loaded_count": len(loaded),
-        "tools": [row[2] for row in hits],
-        "note": (
-            "These full schemas are now available on the next round and remain "
-            "loaded for this session."
-        ),
+        "tools": [row[2] for row in page],
+        "total_matches": total_matches,
+        "offset": offset,
+        "note": note,
     }
 
     # ── Phase 0: read-only Claude-BugHunter security SKILL.md index ──────
@@ -4307,7 +4330,7 @@ def _lazy_search_tools(query: str, top_k: int = 8) -> str:
                 " Read-only Spec Kit command/artifact templates are listed under "
                 "'speckit_skills' for on-demand reference; they are not callable tools."
             )
-    return _search_tools_render(payload, hits)
+    return _search_tools_render(payload, page)
 
 
 def _search_tools_render(payload: dict[str, Any], hits: list[tuple[int, str, dict]]) -> str:
@@ -5343,7 +5366,9 @@ def register_lazy_search_tool(registry: MasterToolRegistry | None = None) -> Non
             "Find and load tools on demand. The default surface contains only a small "
             "resident set; call this with a natural-language capability query to retrieve "
             "complete schemas and make matching tools directly callable on the next round. "
-            "Loaded tools stay available for the rest of the session."
+            "Loaded tools stay available for the rest of the session. When the result says "
+            "more matches remain, call again with the same query and offset set to the "
+            "next page start."
         ),
         parameters={
             "type": "object",
@@ -5355,6 +5380,10 @@ def register_lazy_search_tool(registry: MasterToolRegistry | None = None) -> Non
                 "top_k": {
                     "type": "integer",
                     "description": "Maximum tools to return and load (default 8, max 20).",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Skip this many matching tools to read the next page (default 0).",
                 },
             },
             "required": ["query"],

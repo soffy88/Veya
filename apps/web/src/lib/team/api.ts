@@ -736,6 +736,8 @@ export type AttentionItem = {
 	group_id: string | null;
 	question: string;
 	context: string | null;
+	kind: string;
+	options: string[] | null;
 	status: string;
 	created_ts: number;
 	answered_ts: number | null;

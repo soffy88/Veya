@@ -54,6 +54,19 @@
 		}
 	}
 
+	async function answerOption(item: AttentionItem, option: string): Promise<void> {
+		if (!option || busy) return;
+		busy = item.id;
+		try {
+			await answerAttention(item.id, option);
+			await load();
+		} catch {
+			error = "答复没发出去";
+		} finally {
+			busy = "";
+		}
+	}
+
 	async function dismiss(item: AttentionItem): Promise<void> {
 		if (busy) return;
 		busy = item.id;
@@ -76,6 +89,17 @@
 				<p class="text-sm whitespace-pre-wrap">{item.question}</p>
 				{#if item.context}
 					<p class="mt-1 text-xs whitespace-pre-wrap opacity-60">{item.context}</p>
+				{/if}
+				{#if item.options?.length}
+					<div class="mt-2 flex flex-wrap gap-2">
+						{#each item.options as option (option)}
+							<button
+								class={actionClass}
+								disabled={busy === item.id}
+								onclick={() => void answerOption(item, option)}>{option}</button
+							>
+						{/each}
+					</div>
 				{/if}
 				<div class="mt-2">
 					<textarea

@@ -102,7 +102,11 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
 )
 
 _URL_RE = re.compile(r"https?://[^\s)\"'<>]+", re.IGNORECASE)
-_SCHEME_RE = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*):", re.IGNORECASE)
+# Scheme tokens are short by nature (javascript/data/file/vbscript are the
+# longest this gate cares about). Bounding the token keeps the scan linear:
+# an unbounded greedy token followed by a required ':' backtracks O(n^2)
+# on long colon-less text (512 KiB took ~22 minutes before this bound).
+_SCHEME_RE = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]{0,31}):", re.IGNORECASE)
 
 
 def check_memory_text(text: str) -> list[dict[str, Any]]:

@@ -33,6 +33,38 @@ OPEN = "open"
 #: default; ``escalation`` is a room handing a stuck round to a human;
 #: ``incident`` is a failed delegation or job reporting itself.
 ATTENTION_KINDS = ("question", "escalation", "incident")
+MAX_OPTIONS = 6
+MAX_OPTION_CHARS = 200
+
+
+def _validate_options(options: object) -> list[str] | None:
+    """Normalise an options list, or refuse it whole (fail-closed).
+
+    An option is one tappable answer on the card. Empty or over-long
+    entries and more than MAX_OPTIONS are producer bugs: refuse the
+    whole write instead of rendering a broken card.
+    """
+
+    if options is None:
+        return None
+    if not isinstance(options, list):
+        raise ValueError("options must be a list of strings")
+    cleaned: list[str] = []
+    for entry in options:
+        if not isinstance(entry, str):
+            raise ValueError("options must be a list of strings")
+        text = entry.strip()
+        if not text:
+            raise ValueError("options must not contain an empty option")
+        if len(text) > MAX_OPTION_CHARS:
+            raise ValueError(f"option exceeds {MAX_OPTION_CHARS} characters")
+        if text not in cleaned:
+            cleaned.append(text)
+    if len(cleaned) > MAX_OPTIONS:
+        raise ValueError(f"at most {MAX_OPTIONS} options")
+    return cleaned or None
+
+
 ANSWERED = "answered"
 DISMISSED = "dismissed"
 
@@ -65,6 +97,7 @@ class AttentionStore:
         group_id: str | None = None,
         context: str | None = None,
         kind: str = "question",
+        options: list[str] | None = None,
     ) -> dict[str, Any]:
         if kind not in ATTENTION_KINDS:
             raise ValueError(f"unknown attention kind: {kind!r}")
@@ -75,6 +108,7 @@ class AttentionStore:
             "question": question,
             "context": context,
             "kind": kind,
+            "options": _validate_options(options),
             "status": OPEN,
             "created_ts": time.time(),
             "answered_ts": None,
