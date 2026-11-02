@@ -30,7 +30,12 @@ from server.bot_team.chef import (
     record_team_proposal,
 )
 from server.bot_team.conversations import ConversationStore, default_bots_root, safe_bot_id
-from server.bot_team.attention import AttentionStore, build_board, build_inbox
+from server.bot_team.attention import (
+    AttentionStore,
+    StandingRefusedError,
+    build_board,
+    build_inbox,
+)
 from server.bot_team.routine_holds import RoutineHoldStore
 from server.bot_team.companions import create_companion, list_presets
 from server.bot_team.groups import (
@@ -491,10 +496,12 @@ class AttentionCreateRequest(BaseModel):
     question: str = Field(..., min_length=1)
     context: str | None = None
     options: list[str] | None = None
+    bypass_standing: bool = False
 
 
 class AttentionAnswerRequest(BaseModel):
     answer: str = Field(..., min_length=1)
+    record_standing: bool = False
 
 
 @router.get("/attention")
@@ -532,7 +539,11 @@ async def create_attention(
             group_id=req.group_id,
             context=(req.context.strip() if req.context else None) or None,
             options=req.options,
+            bypass_standing=req.bypass_standing,
         )
+    except StandingRefusedError as exc:
+        # Not a client error: the owner's own standing rule answered it.
+        return {"status": "refused_by_standing", "standing": exc.standing, "item": None}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"status": "created", "item": item}
@@ -566,6 +577,22 @@ async def answer_attention(
         conversations().append(item["bot_id"], role="user", text=answer)
     closed = attention_store().answer(item_id, answer)
     assert closed is not None
+    if req.record_standing:
+        # Explicit owner act: this answer becomes a standing rule, in the
+        # owner's own words, scoped to the question asked. Never fails the
+        # answer itself; recorded regardless of the enforcement flag.
+        try:
+            from server import decision_ledger as dl_mod
+
+            dl_mod.ledger.record_standing(
+                "decided",
+                answer,
+                scope=str(item.get("question") or "")[:200],
+                category=str(item.get("category") or ""),
+                source=f"attention:{item_id}",
+            )
+        except Exception:
+            pass
     RoutineHoldStore().resume_holds_for_attention(item_id, outcome="answered")
     return {"status": "answered", "item": closed}
 

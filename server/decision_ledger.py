@@ -29,6 +29,19 @@ _DB_PATH = os.environ.get(
 )
 _DEFAULT_RULE_MIN_CONFIDENCE = float(os.environ.get("DECISION_RULE_MIN_CONFIDENCE", "0.5"))
 
+#: Standing-decision verdicts: a rule the owner set once, consulted before
+#: anyone asks again. ``decided`` = do it this way; ``declined`` = never do
+#: it / never ask it again.
+STANDING_VERDICTS = ("decided", "declined")
+
+#: Minimum keyword-hit score for a standing match. Conservative on purpose:
+#: missing a match only costs one more question; a false match silently
+#: enforces a rule the owner never set for this case.
+STANDING_MATCH_MIN_HITS = 3
+
+#: Feature flag gating every standing enforcement point (see check_standing).
+STANDING_GATE_FLAG = "VEYA_STANDING_GATE"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS decisions (
     id          TEXT PRIMARY KEY,
@@ -45,6 +58,17 @@ CREATE TABLE IF NOT EXISTS decisions (
 CREATE INDEX IF NOT EXISTS idx_decisions_category ON decisions(category);
 CREATE INDEX IF NOT EXISTS idx_decisions_parent ON decisions(parent_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_created ON decisions(created_at);
+CREATE TABLE IF NOT EXISTS standing (
+    id          TEXT PRIMARY KEY,
+    verdict     TEXT NOT NULL,
+    statement   TEXT NOT NULL,
+    scope       TEXT NOT NULL DEFAULT '',
+    category    TEXT NOT NULL DEFAULT '',
+    source      TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    superseded_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_standing_live ON standing(superseded_by);
 """
 
 
@@ -218,6 +242,144 @@ class DecisionLedger:
             )
         return "\n".join(lines)
 
+    # ── 定规 (standing) ────────────────────────────────────────────
+    def record_standing(
+        self,
+        verdict: str,
+        statement: str,
+        *,
+        scope: str = "",
+        category: str = "",
+        source: str = "",
+    ) -> str:
+        """Record a standing rule in the owner's own words. Returns its id.
+
+        An exact-scope replacement auto-supersedes the previous live row
+        with the same verdict and scope; anything else is superseded only
+        by an explicit supersede_standing() call, so history is never
+        rewritten by fuzzy matching.
+        """
+        v = str(verdict or "").strip().lower()
+        if v not in STANDING_VERDICTS:
+            raise ValueError(f"verdict must be one of {STANDING_VERDICTS}")
+        text = str(statement or "").strip()
+        if not text:
+            raise ValueError("standing statement must not be empty")
+        sid = "st_" + _new_id()[3:]
+        scope = str(scope or "")[:200]
+        if scope.strip():
+            self._conn.execute(
+                "UPDATE standing SET superseded_by = ? WHERE superseded_by IS NULL"
+                " AND verdict = ? AND scope = ?",
+                (sid, v, scope),
+            )
+        self._conn.execute(
+            "INSERT INTO standing (id, verdict, statement, scope, category,"
+            " source, created_at, superseded_by) VALUES (?,?,?,?,?,?,?,NULL)",
+            (
+                sid,
+                v,
+                text[:2000],
+                scope,
+                str(category or "")[:100],
+                str(source or "")[:100],
+                _now(),
+            ),
+        )
+        self._conn.commit()
+        return sid
+
+    def find_standing(
+        self, query: str, *, category: str | None = None, limit: int = 3
+    ) -> list[dict[str, Any]]:
+        """Live standing rows matching *query*, best score first.
+
+        Scoring reuses the ledger's _tokenize scorer. A scoped row matches
+        when at least one scope token appears in the query AND either the
+        hit score reaches STANDING_MATCH_MIN_HITS or the scope text itself
+        is a substring of the query; rows without a scope need the higher
+        STANDING_MATCH_MIN_HITS_NO_SCOPE. Scope tokens are the
+        applicability key the owner curated, so a shared generic word
+        with a low score alone never matches.
+        """
+        words = [w for w in _tokenize(query or "") if len(w) >= 2]
+        if not words:
+            return []
+        rows = self._conn.execute(
+            "SELECT * FROM standing WHERE superseded_by IS NULL"
+            " AND (? IS NULL OR category = ?)"
+            " ORDER BY created_at DESC LIMIT 200",
+            (category, category),
+        ).fetchall()
+        scored: list[tuple[int, dict[str, Any]]] = []
+        for r in rows:
+            d = dict(r)
+            scope_text = str(d.get("scope") or "").strip()
+            scope_tokens = set(_tokenize(scope_text))
+            hay = f"{d['statement']} {scope_text}".lower()
+            hits = sum(hay.count(w.lower()) for w in words)
+            if scope_tokens:
+                # A shared scope token plus either a solid hit score or the
+                # scope text itself appearing in the query (short scopes like
+                # "周报" can only ever score a couple of hits). A lone generic
+                # 2-char token ("数据") with a low score never matches alone.
+                scope_hit = bool(set(words) & scope_tokens)
+                ok = scope_hit and (
+                    hits >= STANDING_MATCH_MIN_HITS or scope_text in query
+                )
+            else:
+                ok = hits >= STANDING_MATCH_MIN_HITS
+            if ok:
+                scored.append((hits, d))
+        scored.sort(key=lambda t: (t[0], t[1]["created_at"]), reverse=True)
+        return [d for _, d in scored[:limit]]
+
+    def standing_summary(self, *, limit: int = 8, category: str | None = None) -> str:
+        """Compact verbatim standing rules, for prompt injection.
+
+        Returns "" when nothing is live, so callers can skip the block
+        entirely instead of injecting an empty header.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM standing WHERE superseded_by IS NULL"
+            " AND (? IS NULL OR category = ?)"
+            " ORDER BY created_at DESC LIMIT ?",
+            (category, category, limit),
+        ).fetchall()
+        if not rows:
+            return ""
+        lines = ["定规（主人亲定，照办，不再问）："]
+        for r in rows:
+            d = dict(r)
+            icon = "✅" if d["verdict"] == "decided" else "⛔"
+            scope = d.get("scope") or "通用"
+            lines.append(
+                f"  {icon} [{d.get('category') or '通用'}] "
+                f"{str(d['statement'])[:120]}（{str(d['created_at'])[:10]}，范围：{scope}）"
+            )
+        return "\n".join(lines)[:2000]
+
+    def list_standing(self, *, category: str | None = None) -> list[dict[str, Any]]:
+        """All live standing rows, newest first (audit / query surface)."""
+        rows = self._conn.execute(
+            "SELECT * FROM standing WHERE superseded_by IS NULL"
+            " AND (? IS NULL OR category = ?)"
+            " ORDER BY created_at DESC",
+            (category, category),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def supersede_standing(
+        self, standing_id: str, *, replacement_id: str | None = None
+    ) -> bool:
+        """Retire a standing row without deleting it (audit preserved)."""
+        cur = self._conn.execute(
+            "UPDATE standing SET superseded_by = ? WHERE id = ? AND superseded_by IS NULL",
+            (replacement_id or "superseded", standing_id),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
     def close(self) -> None:
         self._conn.close()
 
@@ -255,6 +417,68 @@ def _tokenize(text: str) -> list[str]:
     return out
 
 
+def standing_gate_enabled() -> bool:
+    """Is standing enforcement on? Off by default; off never crashes."""
+    try:
+        from server.nano_w10.flags import flag_enabled
+
+        return bool(flag_enabled(STANDING_GATE_FLAG))
+    except Exception:
+        return False
+
+
+def check_standing(
+    query: str,
+    *,
+    category: str | None = None,
+    ledger: DecisionLedger | None = None,
+) -> dict[str, Any] | None:
+    """Best live standing match for *query*, or None.
+
+    Fail-open by design: the gate is an attention optimisation, never a
+    safety control. A disabled flag, a missing ledger, or any lookup
+    error returns None (ask once more) instead of blocking the caller.
+    """
+    if not standing_gate_enabled():
+        return None
+    try:
+        rows = (ledger or globals()["ledger"]).find_standing(
+            query, category=category, limit=1
+        )
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+def record_standing_decision(
+    verdict: str,
+    statement: str,
+    *,
+    scope: str = "",
+    category: str = "",
+    source: str = "",
+) -> str:
+    return ledger.record_standing(
+        verdict, statement, scope=scope, category=category, source=source
+    )
+
+
+def find_standing_decisions(
+    query: str, *, category: str | None = None, limit: int = 3
+) -> list[dict[str, Any]]:
+    return ledger.find_standing(query, category=category, limit=limit)
+
+
+def standing_summary(*, limit: int = 8, category: str | None = None) -> str:
+    return ledger.standing_summary(limit=limit, category=category)
+
+
+def supersede_standing_decision(
+    standing_id: str, *, replacement_id: str | None = None
+) -> bool:
+    return ledger.supersede_standing(standing_id, replacement_id=replacement_id)
+
+
 # ── 全局单例 (与 hicode_task_queue / master_tools 同模式) ──────────
 ledger = DecisionLedger()
 
@@ -266,7 +490,13 @@ __all__ = [
     "export_ledger",
     "find_similar_decisions",
     "ledger",
+    "check_standing",
+    "find_standing_decisions",
     "record_decision",
+    "record_standing_decision",
+    "standing_gate_enabled",
+    "standing_summary",
+    "supersede_standing_decision",
     "trace_decision_chain",
 ]
 

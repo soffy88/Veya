@@ -197,6 +197,22 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
     except Exception:
         pass
 
+    # Standing rules (item 1): owner's verbatim standing decisions, injected
+    # flag-gated like the sibling blocks above; empty when nothing is live.
+    try:
+        from server.feature_flags import enabled as _flag_enabled
+
+        if _flag_enabled("VEYA_STANDING_GATE"):
+            from server import decision_ledger as _dl_mod
+
+            _standing = _dl_mod.standing_summary(limit=8)
+            if _standing.strip():
+                parts.append(
+                    f"<!-- veya:standing -->\n{_standing}\n<!-- /veya:standing -->"
+                )
+    except Exception:
+        pass
+
     if context.strip():
         parts.append(context.strip())
     parts.append(str(text or "").strip())

@@ -27,6 +27,37 @@ from server.goal_run.bot_identity import BotRegistry, BotSpec
 
 ATTENTION_FILENAME = "attention.json"
 
+
+class StandingRefusedError(ValueError):
+    """Raised when a standing *declined* rule refuses a new question.
+
+    A ValueError subclass so existing validation handling still applies,
+    but routes distinguish it for a 200 refused payload. Carries the
+    matched standing row on ``.standing``.
+    """
+
+    def __init__(self, standing: dict[str, Any]) -> None:
+        self.standing = standing
+        super().__init__(f"refused by standing rule {standing.get('id')}: {standing.get('statement', '')[:80]}")
+
+
+def _record_standing_refusal(standing: dict[str, Any], question: str) -> None:
+    """Best-effort audit event for a refused question; never fails create."""
+    try:
+        from server.events import append_canonical_event
+
+        append_canonical_event(
+            "standing.refused",
+            {
+                "standing_id": standing.get("id"),
+                "verdict": standing.get("verdict"),
+                "question": str(question or "")[:200],
+            },
+            actor="system",
+        )
+    except Exception:
+        pass
+
 OPEN = "open"
 
 #: What an attention item is waiting on. ``question`` is the
@@ -72,9 +103,12 @@ DISMISSED = "dismissed"
 class AttentionStore:
     """Open/dismissed/answered question items, one JSON file under bots root."""
 
-    def __init__(self, root: str | Path | None = None) -> None:
+    def __init__(self, root: str | Path | None = None, ledger: Any | None = None) -> None:
         self.root = Path(root) if root is not None else default_bots_root()
         self.path = self.root / ATTENTION_FILENAME
+        # Standing-gate ledger handle; None means the process-global ledger
+        # (tests inject a temp-path DecisionLedger here).
+        self._ledger = ledger
 
     def _load(self) -> list[dict[str, Any]]:
         try:
@@ -98,9 +132,27 @@ class AttentionStore:
         context: str | None = None,
         kind: str = "question",
         options: list[str] | None = None,
+        bypass_standing: bool = False,
     ) -> dict[str, Any]:
         if kind not in ATTENTION_KINDS:
             raise ValueError(f"unknown attention kind: {kind!r}")
+        # Standing gate (item 1): questions only. Escalations and incidents
+        # are already human-bound by definition and always pass through.
+        standing_id: str | None = None
+        if kind == "question" and not bypass_standing:
+            from server import decision_ledger as dl_mod
+
+            match = dl_mod.check_standing(
+                f"{question}\n{context or ''}", ledger=self._ledger
+            )
+            if match is not None and match.get("verdict") == "declined":
+                _record_standing_refusal(match, question)
+                raise StandingRefusedError(match)
+            if match is not None and match.get("verdict") == "decided":
+                standing_id = str(match.get("id") or "")
+                context = ((context + "\n") if context else "") + (
+                    f"[定规] {match.get('statement', '')}"
+                )
         item = {
             "id": f"att_{uuid.uuid4().hex[:16]}",
             "bot_id": bot_id,
@@ -113,6 +165,7 @@ class AttentionStore:
             "created_ts": time.time(),
             "answered_ts": None,
             "answer": None,
+            "standing_id": standing_id,
         }
         items = self._load()
         items.append(item)
@@ -274,6 +327,7 @@ __all__ = [
     "DISMISSED",
     "OPEN",
     "AttentionStore",
+    "StandingRefusedError",
     "build_board",
     "build_inbox",
 ]

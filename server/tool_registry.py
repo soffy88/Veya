@@ -65,6 +65,7 @@ _RESIDENT_TOOLS: frozenset[str] = frozenset(
         "hicode_review",  # 审查
         "decision_record",  # 决策留痕
         "decision_query",  # 决策回溯
+        "decision_record_standing",  # 定规留痕 (standing gate)
     }
 )
 
@@ -3791,7 +3792,32 @@ def _register_internalized_tools(mt: Any) -> None:
         )
         return f"decision recorded: {did}"
 
-    # ── decision_query: 查先例 / 因果链 / 影响 / 策略门 / 摘要 ──
+    # ── decision_record_standing: 立一条定规 (主人原话, 问前先查) ──
+    async def _decision_record_standing(
+        verdict: str,
+        statement: str,
+        scope: str = "",
+        category: str = "",
+    ) -> str:
+        """Record a standing rule in the owner's own words.
+
+        verdict=decided (do it this way) or declined (never do / never
+        ask again). statement MUST be the owner's verbatim words: never
+        paraphrase, summarise, or invent scope. scope names where the
+        rule applies, e.g. "删数据". An exact-scope replacement
+        auto-supersedes the previous live row.
+        """
+        v = str(verdict or "").strip().lower()
+        if v not in ("decided", "declined"):
+            return "verdict must be decided or declined"
+        if not str(statement or "").strip():
+            return "statement must not be empty"
+        sid = dl_mod.ledger.record_standing(
+            v, statement, scope=scope, category=category, source="master_tool"
+        )
+        return f"standing recorded: {sid}"
+
+    # ── decision_query: 查先例 / 因果链 / 影响 / 策略门 / 摘要 / 定规 ──
     async def _decision_query(
         action: str,
         decision_id: str = "",
@@ -3800,7 +3826,8 @@ def _register_internalized_tools(mt: Any) -> None:
         limit: int = 5,
     ) -> str:
         """查询决策账本: trace=因果链 / similar=先例检索 / impact=影响图 /
-        rules=策略门检查 / export=审计导出 / summary=最近摘要。"""
+        rules=策略门检查 / export=审计导出 / summary=最近摘要 /
+        standing=现行定规。"""
         a = action.strip().lower()
         if a == "trace" and decision_id:
             return str(dl_mod.trace_decision_chain(decision_id, limit=limit))
@@ -3814,7 +3841,9 @@ def _register_internalized_tools(mt: Any) -> None:
             return str(dl_mod.export_ledger(limit=limit or None))
         if a == "summary":
             return str(dl_mod.ledger.summary(limit=limit or 8))
-        return "unknown action: use trace|similar|impact|rules|export|summary"
+        if a == "standing":
+            return str(dl_mod.ledger.list_standing(category=category))
+        return "unknown action: use trace|similar|impact|rules|export|summary|standing"
 
     # ── graph_store: 图写入 (实体/关系/软删) ──
     async def _graph_store(
@@ -3927,6 +3956,30 @@ def _register_internalized_tools(mt: Any) -> None:
                 "required": ["category", "scenario"],
             },
             func=_decision_record,
+            max_result_chars=500,
+        ),
+        dict(
+            name="decision_record_standing",
+            description=(
+                "立一条定规, 记主人的原话 (一等公民): verdict=decided 按此办 / "
+                "declined 永不做、永不再问; statement 必须是主人原话, 不许改写或概括; "
+                "scope 写适用范围。之后提问/门禁前先查定规, 命中 declined 直接按原话答, "
+                "不再打扰主人。只在主人亲口拍板或拒绝时调用。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "verdict": {
+                        "type": "string",
+                        "description": "decided 或 declined",
+                    },
+                    "statement": {"type": "string", "description": "主人原话, 一字不改"},
+                    "scope": {"type": "string", "description": "适用范围, 如 删数据"},
+                    "category": {"type": "string", "description": "决策分类, 可空"},
+                },
+                "required": ["verdict", "statement"],
+            },
+            func=_decision_record_standing,
             max_result_chars=500,
         ),
         dict(

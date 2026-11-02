@@ -339,6 +339,21 @@ def _write_back(store: ProjectStore, resp: ProjectAskResponse, request: str, ass
     store.save_queue_mirror(mirror)
 
 
+def _standing_match_for(
+    request: str, questions: list[str] | None, ledger: Any | None = None
+) -> dict[str, Any] | None:
+    """Best live standing match for an ask, or None. Fail-open: any gate
+    error means "ask once more", never a blocked task."""
+    try:
+        from server import decision_ledger as dl_mod
+
+        return dl_mod.check_standing(
+            request + "\n" + "\n".join(questions or []), ledger=ledger
+        )
+    except Exception:
+        return None
+
+
 def _record_decision(
     *,
     task_id: str,
@@ -513,7 +528,49 @@ async def project_ask(
         },
     )
 
-    if u.decision == "ask":
+    # Standing gate (item 1): a standing rule answers before anyone is
+    # asked. Declined -> blocked with the owner's own words, no
+    # clarification card. Decided -> the questions are already answered;
+    # fall through to Act with the rule appended. Fail-open: any gate
+    # error means "ask once more", never a blocked task.
+    standing_match = _standing_match_for(request, u.questions)
+    standing_verdict = ""
+    if standing_match is not None:
+        standing_verdict = str(standing_match.get("verdict") or "")
+    if standing_match is not None and standing_verdict == "declined":
+        resp = ProjectAskResponse(
+            task_id=task_id,
+            status="blocked",
+            phase="rejected",
+            block_reason=(
+                f"standing_declined: {str(standing_match.get('statement') or '')[:200]}"
+            ),
+            interpretation=f"[定规] {standing_match.get('statement', '')}",
+            confidence=u.confidence,
+            parent_task_id=parent_task_id,
+        )
+        _record_decision(
+            task_id=task_id,
+            parent_task_id=parent_task_id,
+            category="understand",
+            scenario=request,
+            reasoning=f"standing {standing_match.get('id')} declined",
+            outcome="standing_declined",
+            confidence=u.confidence,
+            metadata={
+                "task_id": task_id,
+                "phase": "rejected",
+                "standing_id": standing_match.get("id"),
+            },
+        )
+        _write_back(store, resp, request, "understand")
+        return _render(resp)
+    if standing_match is not None and standing_verdict == "decided":
+        u.interpretation = (u.interpretation or "") + (
+            f"\n[定规] {standing_match.get('statement', '')}"
+        )
+        u.questions = []
+    if u.decision == "ask" and standing_verdict != "decided":
         resp = ProjectAskResponse(
             task_id=task_id,
             status="blocked",
