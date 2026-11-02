@@ -129,6 +129,11 @@ services:
       # 这里声明是为下次重建也不丢。关时两处须一起改（env 优先于文件）。
       - VEYA_STANDING_GATE=1
       - VEYA_TELL_POLICY=1
+      # Sentinel gate, shadow sampling first (Soffy 2026-11-03 拍板)。
+      # Live 开关在容器数据卷 ~/.veya/config.json（flags.VEYA_SENTINEL 与
+      # sentinel.shadow；改文件即生效，不重建）；这里声明是为下次重建也不丢。
+      # 关时两处须一起改（env 优先于文件）。
+      - VEYA_SENTINEL=1
       # 公网主机头：Caddy 以 veya.aiinote.com（或桥接 IP）转发 /api/*；
       # 后端 TrustedHostMiddleware 默认只放行 localhost/127.0.0.1，
       # 不加这里公网 API 全是 400 Invalid host header。
