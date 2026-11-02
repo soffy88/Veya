@@ -629,9 +629,11 @@ class MasterCoordinator:
 
         # 工具守卫默认策略 (幂等): terminal/不可逆动作闸门, 缺省 observe 采样,
         # VEYA_TOOL_GATE_ENFORCE=1 翻 enforce。收口在统一守卫通道 tool_guard。
+        from server.bot_team.sentinel import install_sentinel_policy
         from server.tool_guard_policies import install_default_tool_policies
         from server.user_control import install_user_control_policy
 
+        install_sentinel_policy()
         install_default_tool_policies()
         install_user_control_policy()
 

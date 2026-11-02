@@ -30,11 +30,13 @@ from typing import Any, Literal, cast
 from runtime.coding.tools import register_tools as _register_coding_tools
 from runtime.harness.tools import register_tools as _register_harness_tools
 from server.bot_team.memory import register_tools as _register_bot_memory_tools
+from server.bot_team.sentinel import install_sentinel_policy
 from server.events import append_canonical_event, current_task_id
 from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
 from server.tool_guard_policies import install_default_tool_policies
 
+install_sentinel_policy(_tool_guard)
 install_default_tool_policies(_tool_guard)
 from veya.obase import telemetry  # noqa: E402 — installed after default policies
 from veya.obase.async_utils import run_sync_in_daemon_thread  # noqa: E402
@@ -809,6 +811,12 @@ class MasterToolRegistry:
                 _checkpoint("after")
                 _event("tool.completed", governance="action_gateway", result_chars=len(result))
                 note_tool_call(result, (time.monotonic() - _tool_started) * 1000)
+                try:
+                    from server.bot_team.sentinel import note_execution
+
+                    note_execution(name, kwargs, ok=True)
+                except Exception:
+                    pass
                 return attach_steer(result, name, _repeat_count)
             except asyncio.CancelledError:
                 _checkpoint("after_cancelled")
@@ -855,6 +863,12 @@ class MasterToolRegistry:
                 }
             )
             note_tool_call(result, (time.monotonic() - _tool_started) * 1000)
+            try:
+                from server.bot_team.sentinel import note_execution
+
+                note_execution(name, kwargs, ok=True)
+            except Exception:
+                pass
             return attach_steer(result, name, _repeat_count)
         except asyncio.CancelledError:
             _checkpoint("after_cancelled")

@@ -74,6 +74,7 @@ ALL_FLAGS: dict[str, bool] = {
     "VEYA_CHANNEL_STATUS": True,
     "VEYA_STANDING_GATE": False,
     "VEYA_TELL_POLICY": False,
+    "VEYA_SENTINEL": False,
 }
 
 FEATURE_DISABLED_ERROR = {"code": "FEATURE_DISABLED", "flag": ""}

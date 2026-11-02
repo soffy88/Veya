@@ -447,6 +447,7 @@ async def finish_bot_turn(
         if burst:
             text = "\n".join([str(text or ""), *burst])
     from server.bot_team.repeat_guard import bind_repeat_detector, reset_repeat_detector
+    from server.bot_team.sentinel import bind_taint_context, reset_taint_context
     from server.bot_team.thread_usage import (
         bind_turn_usage,
         record_turn,
@@ -457,6 +458,7 @@ async def finish_bot_turn(
 
     repeat_token = bind_repeat_detector()
     turn_usage, usage_token = bind_turn_usage()
+    taint_token = bind_taint_context(thread_id or f"bot:{bot.bot_id}")
     objective = build_objective(bot=bot, text=text, context=context)
     stalled = False
     deadline = None
@@ -506,6 +508,7 @@ async def finish_bot_turn(
                     # the next correction is not steered into a turn that no longer runs.
                     reset_repeat_detector(repeat_token)
                     reset_turn_usage(usage_token)
+                    reset_taint_context(taint_token)
                     if queue is not None:
                         queue.mark_finished(bot.bot_id)
     except TimeoutError:

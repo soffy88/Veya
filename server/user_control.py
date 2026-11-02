@@ -284,6 +284,28 @@ def resolve_answer(request_id: str, answer: str) -> bool:
 _pending_waiters: dict[str, asyncio.Event] = {}
 
 
+def _sentinel_evaluated() -> bool:
+    """True when the sentinel policy already decided this call (D1: its
+    verdict stands and user_control must not open a second card)."""
+    try:
+        from server.bot_team.sentinel import sentinel_evaluated
+
+        return bool(sentinel_evaluated())
+    except Exception:
+        return False
+
+
+def _sentinel_reason(sentinel: dict | None) -> str:
+    if not sentinel:
+        return ""
+    parts = [f"[sentinel {sentinel.get('risk')}] {sentinel.get('summary')}"]
+    for reason in sentinel.get("reasons") or []:
+        parts.append(str(reason))
+    for warning in sentinel.get("warnings") or []:
+        parts.append(f"warning: {warning}")
+    return "; ".join(parts)[:500]
+
+
 def _is_gated_tool(name: str) -> bool:
     """Whether a tool call must pass the W6 approval gate (destructive /
     outbound / payment-like, or already high-impact)."""
@@ -314,16 +336,30 @@ _NEVER_GATED = frozenset(
 )
 
 
-async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
+async def _wait_approval(
+    tool: str,
+    kwargs: dict[str, Any],
+    on_verdict: Any = None,
+    sentinel: dict[str, Any] | None = None,
+) -> str | None:
     """Return a deny reason, or None to allow."""
     from server.approvals import approval_gates_enabled
 
     if not approval_gates_enabled():
-        return await _wait_approval_legacy(tool, kwargs)
-    return await _wait_approval_gated(tool, kwargs)
+        return await _wait_approval_legacy(
+            tool, kwargs, on_verdict=on_verdict, sentinel=sentinel
+        )
+    return await _wait_approval_gated(
+        tool, kwargs, on_verdict=on_verdict, sentinel=sentinel
+    )
 
 
-async def _wait_approval_gated(tool: str, kwargs: dict[str, Any]) -> str | None:
+async def _wait_approval_gated(
+    tool: str,
+    kwargs: dict[str, Any],
+    on_verdict: Any = None,
+    sentinel: dict[str, Any] | None = None,
+) -> str | None:
     """NANO-W6 gated approval: always-allow grants → durable request + push
     relay → resume on once/session/always/deny."""
 
@@ -363,6 +399,7 @@ async def _wait_approval_gated(tool: str, kwargs: dict[str, Any]) -> str | None:
         args=_safe_args(kwargs),
         user_id=user_id,
         session_id=sid,
+        reason=_sentinel_reason(sentinel) if sentinel else "",
     )
     rid = str(record["approval_id"])
     event = asyncio.Event()
@@ -380,14 +417,17 @@ async def _wait_approval_gated(tool: str, kwargs: dict[str, Any]) -> str | None:
         }
     )
     with contextlib.suppress(Exception):
+        _approval_required_payload = {
+            "request_id": rid,
+            "tool_name": tool,
+            "tool_args": record["approval"]["tool_args"],
+            "scope": scope,
+        }
+        if sentinel:
+            _approval_required_payload["sentinel"] = sentinel
         append_canonical_event(
             "tool.approval_required",
-            {
-                "request_id": rid,
-                "tool_name": tool,
-                "tool_args": record["approval"]["tool_args"],
-                "scope": scope,
-            },
+            _approval_required_payload,
             actor="system",
             session_id=sid or None,
             task_id=current_task_id(),
@@ -400,6 +440,9 @@ async def _wait_approval_gated(tool: str, kwargs: dict[str, Any]) -> str | None:
             current = service.get(rid)
             if current and current.get("status") != "pending":
                 verdict = current.get("decision")
+                if on_verdict is not None and verdict:
+                    with contextlib.suppress(Exception):
+                        on_verdict(str(verdict))
                 if verdict in {"once", "session", "always"}:
                     if verdict == "session":
                         session_grants.add((scope, tool))
@@ -438,6 +481,9 @@ async def _wait_approval_gated(tool: str, kwargs: dict[str, Any]) -> str | None:
                     }
                 )
                 return reason
+        if on_verdict is not None:
+            with contextlib.suppress(Exception):
+                on_verdict("timeout")
         return f"approval timed out for '{tool}' (waited {_APPROVAL_TIMEOUT_S:.0f}s)"
     finally:
         _pending_waiters.pop(rid, None)
@@ -489,7 +535,12 @@ async def request_handoff(reason: str) -> str:
         _pending_handoffs.pop(hid, None)
 
 
-async def _wait_approval_legacy(tool: str, kwargs: dict[str, Any]) -> str | None:
+async def _wait_approval_legacy(
+    tool: str,
+    kwargs: dict[str, Any],
+    on_verdict: Any = None,
+    sentinel: dict[str, Any] | None = None,
+) -> str | None:
     """The pre-W6 session-scoped approval wait (unchanged behaviour)."""
     import hashlib
     import json
@@ -569,6 +620,9 @@ async def _wait_approval_legacy(tool: str, kwargs: dict[str, Any]) -> str | None
             current = await governance_store.get_approval(rid)
             if current and current.status != "pending":
                 if current.status == "approved":
+                    if on_verdict is not None:
+                        with contextlib.suppress(Exception):
+                            on_verdict("once")
                     with contextlib.suppress(Exception):
                         append_canonical_event(
                             "tool.approved",
@@ -617,6 +671,9 @@ async def _wait_approval_legacy(tool: str, kwargs: dict[str, Any]) -> str | None
                             "session_id": sid,
                         }
                     )
+                    if on_verdict is not None:
+                        with contextlib.suppress(Exception):
+                            on_verdict("deny")
                     return f"user denied '{tool}'"
 
         return f"approval timed out for '{tool}' (waited {_APPROVAL_TIMEOUT_S:.0f}s)"
@@ -749,6 +806,10 @@ async def user_control_policy(name: str, kwargs: dict, source: str) -> str | Non
     if (require_approval() and name in HIGH_IMPACT) or (
         approval_gates_enabled() and _is_gated_tool(name)
     ):
+        if _sentinel_evaluated():
+            # Sentinel already decided ask/allow for this call; its verdict
+            # stands and no second approval card is opened.
+            return None
         if _consume_once(name, kwargs):
             return None
         wait_err = await _wait_approval(name, kwargs)
