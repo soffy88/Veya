@@ -3987,14 +3987,14 @@ def _register_internalized_tools(mt: Any) -> None:
             description=(
                 "查询决策账本: trace=沿因果链上溯到根, similar=语义先例检索 "
                 "(给 query), impact=某决策影响的下游统计, rules=低置信度策略门, "
-                "export=审计导出, summary=最近记录摘要。审计/复盘/找先例时用。"
+                "export=审计导出, summary=最近记录摘要, standing=现行定规。审计/复盘/找先例时用。"
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["trace", "similar", "impact", "rules", "export", "summary"],
+                        "enum": ["trace", "similar", "impact", "rules", "export", "summary", "standing"],
                     },
                     "decision_id": {"type": "string"},
                     "query": {"type": "string"},

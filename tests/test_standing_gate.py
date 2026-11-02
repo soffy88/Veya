@@ -270,6 +270,27 @@ def test_build_objective_empty_without_standing(ledger, monkeypatch):
 # ── project_ask helper ────────────────────────────────────────────────
 
 
+def test_decision_tools_end_to_end(tmp_path, monkeypatch):
+    """The registered tools themselves: record + query standing actions."""
+    import asyncio
+
+    from server.tool_registry import MasterToolRegistry, _register_internalized_tools
+
+    monkeypatch.setenv("VEYA_STANDING_GATE", "1")
+    monkeypatch.setattr(dl_mod, "ledger", DecisionLedger(tmp_path / "tools.db"))
+    mt = MasterToolRegistry()
+    _register_internalized_tools(mt)
+    out = asyncio.run(
+        mt.execute(
+            "decision_record_standing",
+            {"verdict": "declined", "statement": "不要删数据库", "scope": "删数据"},
+        )
+    )
+    assert out.startswith("standing recorded: st_")
+    out2 = asyncio.run(mt.execute("decision_query", {"action": "standing"}))
+    assert "不要删数据库" in out2
+
+
 def test_standing_match_for_ask(ledger, monkeypatch):
     from server.project_ask import _standing_match_for
 
