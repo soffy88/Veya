@@ -28,6 +28,7 @@ _PRICING: dict[str, tuple[float, float]] = {
     "openrouter": (0.15, 0.6),
     "gmi": (0.0, 0.0),
     "inferera": (0.0, 0.0),
+    "inferx": (0.0, 0.0),
     "moonshot": (0.2, 2.0),
     "zhipu": (0.1, 0.1),
 }
@@ -43,6 +44,7 @@ _DEFAULT_MODELS: dict[str, str] = {
     "gmi": "MiniMaxAI/MiniMax-M3",
     "opencode-go": "deepseek-v4.1-flash",
     "inferera": "gpt-4.1-mini-free",
+    "inferx": "deepseek-v4.1-flash-1017-basic",
     "moonshot": "moonshot-v1-8k",
     "zhipu": "glm-4-flash",
 }
@@ -57,6 +59,7 @@ _ENDPOINTS: dict[str, str] = {
     "gmi": "https://api.gmi-serving.com/v1/chat/completions",
     "opencode-go": "https://opencode.ai/zen/go/v1/chat/completions",
     "inferera": "https://api.inferera.com/v1/chat/completions",
+    "inferx": "https://model.inferx.net/endpoints/v1/chat/completions",
     "moonshot": "https://api.moonshot.cn/v1/chat/completions",
     "zhipu": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
 }
@@ -69,6 +72,7 @@ _API_KEY_ENV: dict[str, str] = {
     "openrouter": "OPENROUTER_API_KEY",
     "gmi": "GMI_API_KEY",
     "inferera": "INFERERA_API_KEY",
+    "inferx": "INFERX_API_KEY",
     "moonshot": "MOONSHOT_API_KEY",
     "zhipu": "ZHIPU_API_KEY",
     "opencode-go": "OPENCODE_API_KEY",

@@ -617,6 +617,17 @@ _VEYA12_FREE_POOL: list[dict[str, str]] = [
         "endpoint": "https://openrouter.ai/api/v1",
         "source": "openrouter",
     },
+    # InferX: DeepSeek V4.1 Flash 1017 Basic, $0/$0 on the vendor homepage,
+    # verified by a live probe 2026-11-03 (HTTP 200, 1.1s). The /models catalog
+    # carries no pricing/free flags, so discovery's free filter cannot qualify
+    # it; the seed + the gateway's daily probe is the qualification path, and
+    # the lifecycle evicts it on repeated failure like any other seed.
+    {
+        "provider": "inferx",
+        "model": "deepseek-v4.1-flash-1017-basic",
+        "endpoint": "https://model.inferx.net/endpoints/v1",
+        "source": "inferx",
+    },
 ]
 
 # Inferera 免费额度在 2026-08-30 探测时已耗尽，所有原 free-only 候选均从

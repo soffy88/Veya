@@ -682,6 +682,9 @@ def _free_pool_sources() -> list[tuple[str, str]]:
         ("opencode-go", "https://opencode.ai/zen/go/v1"),
         ("openrouter", "https://openrouter.ai/api/v1"),
         ("inferera", "https://api.inferera.com/v1"),
+        # inferx: catalog lists ids only (no pricing/free flags); discovery
+        # confirms the id exists, the seed + probe qualifies freeness.
+        ("inferx", "https://model.inferx.net/endpoints/v1"),
         ("bai", "https://api.b.ai/v1"),
         ("gmi-serving", "https://api.gmi-serving.com/v1"),
         ("freellmapi", _LOCAL_UPSTREAMS["freellmapi"]),
@@ -760,6 +763,7 @@ async def _discover_free_pool() -> FreePoolSnapshot:
                 endpoint = {
                     "openrouter": "https://openrouter.ai/api/v1",
                     "inferera": "https://api.inferera.com/v1",
+                    "inferx": "https://model.inferx.net/endpoints/v1",
                     "bai": "https://api.b.ai/v1",
                     "gmi-serving": "https://api.gmi-serving.com/v1",
                 }[source]

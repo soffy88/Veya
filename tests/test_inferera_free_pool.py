@@ -59,4 +59,5 @@ def test_veya12_free_keeps_only_verified_candidates():
         ("openrouter", "poolside/laguna-s-2.1:free"),
         ("openrouter", "dots-studio/dots-3-note-preview:free"),
         ("openrouter", "nvidia/nemotron-3.5-lightning:free"),
+        ("inferx", "deepseek-v4.1-flash-1017-basic"),
     ]
