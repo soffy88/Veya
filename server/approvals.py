@@ -273,6 +273,19 @@ class ApprovalService:
 
             logging.getLogger("veya.turn_resume").exception("resume schedule failed")
 
+        # Delivery pipeline (Autoloop graft item 3): an approved merge
+        # card records delivery.approved and leaves the operator card.
+        # A hook failure must never break the resolve response.
+        try:
+            if str(record.get("tool") or "") == "delivery.merge":
+                from server.goal_run.delivery import on_delivery_approved
+
+                on_delivery_approved(record, decision=decision)
+        except Exception:
+            import logging
+
+            logging.getLogger("veya.delivery").exception("delivery approval hook failed")
+
         # W17: record approved decision in ask-once cache
         if decision in {"allow", "once", "session", "always"}:
             from server.ask_once_cache import get_ask_once_cache

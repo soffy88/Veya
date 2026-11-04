@@ -176,14 +176,22 @@ def validate_rule(
         raise ValueError(f"rule {name!r}: when.types must be a non-empty list of dotted tokens")
     to = str(raw.get("to") or "").strip()
     if not to:
-        raise ValueError(f"rule {name!r}: to must be a bot id")
-    if not bot_exists(to):
+        raise ValueError(f"rule {name!r}: to must be a bot id or a pipeline target")
+    is_pipeline = to.startswith("pipeline:")
+    if is_pipeline:
+        from server.goal_run.delivery import PIPELINE_TARGETS
+
+        if to not in PIPELINE_TARGETS:
+            raise ValueError(f"rule {name!r}: unknown pipeline target: {to!r}")
+    elif not bot_exists(to):
         raise ValueError(f"rule {name!r}: unknown bot: {to!r} (runner targets are not wired in v1)")
     skill = str(raw.get("skill") or "").strip()
     if skill and not _skill_exists(skill, skills_dir):
         raise ValueError(f"rule {name!r}: unknown skill: {skill!r}")
     ask = str(raw.get("ask") or "")
-    if not ask.strip():
+    # Pipeline targets own their reporting: no ask template is needed.
+    # Bot targets still require one.
+    if not is_pipeline and not ask.strip():
         raise ValueError(f"rule {name!r}: ask must be non-empty")
     for slot in _PLACEHOLDER_RE.findall(ask):
         if slot not in ASK_SLOTS:
@@ -356,6 +364,7 @@ class EventHub:
         dispatch_bot: DispatchFn | None = None,
         wake: Callable[..., Any] | None = None,
         enabled_fn: Callable[[], bool] | None = None,
+        pipelines: dict[str, DispatchFn] | None = None,
     ) -> None:
         self._rules_path = str(rules_path or default_rules_path())
         self._seen = seen_store or EventSeenStore()
@@ -365,6 +374,7 @@ class EventHub:
         self._skills_dir = skills_dir or default_skills_dir()
         self._time_fn = time_fn or time.time
         self._dispatch_bot = dispatch_bot
+        self._pipelines = pipelines
         self._wake = wake
         self._enabled_fn = enabled_fn or event_hub_enabled
         self._rules: list[dict[str, Any]] = []
@@ -584,9 +594,16 @@ class EventHub:
         dispatch: DispatchFn | None,
         user: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        is_pipeline = str(rule.get("to") or "").startswith("pipeline:")
         try:
             if dispatch is not None:
                 result = await dispatch(envelope, rule)
+            elif is_pipeline:
+                # Pipeline targets own their reporting: no model turn,
+                # no generic tell wake. A missing pipeline entry is a
+                # dispatch failure, recorded like any other.
+                fn = self._pipeline_fn(str(rule["to"]))
+                result = await fn(envelope, rule, user=user)
             elif self._dispatch_bot is not None:
                 result = await self._dispatch_bot(envelope, rule, user=user)
             else:
@@ -621,9 +638,25 @@ class EventHub:
             "event.completed",
             {"event_id": envelope["event_id"], "rule": rule["name"], "run_id": run_id},
         )
-        if rule["tell"] == "needed":
+        if rule["tell"] == "needed" and not is_pipeline:
             self._wake_needed(envelope, rule, run_id, result, user=user)
         return {"status": "accepted", "rule": rule["name"], "run_id": run_id, "result": result}
+
+    def _pipeline_fn(self, target: str) -> DispatchFn:
+        """Resolve a pipeline target: injected registry, else the default."""
+
+        if self._pipelines is not None:
+            fn = self._pipelines.get(target)
+            if fn is None:
+                raise ValueError(f"pipeline target not registered: {target!r}")
+            return fn
+        from server.goal_run.delivery import delivery_dispatch
+
+        defaults = {"pipeline:delivery": delivery_dispatch}
+        fn = defaults.get(target)
+        if fn is None:
+            raise ValueError(f"pipeline target not registered: {target!r}")
+        return fn
 
     async def _default_bot_dispatch(
         self,

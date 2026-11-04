@@ -72,6 +72,13 @@ def validate_commands(commands: Any) -> list[list[str]]:
         for arg in command:
             if "\x00" in arg or "\n" in arg or "\r" in arg:
                 raise ValueError("check argv entries must not contain control characters")
+            # Checks run with cwd inside a scratch copy: an absolute path
+            # or a parent reference would act outside that copy, so both
+            # are rejected. Legitimate checks are cwd-relative. The check
+            # also covers "--flag=/abs" style values.
+            for part in arg.split("="):
+                if part.startswith("/") or part == ".." or part.startswith("../") or part.endswith("/..") or "/../" in part:
+                    raise ValueError(f"check argv must stay inside the scratch copy: {arg!r}")
         validated.append(list(command))
     return validated
 

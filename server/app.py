@@ -501,6 +501,20 @@ async def lifespan(app: FastAPI):
     except Exception:
         _lg.exception("turn-resume reaper startup failed")
 
+    # Delivery verify reaper (Autoloop graft item 3): approved orders
+    # whose head is now the deployed commit get delivery.verified.
+    # Best-effort; a reaper failure must never block startup.
+    try:
+        from server.goal_run.delivery import reap_delivery_verifications
+
+        # Kept on app.state (RUF006): the reference must outlive this
+        # block so the task cannot be garbage-collected mid-reap.
+        app.state.delivery_verify_task = asyncio.create_task(
+            reap_delivery_verifications(), name="veya-delivery-verify-reap"
+        )
+    except Exception:
+        _lg.exception("delivery verify reaper startup failed")
+
     yield
 
     try:

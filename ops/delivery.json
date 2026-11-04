@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "enabled": false,
+  "repo": "owner/repo",
+  "checks": [
+    [
+      "true"
+    ]
+  ],
+  "check_timeout_s": 600,
+  "review_rounds_max": 3
+}
