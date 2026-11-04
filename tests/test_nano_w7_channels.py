@@ -545,6 +545,7 @@ def test_dispatch_routes_to_bot_and_replies(channels_env, monkeypatch, tmp_path)
 
     async def fake_run_bot_turn(*, bot: Any, text: str, user: dict[str, Any], **_kw: Any) -> Any:
         captured["text"] = text
+        captured["materials"] = _kw.get("materials", "")
         captured["user"] = dict(user)
         return BotTurnResult(
             bot_id="chef",
@@ -572,7 +573,10 @@ def test_dispatch_routes_to_bot_and_replies(channels_env, monkeypatch, tmp_path)
     outcome = asyncio.run(dispatch_inbound(inbound, binding=binding, adapter=telegram_adapter))
 
     assert outcome.status == "answered"
-    assert captured["text"] == "ping"
+    from server.bot_team.turns import CHANNEL_MATERIALS_TEXT
+
+    assert captured["text"] == CHANNEL_MATERIALS_TEXT
+    assert "ping" in str(captured["materials"])
     assert captured["user"]["user_id"] == "u_owner"
     assert stub.sent == [("42", "pong")]
 

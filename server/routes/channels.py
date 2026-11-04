@@ -162,8 +162,56 @@ async def _handle_webhook(request: Request, platform: str) -> dict[str, Any]:
         platform=platform,
         external_chat_id=message.external_chat_id,
     )
+    hub_result = await _hub_gate(message, platform=platform, binding=binding, adapter=adapter)
+    if hub_result is not None:
+        return hub_result
     outcome = await dispatch_inbound(message, binding=binding, adapter=adapter)
     return outcome.to_dict()
+
+
+async def _hub_gate(message, *, platform: str, binding, adapter) -> dict[str, Any] | None:
+    """Route one inbound channel message through the event hub.
+
+    Returns a response dict when the hub settles the message (duplicate /
+    dropped / dispatched), or None to run the existing dispatch path
+    unchanged. The hub never eats a message: when it is off, or when its
+    own routing fails, the caller falls through to ``dispatch_inbound``
+    exactly as before (a failed dispatch falls through too, preserving
+    today's error semantics for the platform).
+    """
+    try:
+        from server.nano_w10.event_hub import event_hub_enabled, get_event_hub
+    except Exception:
+        return None
+    if not event_hub_enabled():
+        return None
+    # ChannelMessage carries no uniform stable id, so the envelope id is
+    # generated: redelivery dedupe for channels rests on the platform's
+    # own retry semantics plus the hub's per-group single-flight.
+    envelope = {
+        "source": platform,
+        "type": "channel.message",
+        "subject": message.external_chat_id or platform,
+        "summary": (message.text or "")[:200],
+        "link": "",
+    }
+
+    async def _dispatch(envelope, rule):
+        outcome = await dispatch_inbound(message, binding=binding, adapter=adapter)
+        return outcome.to_dict()
+
+    try:
+        result = await get_event_hub().ingest(envelope, dispatch=_dispatch)
+    except Exception:
+        logging.getLogger("veya.routes.channels").exception(
+            "event hub gate failed; falling through to dispatch"
+        )
+        return None
+    if result.get("status") in ("duplicate", "dropped_no_rule", "dropped_stale"):
+        return {"ok": True, "status": result["status"]}
+    if result.get("status") == "accepted":
+        return result.get("result") or {"ok": True, "status": "accepted"}
+    return None
 
 
 async def _try_claim(

@@ -39,6 +39,7 @@ from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
 from server.routes.design import router as design_router
+from server.routes.events import router as events_router
 from server.routes.evolution import router as evolution_router
 from server.routes.execution_contract import router as execution_contract_router
 from server.routes.flow import router as flow_router
@@ -655,6 +656,7 @@ app.include_router(personal_runtime_router)
 app.include_router(product_router)
 # Lorca P1/P2: the named bot team + group chat shell (same product path).
 app.include_router(bots_router)
+app.include_router(events_router)
 app.include_router(device_link_router)
 app.include_router(bot_memory_router)  # P3 per-bot Markdown memory
 # Bot runtime lifecycle + independent entry (owner-scoped, require_user).

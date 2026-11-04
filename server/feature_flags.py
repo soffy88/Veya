@@ -129,6 +129,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_TELL_POLICY", False, "runtime", "2027-01-01"),
     # Sentinel gate (default OFF; appended, never reordered)
     FeatureFlag("VEYA_SENTINEL", False, "safety", "2027-01-01"),
+    # Event hub (default OFF; appended, never reordered)
+    FeatureFlag("VEYA_EVENT_HUB", False, "runtime", "2027-01-01"),
 )
 
 

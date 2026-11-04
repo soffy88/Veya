@@ -164,6 +164,65 @@ def compute_due(spec, *, now: datetime, last_fired_utc: datetime) -> str | None:
     return None
 
 
+_HUB_TASKS: set[asyncio.Task] = set()
+
+
+def _schedule_hub_routine_event(
+    *,
+    bot_id: str,
+    routine_id: str,
+    trigger_id: str,
+    summary: str,
+    failed: bool,
+    bot_registry=None,
+) -> None:
+    """Fire-and-forget: record a routine firing in the event hub.
+
+    Never awaited (a slow follow-up turn must not stall the routine
+    worker) and never raising: outcomes are visible in the canonical
+    event log, and a hub failure must not break routine delivery.
+    """
+
+    try:
+        from server.nano_w10.event_hub import event_hub_enabled, get_event_hub
+    except Exception:
+        return
+    if not event_hub_enabled():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    owner_ref = bot_id
+    try:
+        from server.goal_run.bot_identity import BotRegistry
+
+        spec = (bot_registry or BotRegistry()).get(bot_id)
+        owner_ref = str(getattr(spec, "owner_id", "") or bot_id)
+    except Exception:
+        pass
+
+    async def _run() -> None:
+        try:
+            await get_event_hub().ingest(
+                {
+                    "event_id": trigger_id,
+                    "source": "routine_clock",
+                    "type": "routine.failed" if failed else "routine.done",
+                    "subject": routine_id,
+                    "summary": summary,
+                    "link": "",
+                },
+                user={"user_id": owner_ref},
+            )
+        except Exception:
+            _lg.debug("routine hub event failed", exc_info=True)
+
+    task = loop.create_task(_run())
+    _HUB_TASKS.add(task)
+    task.add_done_callback(_HUB_TASKS.discard)
+
+
 def _route_wake(
     *,
     bot_id: str,
@@ -318,6 +377,14 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
                 summary=first_line,
                 bot_registry=bot_registry,
             )
+            _schedule_hub_routine_event(
+                bot_id=str(bot_id),
+                routine_id=str(routine_id),
+                trigger_id=str(trigger_id),
+                summary=first_line,
+                failed=False,
+                bot_registry=bot_registry,
+            )
             if routed is None:
                 global_notifier.push(
                     type="SUCCESS",
@@ -334,6 +401,14 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
                 trigger_id=str(trigger_id),
                 summary=str(e),
                 error=str(e),
+                bot_registry=bot_registry,
+            )
+            _schedule_hub_routine_event(
+                bot_id=str(bot_id),
+                routine_id=str(routine_id),
+                trigger_id=str(trigger_id),
+                summary=str(e),
+                failed=True,
                 bot_registry=bot_registry,
             )
             if routed is None:
@@ -499,6 +574,14 @@ async def _run_bot_turn_handoff(
             summary=summary,
             bot_registry=bot_registry,
         )
+        _schedule_hub_routine_event(
+            bot_id=str(bot_spec.bot_id),
+            routine_id=str(routine_id),
+            trigger_id=str(trigger_id),
+            summary=summary,
+            failed=False,
+            bot_registry=bot_registry,
+        )
         if routed is None:
             global_notifier.push(
                 type="SUCCESS",
@@ -515,6 +598,14 @@ async def _run_bot_turn_handoff(
             trigger_id=str(trigger_id),
             summary=str(e),
             error=str(e),
+            bot_registry=bot_registry,
+        )
+        _schedule_hub_routine_event(
+            bot_id=str(bot_spec.bot_id),
+            routine_id=str(routine_id),
+            trigger_id=str(trigger_id),
+            summary=str(e),
+            failed=True,
             bot_registry=bot_registry,
         )
         if routed is None:
