@@ -801,6 +801,20 @@ async def health():
     return result
 
 
+@app.get("/api/v1/version")
+async def version_info():
+    """Deployed commit probe (D4): what code is actually running.
+
+    Read-only, secret-free. ``commit`` is null when the deploy step did
+    not write the commit file: unknown is reported as unknown, never
+    guessed, and the delivery verify probe treats it as unverifiable.
+    """
+    from server.version_info import read_deployed_commit
+
+    info = read_deployed_commit()
+    return {"version": _APP_VERSION, "commit": info["commit"], "source": info["source"]}
+
+
 @app.get("/health/execution-runtime")
 async def execution_runtime_health():
     """Expose durable runtime/database/reconciler readiness separately."""

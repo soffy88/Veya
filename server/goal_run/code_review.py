@@ -68,7 +68,28 @@ Respond with ONLY a JSON object, no other text:
 {"findings": [{"requirement": "...", "detail": "..."}], "worst": "one-sentence worst issue, or null if none"}"""
 
 
-def _parse_axis(raw: str) -> dict[str, Any]:
+_SEVERITIES = ("blocker", "major", "nit")
+
+_SEVERITY_SUFFIX = """
+Each finding must also carry "severity": one of "blocker" (must fix
+before merge), "major" (should fix), or "nit" (style/polish only, what a
+linter could catch). Add it as a field on every finding object."""
+
+
+def _normalize_severity(findings: list) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            normalized.append({"detail": str(finding), "severity": "major"})
+            continue
+        severity = finding.get("severity")
+        normalized.append(
+            {**finding, "severity": severity if severity in _SEVERITIES else "major"}
+        )
+    return normalized
+
+
+def _parse_axis(raw: str, *, severity: bool = False) -> dict[str, Any]:
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     if not match:
         return {"findings": [], "worst": None, "unscanned_reason": f"未能解析模型输出: {raw[:300]}"}
@@ -80,14 +101,21 @@ def _parse_axis(raw: str) -> dict[str, Any]:
             "worst": None,
             "unscanned_reason": f"模型输出非合法 JSON: {raw[:300]}",
         }
+    findings = list(data.get("findings") or [])
+    if severity:
+        findings = _normalize_severity(findings)
     return {
-        "findings": list(data.get("findings") or []),
+        "findings": findings,
         "worst": data.get("worst") or None,
     }
 
 
 async def _call_axis(
-    system_prompt: str, user_content: str, *, llm_call_fn: Callable[..., Awaitable[dict]]
+    system_prompt: str,
+    user_content: str,
+    *,
+    llm_call_fn: Callable[..., Awaitable[dict]],
+    severity: bool = False,
 ) -> dict[str, Any]:
     messages = [
         {"role": "system", "content": system_prompt},
@@ -108,7 +136,7 @@ async def _call_axis(
             "worst": None,
             "unscanned_reason": "LLM 未配置(stub 回落), 未能审查",
         }
-    return _parse_axis(content)
+    return _parse_axis(content, severity=severity)
 
 
 async def review_standards(
@@ -116,6 +144,7 @@ async def review_standards(
     *,
     standards_doc: str = "",
     llm_call_fn: Callable[..., Awaitable[dict]] = llm_call,
+    severity: bool = False,
 ) -> dict[str, Any]:
     if not diff_text.strip():
         return {"findings": [], "worst": None, "unscanned_reason": "diff 为空"}
@@ -125,7 +154,8 @@ async def review_standards(
         else "(仓库未提供文档标准, 只用12坏味道地板)\n\n"
     )
     user_content = f"{doc_block}Diff:\n{diff_text}"
-    return await _call_axis(_STANDARDS_SYSTEM_PROMPT, user_content, llm_call_fn=llm_call_fn)
+    prompt = _STANDARDS_SYSTEM_PROMPT + (_SEVERITY_SUFFIX if severity else "")
+    return await _call_axis(prompt, user_content, llm_call_fn=llm_call_fn, severity=severity)
 
 
 async def review_spec(
@@ -134,6 +164,7 @@ async def review_spec(
     task_instruction: str,
     acceptance: list[str],
     llm_call_fn: Callable[..., Awaitable[dict]] = llm_call,
+    severity: bool = False,
 ) -> dict[str, Any]:
     if not diff_text.strip():
         return {"findings": [], "worst": None, "unscanned_reason": "diff 为空"}
@@ -141,7 +172,8 @@ async def review_spec(
     user_content = (
         f"任务指令:\n{task_instruction}\n\n验收条件:\n{accept_block}\n\nDiff:\n{diff_text}"
     )
-    return await _call_axis(_SPEC_SYSTEM_PROMPT, user_content, llm_call_fn=llm_call_fn)
+    prompt = _SPEC_SYSTEM_PROMPT + (_SEVERITY_SUFFIX if severity else "")
+    return await _call_axis(prompt, user_content, llm_call_fn=llm_call_fn, severity=severity)
 
 
 async def dual_axis_review(
@@ -151,15 +183,23 @@ async def dual_axis_review(
     acceptance: list[str],
     standards_doc: str = "",
     llm_call_fn: Callable[..., Awaitable[dict]] = llm_call,
+    severity: bool = False,
 ) -> dict[str, Any]:
-    """并行跑两条独立轴, 从不合并结论。空 diff/LLM 失败都优雅退化, advisory only。"""
+    """并行跑两条独立轴, 从不合并结论。空 diff/LLM 失败都优雅退化, advisory only。
+
+    ``severity=True`` (gated review only) asks each axis for a per-finding
+    severity and normalizes it; the advisory path is unchanged.
+    """
     standards, spec = await asyncio.gather(
-        review_standards(diff_text, standards_doc=standards_doc, llm_call_fn=llm_call_fn),
+        review_standards(
+            diff_text, standards_doc=standards_doc, llm_call_fn=llm_call_fn, severity=severity
+        ),
         review_spec(
             diff_text,
             task_instruction=task_instruction,
             acceptance=acceptance,
             llm_call_fn=llm_call_fn,
+            severity=severity,
         ),
     )
     return {"standards": standards, "spec": spec}

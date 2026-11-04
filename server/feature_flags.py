@@ -131,6 +131,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_SENTINEL", False, "safety", "2027-01-01"),
     # Event hub (default OFF; appended, never reordered)
     FeatureFlag("VEYA_EVENT_HUB", False, "runtime", "2027-01-01"),
+    # CI discipline master switch (default OFF; appended, never reordered)
+    FeatureFlag("VEYA_CI_DISCIPLINE", False, "safety", "2027-01-01"),
 )
 
 
