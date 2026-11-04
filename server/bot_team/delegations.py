@@ -269,7 +269,7 @@ async def _drain(
 ) -> list[dict[str, Any]]:
     from server.bot_team.messaging import BotMessageRefused, BotMessenger
     from server.bot_team.tool import bind_hop_depth, reset_hop_depth
-    from server.bot_team.turns import run_bot_turn
+    from server.bot_team.turns import DELEGATION_MATERIALS_TEXT, run_bot_turn
     from server.goal_run.bot_identity import BotRegistry
 
     store = DelegationStore(root=root or getattr(conversations, "root", None))
@@ -339,7 +339,8 @@ async def _drain(
             try:
                 await run_bot_turn(
                     bot=source,
-                    text=reply,
+                    text=DELEGATION_MATERIALS_TEXT,
+                    materials=reply,
                     context=(
                         f"Reply from bot {str(item['to_bot_id'])!r} to the request "
                         f"you delegated (delegation {delegation_id}). Answer or "

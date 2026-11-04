@@ -32,7 +32,7 @@ from server.bot_team.conversations import (
     atomic_write_json,
     default_bots_root,
 )
-from server.bot_team.turns import run_bot_turn
+from server.bot_team.turns import GROUP_MATERIALS_TEXT, run_bot_turn
 from server.goal_run.bot_identity import BotRegistry, BotSpec
 
 #: A group stays small enough that every round is cheap and readable.
@@ -602,7 +602,8 @@ async def run_group_turn(
                 )
             turn = await run_bot_turn(
                 bot=bot,
-                text=str(text or ""),
+                text=GROUP_MATERIALS_TEXT,
+                materials=str(text or ""),
                 context=context,
                 user=user,
                 workspace_id=workspace_id,
@@ -873,7 +874,8 @@ async def run_lead_turn(
             )
         turn = await run_bot_turn(
             bot=bot,
-            text=str(text or ""),
+            text=GROUP_MATERIALS_TEXT,
+            materials=str(text or ""),
             context=context,
             user=user,
             workspace_id=workspace_id,
@@ -1101,7 +1103,8 @@ async def run_auto_turn(
             )
         turn = await run_bot_turn(
             bot=bot,
-            text=str(text or ""),
+            text=GROUP_MATERIALS_TEXT,
+            materials=str(text or ""),
             context=context,
             user=user,
             workspace_id=workspace_id,

@@ -157,7 +157,7 @@ async def dispatch_inbound(
 async def _run_bot(bot_id: str, text: str, user: dict[str, Any]) -> tuple[str, str, str, str]:
     """Hand the message to the existing single-bot turn path (P1)."""
     from server.bot_team.conversations import ConversationStore
-    from server.bot_team.turns import run_bot_turn
+    from server.bot_team.turns import CHANNEL_MATERIALS_TEXT, run_bot_turn
     from server.goal_run.bot_identity import BotRegistry
 
     spec = BotRegistry().get(bot_id)
@@ -166,7 +166,8 @@ async def _run_bot(bot_id: str, text: str, user: dict[str, Any]) -> tuple[str, s
         return "", "", "", "error"
     turn = await run_bot_turn(
         bot=spec,
-        text=text,
+        text=CHANNEL_MATERIALS_TEXT,
+        materials=text,
         user=dict(user),
         conversations=ConversationStore(),
     )

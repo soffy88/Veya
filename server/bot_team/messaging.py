@@ -25,7 +25,7 @@ from runtime.execution.delegate_runtime import DelegateRuntime
 from runtime.execution.models import DelegateRequest
 from runtime.execution.spawn_guard import SpawnBudget, SpawnGuard
 from server.bot_team.conversations import ConversationStore
-from server.bot_team.turns import run_bot_turn
+from server.bot_team.turns import PEER_MATERIALS_TEXT, run_bot_turn
 from server.goal_run.bot_identity import BotRegistry, BotSpec
 
 #: Hop limit for one conversation: source → target → … at most this deep.
@@ -179,7 +179,8 @@ class BotMessenger:
                 )
             turn = await run_bot_turn(
                 bot=target,
-                text=str(text or ""),
+                text=PEER_MATERIALS_TEXT,
+                materials=str(text or ""),
                 context=" ".join(context_parts),
                 user=caller,
                 workspace_id=workspace_id,
