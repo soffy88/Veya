@@ -58,6 +58,7 @@ _WRITE_OWNERS = {
     "approvals": {"veya/obase/approvals.py"},
     "grants": {"veya/obase/approvals.py"},
     "handoffs": {"veya/obase/approvals.py"},
+    "turn_resumes": {"veya/obase/approvals.py"},
 }
 _WRITE_RE = re.compile(
     r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+[\"'`\[]?([A-Za-z_][A-Za-z0-9_]*)",

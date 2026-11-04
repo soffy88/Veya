@@ -486,6 +486,20 @@ async def lifespan(app: FastAPI):
     except Exception:
         _lg.exception("tailnet receiver startup failed; listener remains unavailable")
 
+    # Turn-resume reaper (Autoloop graft item 1): resume turns suspended
+    # before a restart whose approvals have since resolved.  Best-effort;
+    # a reaper failure must never block startup.
+    try:
+        from server.bot_team.turn_resume import reap_turn_resumes
+
+        # Kept on app.state (RUF006): the reference must outlive this
+        # block so the task cannot be garbage-collected mid-reap.
+        app.state.turn_resume_reap_task = asyncio.create_task(
+            reap_turn_resumes(), name="veya-turn-resume-reap"
+        )
+    except Exception:
+        _lg.exception("turn-resume reaper startup failed")
+
     yield
 
     try:

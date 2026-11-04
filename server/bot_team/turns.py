@@ -703,7 +703,12 @@ async def run_bot_turn(
     if not _approval_gates_on():
         return await finishing
     return await _finish_or_await_approval(
-        finishing, bot=bot, start=start, user=user, conversations=conversations
+        finishing,
+        bot=bot,
+        start=start,
+        user=user,
+        conversations=conversations,
+        thread_id=thread_id,
     )
 
 
@@ -814,8 +819,21 @@ APPROVAL_WAIT_REPLY = (
     "这个操作需要你批准后才会执行。我已经在批准列表里提交了申请，批准后我会继续，结果会发在这里。"
 )
 
+#: Same wait, when the durable resume record could NOT be persisted: the
+#: user must know a restart would lose the continuation.
+APPROVAL_WAIT_REPLY_NO_RESUME = (
+    "这个操作需要你批准后才会执行。我已经在批准列表里提交了申请。"
+    "但续行记录没能存下来：如果服务重启，请重说一次，我再接着干。"
+)
+
 #: Turns still running after their caller got the "waiting for approval" reply.
 _BACKGROUND_TURNS: set[Any] = set()
+
+#: Suspended turns whose original turn is still running in this process,
+#: keyed by the original task id.  The resume hook consults this so it never
+#: fires while the live turn owns the conversation; after a restart the map
+#: is empty and the startup reaper may fire.
+_AWAITING_TASKS: dict[str, Any] = {}
 
 
 def _approval_gates_on() -> bool:
@@ -856,6 +874,7 @@ async def _finish_or_await_approval(
     start: BotTurnStart,
     user: dict[str, Any],
     conversations: ConversationStore | None,
+    thread_id: str = "",
 ) -> BotTurnResult:
     """W11-C (S11): never hold a chat request hostage to a human approval.
 
@@ -887,14 +906,72 @@ async def _finish_or_await_approval(
             pending = []
         if pending:
             _BACKGROUND_TURNS.add(task)
-            task.add_done_callback(_BACKGROUND_TURNS.discard)
+            _AWAITING_TASKS[start.task_id] = task
             store = conversations if conversations is not None else conversation_store()
-            store.append(bot.bot_id, role="bot", text=APPROVAL_WAIT_REPLY, task_id=start.task_id)
+            resume_id: str | None = None
+            request_ids = [str(row.get("request_id") or "") for row in pending]
+            request_ids = [rid for rid in request_ids if rid]
+            try:
+                from server.bot_team.turn_resume import (
+                    record_suspension,
+                    suspension_snapshot,
+                )
+
+                messages = store.list(bot.bot_id)
+                rev, objective_hash = suspension_snapshot(messages)
+                record = record_suspension(
+                    bot_id=bot.bot_id,
+                    session_id=start.session_id,
+                    task_id=start.task_id,
+                    trace_id=start.trace_id,
+                    user_id=str((user or {}).get("user_id") or ""),
+                    thread_id=thread_id,
+                    request_ids=request_ids,
+                    rev=rev,
+                    objective_hash=objective_hash,
+                )
+                resume_id = str(record.get("resume_id") or "") or None
+            except Exception:
+                import logging
+
+                logging.getLogger("veya.turn_resume").exception(
+                    "suspension record failed for %s", start.task_id
+                )
+                resume_id = None
+
+            def _on_background_done(
+                done_task: Any,
+                *,
+                _resume_id: str | None = resume_id,
+                _request_ids: list[str] = request_ids,
+                _session_id: str = start.session_id,
+                _task_id: str = start.task_id,
+            ) -> None:
+                _BACKGROUND_TURNS.discard(done_task)
+                _AWAITING_TASKS.pop(_task_id, None)
+                if _resume_id is None or done_task.cancelled():
+                    return
+                try:
+                    from server.bot_team.turn_resume import maybe_mark_done
+
+                    maybe_mark_done(
+                        _resume_id, request_ids=_request_ids, session_id=_session_id
+                    )
+                except Exception:
+                    import logging
+
+                    logging.getLogger("veya.turn_resume").exception(
+                        "mark-done failed for %s", _task_id
+                    )
+
+            task.add_done_callback(_on_background_done)
+            reply_text = APPROVAL_WAIT_REPLY if resume_id else APPROVAL_WAIT_REPLY_NO_RESUME
+            store.append(bot.bot_id, role="bot", text=reply_text, task_id=start.task_id)
             return BotTurnResult(
                 bot_id=bot.bot_id,
                 task_id=start.task_id,
                 session_id=start.session_id,
-                reply=APPROVAL_WAIT_REPLY,
+                reply=reply_text,
                 status="awaiting_approval",
                 trace_id=start.trace_id,
             )

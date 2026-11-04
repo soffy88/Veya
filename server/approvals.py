@@ -261,6 +261,18 @@ class ApprovalService:
             )
         wake_pending_approval(record["request_id"])
 
+        # Turn-resume (Autoloop graft item 1): a suspended turn whose
+        # approvals just resolved may be owed a durable resume.  A resume
+        # failure must never break the resolve response.
+        try:
+            from server.bot_team.turn_resume import schedule_resume_check
+
+            schedule_resume_check(str(record.get("session_id") or ""))
+        except Exception:
+            import logging
+
+            logging.getLogger("veya.turn_resume").exception("resume schedule failed")
+
         # W17: record approved decision in ask-once cache
         if decision in {"allow", "once", "session", "always"}:
             from server.ask_once_cache import get_ask_once_cache
