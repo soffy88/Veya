@@ -150,7 +150,13 @@ class ApprovalStore:
         return self._to_approval(row) if row is not None else None
 
     def list_approvals(
-        self, *, scope: str = "", status: str = "", tool: str = ""
+        self,
+        *,
+        scope: str = "",
+        status: str = "",
+        tool: str = "",
+        session_id: str = "",
+        limit: int = 200,
     ) -> list[dict[str, Any]]:
         query = "SELECT * FROM approvals WHERE 1=1"
         params: list[str] = []
@@ -163,7 +169,10 @@ class ApprovalStore:
         if tool:
             query += " AND tool=?"
             params.append(tool)
-        query += " ORDER BY created_at DESC LIMIT 200"
+        if session_id:
+            query += " AND session_id=?"
+            params.append(session_id)
+        query += f" ORDER BY created_at DESC LIMIT {max(1, min(int(limit), 500))}"
         with self._lock:
             rows = self._conn.execute(query, params).fetchall()
         return [self._to_approval(row) for row in rows if row is not None]

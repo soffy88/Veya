@@ -223,6 +223,7 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
         "fetch_url",
         "search_genesis_ledger",
         "decision_query",
+        "turn_why",
         "graph_query",
         "get_market_data_schema",
         "project_status",
@@ -3859,6 +3860,20 @@ def _register_internalized_tools(mt: Any) -> None:
             return str(dl_mod.ledger.list_standing(category=category))
         return "unknown action: use trace|similar|impact|rules|export|summary|standing"
 
+    # ── turn_why: 一轮回溯 (只读重建, 与路由共用 explain_turn) ──
+    async def _turn_why(
+        task_id: str,
+        session_id: str = "",
+        limit: int = 500,
+    ) -> str:
+        """重建一轮: 时间线/审批/决策/卡片, 查不到写无记录、不推断。"""
+        import json as _json
+
+        from server.bot_team.why import explain_turn
+
+        report = explain_turn(task_id, session_id=session_id or None, event_limit=limit)
+        return _json.dumps(report, ensure_ascii=False)
+
     # ── graph_store: 图写入 (实体/关系/软删) ──
     async def _graph_store(
         op: str,
@@ -4018,6 +4033,25 @@ def _register_internalized_tools(mt: Any) -> None:
                 "required": ["action"],
             },
             func=_decision_query,
+            max_result_chars=6000,
+            side_effect=SideEffect.PURE_READ,
+        ),
+        dict(
+            name="turn_why",
+            description=(
+                "重建一轮的完整经过: 事件时间线、审批、决策记录、卡片回答; "
+                "查不到的段写无记录、不推断。复盘/排障/审计时用。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string"},
+                    "session_id": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["task_id"],
+            },
+            func=_turn_why,
             max_result_chars=6000,
             side_effect=SideEffect.PURE_READ,
         ),

@@ -615,6 +615,23 @@ async def dismiss_attention(
     return {"status": "dismissed", "item": closed}
 
 
+@router.get("/turns/{task_id}/why")
+async def turn_why(
+    task_id: str,
+    session_id: str | None = Query(None),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Rebuild one turn (read-only): timeline, approvals, decisions, cards.
+
+    Unknown task ids return an empty report with every section named as a
+    gap instead of 404: "no record" is itself the answer.
+    """
+
+    from server.bot_team.why import explain_turn
+
+    return explain_turn(task_id, session_id=session_id)
+
+
 @router.get("/board")
 async def get_board(
     user: dict[str, Any] = Depends(auth_mod.require_user),
