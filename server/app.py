@@ -515,6 +515,19 @@ async def lifespan(app: FastAPI):
     except Exception:
         _lg.exception("delivery verify reaper startup failed")
 
+    # Approval-expiry sweep (Autoloop graft 1.1.1): overdue pending cards
+    # are marked expired at startup. Enforcement itself is time-based
+    # (resolve CAS + list filtering), so a missed sweep changes no
+    # behaviour; the sweep only makes the state visible. Best-effort.
+    try:
+        from veya.obase.approvals import ApprovalStore
+
+        expired_n = ApprovalStore().expire_overdue_approvals()
+        if expired_n:
+            _lg.info("approval expiry sweep marked %d cards expired", expired_n)
+    except Exception:
+        _lg.exception("approval expiry sweep failed")
+
     yield
 
     try:

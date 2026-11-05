@@ -148,6 +148,30 @@ def _record_standing_refusal(standing: dict[str, Any], question: str) -> None:
 
 OPEN = "open"
 
+#: Question items live this long; expiry only marks state, rows are kept.
+#: Same 7-day bound as approvals and turn resumes.
+ATTENTION_TTL_S = 7 * 24 * 3600
+
+
+def is_expired(item: dict[str, Any], *, now: float | None = None) -> bool:
+    """True when an open item is past its answer window.
+
+    Items created before the expiry field existed derive their deadline
+    from ``created_ts``; items with no timestamp at all never expire.
+    """
+
+    if item.get("status") != OPEN:
+        return False
+    expires_at = item.get("expires_at")
+    if expires_at is None:
+        created_ts = item.get("created_ts")
+        if created_ts is None:
+            return False
+        expires_at = float(created_ts) + ATTENTION_TTL_S
+    stamp = time.time() if now is None else float(now)
+    return float(expires_at) <= stamp
+
+
 #: What an attention item is waiting on. ``question`` is the
 #: default; ``escalation`` is a room handing a stuck round to a human;
 #: ``incident`` is a failed delegation or job reporting itself.
@@ -256,6 +280,7 @@ class AttentionStore:
             "tell": resolved_tell,
             "status": OPEN,
             "created_ts": time.time(),
+            "expires_at": time.time() + ATTENTION_TTL_S,
             "answered_ts": None,
             "answer": None,
             "standing_id": standing_id,
@@ -268,17 +293,24 @@ class AttentionStore:
         bump_rev(root=self.root)
         if resolved_tell == "silent" and tell_policy_enabled():
             _record_tell_digest(item)
-        return item
+        return {**item, "expired": is_expired(item)}
 
     def list(self, *, status: str | None = None) -> list[dict[str, Any]]:
         items = self._load()
         if status is not None:
             items = [item for item in items if item.get("status") == status]
+        for item in items:
+            item["expired"] = is_expired(item)
+        if status == OPEN:
+            # The open list is the actionable list: expired items are
+            # visible under status=None (all) but no longer waiting.
+            items = [item for item in items if not item["expired"]]
         return items
 
     def get(self, item_id: str) -> dict[str, Any] | None:
         for item in self._load():
             if item.get("id") == item_id:
+                item["expired"] = is_expired(item)
                 return item
         return None
 
@@ -288,6 +320,12 @@ class AttentionStore:
             if item.get("id") == item_id:
                 if item.get("status") != OPEN:
                     return None
+                if answer is not None and is_expired(item):
+                    # Expired questions stay visible but can no longer be
+                    # answered: the answer would land in a turn that has
+                    # long since moved on. Dismissal stays allowed so the
+                    # owner can clear the stale item.
+                    return None
                 item["status"] = status
                 item["answered_ts"] = time.time()
                 if answer is not None:
@@ -296,7 +334,7 @@ class AttentionStore:
                 from server.bot_team.rev import bump_rev
 
                 bump_rev(root=self.root)
-                return item
+                return {**item, "expired": is_expired(item)}
         return None
 
     def answer(self, item_id: str, answer: str) -> dict[str, Any] | None:
@@ -309,6 +347,8 @@ class AttentionStore:
         count = 0
         for item in self._load():
             if item.get("status") != OPEN:
+                continue
+            if is_expired(item):
                 continue
             if bot_id is not None and item.get("bot_id") != bot_id:
                 continue

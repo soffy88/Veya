@@ -246,7 +246,11 @@ async def _try_claim(
 
 async def _json_body(request: Request) -> dict[str, Any]:
     """Parse a JSON or XML webhook body into a mapping."""
-    raw = await request.body()
+    from server.routes.body_limit import read_limited_body
+
+    # Size limit first: an oversized webhook is refused before signature
+    # verification or parsing; the raw body stays cached for Slack.
+    raw = await read_limited_body(request)
     if not raw:
         return {}
     try:

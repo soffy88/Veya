@@ -224,6 +224,10 @@ class ApprovalService:
             raise HTTPException(status_code=404, detail="approval not found")
         if record.get("status") != "pending":
             raise HTTPException(status_code=409, detail="approval already resolved")
+        if bool(record.get("expired")):
+            # Expired cards are dead: no flow, no grant, no resume hook.
+            # The store CAS refuses them too; this is the precise 409.
+            raise HTTPException(status_code=409, detail="approval expired")
         refusal = self.check_resolver_principal(record, principal)
         if refusal is not None:
             _trail(

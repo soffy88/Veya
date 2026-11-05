@@ -8,6 +8,7 @@ idempotent outcomes); only a malformed envelope is 422.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -28,8 +29,12 @@ async def ingest_event(
 ) -> dict[str, Any]:
     """Accept one pointer-only envelope and route it through the hub."""
 
+    from server.routes.body_limit import read_limited_body
+
+    # Size limit first: an oversized body is refused before any parsing.
+    raw = await read_limited_body(request)
     try:
-        data = await request.json()
+        data = json.loads(raw)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

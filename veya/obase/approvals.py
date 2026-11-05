@@ -7,6 +7,8 @@ tables:
 * ``approvals`` — one row per pending/resolved approval request. Keyed by a
   stable ``request_id``; the wait loop polls this table, so a request created
   on one runner is resolvable from any process that can read the same store.
+  Pending rows carry ``expires_at`` (7 days from creation); overdue rows are
+  swept to ``expired`` and can no longer be resolved.
 * ``grants`` — "always allow" grants, one row per (scope, tool, scope_pattern).
 * ``handoffs`` — human-handoff requests ("user must do this step") with
   Done/Cancel resume.
@@ -32,6 +34,31 @@ DEFAULT_APPROVALS_PATH = "~/.veya/approvals.db"
 
 STATUS_PENDING = "pending"
 STATUS_RESOLVED = "resolved"
+STATUS_EXPIRED = "expired"
+
+#: Pending approvals live this long; expiry only marks state, rows are kept.
+#: Same 7-day bound as the turn-resume TTL (server/bot_team/turn_resume.py).
+APPROVAL_TTL_S = 7 * 24 * 3600
+
+
+def is_approval_expired(row: dict[str, Any], *, now: float | None = None) -> bool:
+    """True when a pending approval row is past its expiry.
+
+    Rows with no ``expires_at`` (never backfilled) never expire: grandfathered,
+    not silently dead. Non-pending rows are never "expired" here — a swept
+    row reports its ``expired`` status instead.
+    """
+
+    if str(row.get("status") or "") == STATUS_EXPIRED:
+        return True
+    if str(row.get("status") or "") != STATUS_PENDING:
+        return False
+    expires_at = row.get("expires_at")
+    if expires_at is None:
+        return False
+    stamp = time.time() if now is None else float(now)
+    return float(expires_at) <= stamp
+
 
 DECISION_ONCE = "once"
 DECISION_SESSION = "session"
@@ -76,7 +103,8 @@ class ApprovalStore:
                     actor TEXT,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
-                    resolved_at REAL
+                    resolved_at REAL,
+                    expires_at REAL
                 );
                 CREATE TABLE IF NOT EXISTS grants (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,10 +141,34 @@ class ApprovalStore:
                 """
             )
             self._conn.commit()
+        self._migrate_approvals_expiry()
+
+    def _migrate_approvals_expiry(self) -> None:
+        """Add ``expires_at`` to old databases and backfill pending rows.
+
+        New databases get the column from CREATE TABLE; existing ones need
+        ALTER TABLE. Pending rows created before the column existed get
+        ``expires_at = created_at + APPROVAL_TTL_S`` — a card already older
+        than the TTL expires on the next sweep. Resolved rows keep NULL
+        (expiry is meaningless once resolved). Idempotent.
+        """
+
+        with self._lock:
+            cols = [row[1] for row in self._conn.execute("PRAGMA table_info(approvals)")]
+            if "expires_at" not in cols:
+                self._conn.execute("ALTER TABLE approvals ADD COLUMN expires_at REAL")
+            self._conn.execute(
+                "UPDATE approvals SET expires_at = created_at + ? "
+                "WHERE status=? AND expires_at IS NULL",
+                (APPROVAL_TTL_S, STATUS_PENDING),
+            )
+            self._conn.commit()
 
     # ── approvals ────────────────────────────────────────────────────
     def create_approval(self, record: dict[str, Any]) -> dict[str, Any]:
         now = time.time()
+        created_at = float(record.get("created_at") or now)
+        expires_at = float(record.get("expires_at") or 0) or created_at + APPROVAL_TTL_S
         row: dict[str, Any] = {
             "request_id": str(record["request_id"]),
             "scope": str(record.get("scope") or ""),
@@ -128,9 +180,10 @@ class ApprovalStore:
             "delegate_policy": str(record.get("delegate_policy") or ""),
             "session_id": str(record.get("session_id") or ""),
             "actor": str(record.get("actor") or ""),
-            "created_at": float(record.get("created_at") or now),
+            "created_at": created_at,
             "updated_at": now,
             "resolved_at": None,
+            "expires_at": expires_at,
         }
         with self._lock:
             self._conn.execute(
@@ -138,8 +191,8 @@ class ApprovalStore:
                 INSERT OR IGNORE INTO approvals
                 (request_id, scope, tool, tool_args_json, status, decision,
                  decision_reason, delegate_policy, session_id, actor,
-                 created_at, updated_at, resolved_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 created_at, updated_at, resolved_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     row["request_id"],
@@ -155,6 +208,7 @@ class ApprovalStore:
                     row["created_at"],
                     row["updated_at"],
                     row["resolved_at"],
+                    row["expires_at"],
                 ),
             )
             self._conn.commit()
@@ -175,13 +229,26 @@ class ApprovalStore:
         tool: str = "",
         session_id: str = "",
         limit: int = 200,
+        include_expired: bool = False,
     ) -> list[dict[str, Any]]:
+        """List approvals, newest first.
+
+        Overdue-but-unswept pending rows are hidden by default: expiry is a
+        property of time, not of the last sweep run. ``status="expired"``
+        returns swept rows plus overdue pending rows; history readers
+        (why timeline, receipts search, turn resume) pass
+        ``include_expired=True``.
+        """
+
         query = "SELECT * FROM approvals WHERE 1=1"
-        params: list[str] = []
+        params: list[Any] = []
         if scope:
             query += " AND scope=?"
             params.append(scope)
-        if status:
+        if status == STATUS_EXPIRED:
+            query += " AND (status=? OR (status=? AND expires_at IS NOT NULL AND expires_at<=?))"
+            params.extend([STATUS_EXPIRED, STATUS_PENDING, time.time()])
+        elif status:
             query += " AND status=?"
             params.append(status)
         if tool:
@@ -190,6 +257,9 @@ class ApprovalStore:
         if session_id:
             query += " AND session_id=?"
             params.append(session_id)
+        if not include_expired and status != STATUS_EXPIRED:
+            query += " AND NOT (status=? AND expires_at IS NOT NULL AND expires_at<=?)"
+            params.extend([STATUS_PENDING, time.time()])
         query += f" ORDER BY created_at DESC LIMIT {max(1, min(int(limit), 500))}"
         with self._lock:
             rows = self._conn.execute(query, params).fetchall()
@@ -198,7 +268,12 @@ class ApprovalStore:
     def resolve_approval(
         self, request_id: str, *, decision: str, reason: str = ""
     ) -> dict[str, Any] | None:
-        """CAS: only a pending approval can be resolved, exactly once."""
+        """CAS: only a pending approval can be resolved, exactly once.
+
+        An overdue card (``expires_at`` passed) can no longer resolve: the
+        CAS refuses it, so every resolve path is covered, including the
+        omodul flow that calls this op directly.
+        """
 
         now = time.time()
         with self._lock:
@@ -207,8 +282,18 @@ class ApprovalStore:
                 UPDATE approvals
                 SET status=?, decision=?, decision_reason=?, updated_at=?, resolved_at=?
                 WHERE request_id=? AND status=?
+                  AND (expires_at IS NULL OR expires_at > ?)
                 """,
-                (STATUS_RESOLVED, decision, reason, now, now, str(request_id), STATUS_PENDING),
+                (
+                    STATUS_RESOLVED,
+                    decision,
+                    reason,
+                    now,
+                    now,
+                    str(request_id),
+                    STATUS_PENDING,
+                    now,
+                ),
             )
             self._conn.commit()
             if cursor.rowcount == 0:
@@ -339,6 +424,22 @@ class ApprovalStore:
             self._conn.commit()
             return int(cursor.rowcount)
 
+    def expire_overdue_approvals(self, now: float | None = None) -> int:
+        """Mark overdue pending approvals expired. Returns how many expired."""
+
+        now = time.time() if now is None else float(now)
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE approvals
+                SET status=?
+                WHERE status=? AND expires_at IS NOT NULL AND expires_at<=?
+                """,
+                (STATUS_EXPIRED, STATUS_PENDING, now),
+            )
+            self._conn.commit()
+            return int(cursor.rowcount)
+
     def list_turn_resumes(
         self, *, state: str = "", session_id: str = "", limit: int = 200
     ) -> list[dict[str, Any]]:
@@ -380,6 +481,7 @@ class ApprovalStore:
 
     @staticmethod
     def _to_approval(row: sqlite3.Row) -> dict[str, Any]:
+        expired = is_approval_expired({"status": row["status"], "expires_at": row["expires_at"]})
         return {
             "request_id": row["request_id"],
             "scope": row["scope"],
@@ -394,6 +496,8 @@ class ApprovalStore:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "resolved_at": row["resolved_at"],
+            "expires_at": row["expires_at"],
+            "expired": expired,
         }
 
     # ── grants ───────────────────────────────────────────────────────
@@ -544,6 +648,7 @@ class ApprovalStore:
 
 
 __all__ = [
+    "APPROVAL_TTL_S",
     "DECISION_ALWAYS",
     "DECISION_DENY",
     "DECISION_ONCE",
@@ -551,8 +656,10 @@ __all__ = [
     "HANDOFF_CANCELLED",
     "HANDOFF_DONE",
     "HANDOFF_PENDING",
+    "STATUS_EXPIRED",
     "STATUS_PENDING",
     "STATUS_RESOLVED",
     "ApprovalStore",
     "default_approvals_path",
+    "is_approval_expired",
 ]

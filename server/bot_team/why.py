@@ -183,13 +183,15 @@ def explain_turn(
 
             approval_store = ApprovalStore()
         try:
-            rows = approval_store.list_approvals(session_id=resolved_session, limit=APPROVAL_LIMIT)
+            rows = approval_store.list_approvals(
+                session_id=resolved_session, limit=APPROVAL_LIMIT, include_expired=True
+            )
         except TypeError:
             # Older store without the session filter: fall back to a
             # bounded scan rather than failing the whole report.
             rows = [
                 row
-                for row in approval_store.list_approvals()
+                for row in approval_store.list_approvals(include_expired=True)
                 if row.get("session_id") == resolved_session
             ]
         except Exception as exc:
@@ -203,6 +205,8 @@ def explain_turn(
                 "decision": row.get("decision"),
                 "created_at": row.get("created_at"),
                 "resolved_at": row.get("resolved_at"),
+                "expires_at": row.get("expires_at"),
+                "expired": row.get("expired"),
             }
             for row in rows
         ]

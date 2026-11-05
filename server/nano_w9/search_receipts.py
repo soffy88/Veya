@@ -332,7 +332,13 @@ def default_sources(
             ) -> list[dict[str, Any]]:
                 needle = query.strip().lower()
                 out: list[dict[str, Any]] = []
-                for record in lister() or []:
+                try:
+                    records = lister(include_expired=True) or []
+                except TypeError:
+                    # A plain callable lister (not the store method) takes
+                    # no arguments: fall back to the bare call.
+                    records = lister() or []
+                for record in records:
                     data = record if isinstance(record, dict) else getattr(record, "__dict__", {})
                     action = str(data.get("action") or "")
                     if needle and needle not in action.lower():

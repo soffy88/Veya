@@ -571,6 +571,12 @@ async def answer_attention(
     """Answer a question and deliver it as a user message, so the bot sees it."""
 
     item = _require_open_item(item_id)
+    from server.bot_team.attention import is_expired
+
+    if is_expired(item):
+        # Checked before anything is delivered: an expired answer must
+        # never reach the conversation. Dismissal stays allowed.
+        raise HTTPException(status_code=409, detail=f"attention {item_id!r} expired")
     answer = req.answer.strip()
     if not answer:
         raise HTTPException(status_code=422, detail="answer must not be empty")
@@ -580,7 +586,10 @@ async def answer_attention(
     elif item.get("bot_id"):
         conversations().append(item["bot_id"], role="user", text=answer)
     closed = attention_store().answer(item_id, answer)
-    assert closed is not None
+    if closed is None:
+        # Lost a race (closed, or expired between the check and the close):
+        # the answer was not delivered, so report it instead of crashing.
+        raise HTTPException(status_code=409, detail=f"attention {item_id!r} is already closed")
     if req.record_standing:
         # Explicit owner act: this answer becomes a standing rule, in the
         # owner's own words, scoped to the question asked. Never fails the

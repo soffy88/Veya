@@ -162,7 +162,13 @@ def test_evaluate_waiting_denied_changed_ready(tmp_path):
     )
     assert (verdict, reason) == ("resume", "ready")
     assert outcomes == [
-        {"request_id": "ap-1", "tool": "bash", "decision": "allow", "status": "resolved"}
+        {
+            "request_id": "ap-1",
+            "tool": "bash",
+            "decision": "allow",
+            "status": "resolved",
+            "expired": False,
+        }
     ]
 
 

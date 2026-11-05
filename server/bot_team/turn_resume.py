@@ -12,7 +12,8 @@ Rules that keep this safe:
 * Claim exactly once: only a ``pending`` row can become ``claimed``.  A
   second claimant gets nothing and does nothing.
 * Resume only when every approval for the session resolved to an allow
-  decision.  Any deny ends the resume with a visible note instead.
+  decision.  Any deny ends the resume with a visible note instead.  An
+  expired approval ends it the same way (visible note, no resume).
 * The original objective is re-checked against the transcript at the
   recorded point: if the last user message before suspension changed, the
   resume does not run.
@@ -114,6 +115,23 @@ def record_suspension(
     )
 
 
+def _approval_expired(row: dict[str, Any]) -> bool:
+    """True when a wanted approval can no longer resolve (swept or overdue).
+
+    The store reports ``expired`` on every row it returns; the fallback
+    compares ``expires_at`` so hand-built rows (tests, older readers) work.
+    """
+
+    if bool(row.get("expired")):
+        return True
+    if str(row.get("status") or "") == "expired":
+        return True
+    expires_at = row.get("expires_at")
+    if expires_at is None:
+        return False
+    return float(expires_at) <= time.time()
+
+
 def _outcomes_for(record: dict[str, Any], approvals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_id = {str(a.get("request_id") or ""): a for a in approvals}
     outcomes = []
@@ -126,6 +144,7 @@ def _outcomes_for(record: dict[str, Any], approvals: list[dict[str, Any]]) -> li
                     "tool": str(row.get("tool") or ""),
                     "decision": row.get("decision"),
                     "status": row.get("status"),
+                    "expired": _approval_expired(row),
                 }
             )
     return outcomes
@@ -149,6 +168,8 @@ def evaluate_resume(
     if any(rid not in by_id for rid in wanted):
         return "skip", "approval-missing", outcomes
     rows = [by_id[rid] for rid in wanted]
+    if any(_approval_expired(row) for row in rows):
+        return "done", "expired", outcomes
     if any(str(row.get("status") or "") != "resolved" for row in rows):
         return "skip", "waiting", outcomes
     if any(str(row.get("decision") or "") not in ALLOW_DECISIONS for row in rows):
@@ -276,7 +297,7 @@ async def run_resume_for_record(
             return "already-claimed"
         record = claimed
         approvals = store.list_approvals(
-            session_id=str(record.get("session_id") or ""), limit=100
+            session_id=str(record.get("session_id") or ""), limit=100, include_expired=True
         )
         messages = conversations.list(str(record.get("bot_id") or ""))
         verdict, reason, outcomes = evaluate_resume(
@@ -291,6 +312,12 @@ async def run_resume_for_record(
                     f"{o.get('tool') or '操作'}：{o.get('decision')}" for o in outcomes
                 )
                 _append_note(conversations, record, f"已否决，未继续：{detail}。")
+            elif reason == "expired":
+                detail = (
+                    "、".join(f"{o.get('tool') or '操作'}" for o in outcomes if o.get("expired"))
+                    or "批复"
+                )
+                _append_note(conversations, record, f"批复已过期，未继续：{detail}。")
             elif reason == "objective-changed":
                 _append_note(conversations, record, "续行校验未过：原目标已变，未继续。")
             store.transition_turn_resume(resume_id, "done")
@@ -342,7 +369,7 @@ def maybe_mark_done(
             from veya.obase.approvals import ApprovalStore
 
             store = ApprovalStore()
-        approvals = store.list_approvals(session_id=session_id, limit=100)
+        approvals = store.list_approvals(session_id=session_id, limit=100, include_expired=True)
         by_id = {str(a.get("request_id") or ""): a for a in approvals}
         wanted = list(request_ids or [])
         if not wanted:
