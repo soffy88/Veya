@@ -433,7 +433,7 @@
 							: 'bg-white/[0.05] text-terminal-fg'}"
 					>
 						{#if message.reply_to ?? message.meta?.reply_to}
-							{@const quote = message.reply_to ?? message.meta?.reply_to}
+							{@const quote = (message.reply_to ?? message.meta?.reply_to)!}
 							<QuoteBlock {quote} authorName={quoteAuthor(quote)} />
 						{/if}
 						{#if message.role === "user"}
