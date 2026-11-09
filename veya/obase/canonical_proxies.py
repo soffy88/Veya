@@ -140,6 +140,24 @@ def resolve_canonical(model: str | None, provider: str | None = None) -> Resolve
 _KEY_COOLDOWN_S = 300.0
 _KEY_MAX_FAILURES = 3
 
+#: Statuses that mean the *upstream model* is permanently gone (404 not found /
+#: no entitlement, 410 retired EOL).  They are a model verdict, not a key
+#: verdict: retrying the same model on another key cannot succeed, and charging
+#: the failure to a key cooled down healthy keys and started the 300 s cooldown
+#: loop that parked every bot turn.  Such a model is dropped for the life of
+#: the process.
+_PERMANENT_MODEL_FAILURE_STATUSES = frozenset({404, 410})
+
+#: A model that times out is slow for every key.  Skip it for a short while
+#: instead of letting the next round-robin turn land on it again and burn the
+#: whole tier deadline before reaching a healthy model.
+_SLOW_MODEL_COOLDOWN_S = 120.0
+
+#: Give each model attempt slightly less than the whole tier deadline, so a
+#: hung model's own timeout fires first and can be recorded as slow instead of
+#: being pre-empted by the caller's enclosing ``asyncio.wait_for``.
+_MODEL_TIMEOUT_RATIO = 0.9
+
 
 @dataclass
 class KeyState:
@@ -229,6 +247,10 @@ class NIMKeyPool:
             return "unknown-key"
         state.request_count += 1
         state.last_failure = time.time()
+        if status in _PERMANENT_MODEL_FAILURE_STATUSES:
+            # Model-level verdict (404/410).  The key answered fine; charging it
+            # would cool a healthy key down and start the cooldown loop.
+            return "model-unavailable"
         now = time.monotonic()
         if status in (401, 403):
             state.healthy = False
@@ -263,6 +285,52 @@ def reset_nim_key_pool() -> None:
     global _nim_pool
     with _pool_lock:
         _nim_pool = None
+
+
+# ---------------------------------------------------------------------------
+# Per-model health (§5 eligibility runtime signal)
+# ---------------------------------------------------------------------------
+#
+# ``model-state.json`` is a periodic probe snapshot, so it can list a model as
+# eligible long after the upstream retired it.  A live 404/410 proves the model
+# is gone right now; a live timeout proves it is too slow for this tier right
+# now.  Both are model-level facts and belong here, not in the key pool.
+
+_model_lock = threading.Lock()
+_dead_models: set[str] = set()
+_slow_models_until: dict[str, float] = {}
+
+
+def _model_unavailable(model_id: str, now: float | None = None) -> bool:
+    """Is this upstream model permanently dead or inside its slow cooldown?"""
+    if not model_id:
+        return False
+    moment = now if now is not None else time.monotonic()
+    with _model_lock:
+        if model_id in _dead_models:
+            return True
+        return _slow_models_until.get(model_id, 0.0) > moment
+
+
+def _mark_model_dead(model_id: str) -> None:
+    if not model_id:
+        return
+    with _model_lock:
+        _dead_models.add(model_id)
+
+
+def _mark_model_slow(model_id: str, cooldown: float = _SLOW_MODEL_COOLDOWN_S) -> None:
+    if not model_id:
+        return
+    with _model_lock:
+        _slow_models_until[model_id] = time.monotonic() + max(0.0, cooldown)
+
+
+def reset_model_health() -> None:
+    """Test hook — drop the per-model dead/slow state."""
+    with _model_lock:
+        _dead_models.clear()
+        _slow_models_until.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +375,8 @@ def eligible_nim_models() -> list[dict[str, Any]]:
         if entry.get("provider") != "nvidia-nim":
             continue
         if entry.get("canonical_proxy") != "veya-nim":
+            continue
+        if _model_unavailable(str(entry.get("model_id") or "")):
             continue
         if not entry.get("eligible"):
             continue
@@ -432,6 +502,8 @@ def eligible_vl_models() -> list[dict[str, Any]]:
         if not isinstance(entry, dict):
             continue
         if entry.get("canonical_proxy") != "veya-vl":
+            continue
+        if _model_unavailable(str(entry.get("model_id") or "")):
             continue
         if not entry.get("eligible") or not entry.get("vision_verified"):
             continue
@@ -616,17 +688,19 @@ async def veya_nim_call(
         return _veya_nim_pool_error("NIM key pool empty", resolved)
 
     timeout = float(kwargs.get("timeout") or 200.0)
+    model_timeout = max(1.0, timeout * _MODEL_TIMEOUT_RATIO)
     last_err = ""
     attempted: list[str] = []
 
     for entry in candidates:
         model_id = str(entry.get("model_id") or "")
-        if not model_id:
+        if not model_id or _model_unavailable(model_id):
             continue
         attempted.append(model_id)
+        model_dead = False
         for key_id, key in keys.next_keys(count=min(2, keys.size())):
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(timeout=model_timeout) as client:
                     resp = await provider_call(
                         client,
                         "openai",
@@ -641,12 +715,25 @@ async def veya_nim_call(
                     )
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
+                if status in _PERMANENT_MODEL_FAILURE_STATUSES:
+                    # The model is gone (404/410), not the key.  Do not retry it
+                    # on another key and do not cool the key down.
+                    _mark_model_dead(model_id)
+                    last_err = f"HTTP {status} (model-unavailable): {exc}"
+                    model_dead = True
+                    break
                 action = keys.mark_failure(key_id, status)
                 last_err = f"HTTP {status} ({action}): {exc}"
                 if status in (401, 403) and keys.size() > 1:
                     continue
                 continue
             except (httpx.HTTPError, ValueError) as exc:
+                if isinstance(exc, httpx.TimeoutException):
+                    # Slow for every key: mark the model, not the key, and stop
+                    # spending another timeout on it inside this tier.
+                    _mark_model_slow(model_id)
+                    last_err = f"{type(exc).__name__}: {exc}"
+                    break
                 keys.mark_failure(key_id, None)
                 last_err = f"{type(exc).__name__}: {exc}"
                 continue
@@ -673,7 +760,10 @@ async def veya_nim_call(
             resp["router"]["MODEL_HEALTH_SOURCE"] = "~/.veya/model-state.json"
             return resp
 
-        logger.warning("veya-nim 模型 %s 全部尝试失败: %s", model_id, last_err)
+        if model_dead:
+            logger.warning("veya-nim 模型 %s 永久不可用, 已移出候选: %s", model_id, last_err)
+        else:
+            logger.warning("veya-nim 模型 %s 全部尝试失败: %s", model_id, last_err)
 
     _load_state()
     return _veya_nim_pool_error(
@@ -724,14 +814,15 @@ async def veya_nim_stream(
         return
 
     timeout = float(kwargs.get("timeout") or 200.0)
+    model_timeout = max(1.0, timeout * _MODEL_TIMEOUT_RATIO)
     for entry in candidates:
         model_id = str(entry.get("model_id") or "")
-        if not model_id:
+        if not model_id or _model_unavailable(model_id):
             continue
         for key_id, key in keys.next_keys(count=min(2, keys.size())):
             emitted = False
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(timeout=model_timeout) as client:
                     async for event in provider_stream(
                         client,
                         "openai",
@@ -760,11 +851,24 @@ async def veya_nim_stream(
                 keys.mark_success(key_id)
                 return
             except httpx.HTTPStatusError as exc:
-                keys.mark_failure(key_id, exc.response.status_code)
+                status = exc.response.status_code
+                if status in _PERMANENT_MODEL_FAILURE_STATUSES:
+                    _mark_model_dead(model_id)
+                    logger.warning("veya-nim 模型 %s 永久不可用, 已移出候选", model_id)
+                    if emitted:
+                        return
+                    break
+                keys.mark_failure(key_id, status)
                 if emitted:
                     return
                 continue
             except (httpx.HTTPError, ValueError) as exc:
+                if isinstance(exc, httpx.TimeoutException):
+                    _mark_model_slow(model_id)
+                    logger.warning("veya-nim 流式超时 %s: %s", model_id, exc)
+                    if emitted:
+                        return
+                    break
                 keys.mark_failure(key_id, None)
                 logger.warning("veya-nim 流式失败 %s: %s", model_id, exc)
                 if emitted:
@@ -984,9 +1088,10 @@ async def _nim_attempt(
     """Try one NIM model across the key pool.  Returns (resp, key_id)."""
     from veya.obase.llm import provider_call
 
+    model_timeout = max(1.0, timeout * _MODEL_TIMEOUT_RATIO)
     for key_id, key in keys.next_keys(count=min(2, keys.size())):
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=model_timeout) as client:
                 resp = await provider_call(
                     client,
                     "openai",
@@ -1000,14 +1105,19 @@ async def _nim_attempt(
                     tool_choice=kwargs.get("tool_choice"),
                 )
         except httpx.HTTPStatusError as exc:
-            keys.mark_failure(key_id, exc.response.status_code)
+            status = exc.response.status_code
+            if status in _PERMANENT_MODEL_FAILURE_STATUSES:
+                _mark_model_dead(model_id)
+                break
+            keys.mark_failure(key_id, status)
             continue
         except (httpx.HTTPError, ValueError) as exc:
-            keys.mark_failure(key_id, None)
             if isinstance(exc, httpx.TimeoutException):
                 # W11: a slow model is slow for every key; move on to the next
                 # model instead of spending another full timeout on it.
+                _mark_model_slow(model_id)
                 break
+            keys.mark_failure(key_id, None)
             continue
         keys.mark_success(key_id)
         msg = (resp.get("choices") or [{}])[0].get("message") or {}
