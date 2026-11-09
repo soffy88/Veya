@@ -488,6 +488,20 @@ class TestGroupRolesPure:
             "admin_bot"
         ]
 
+    def test_select_replying_bots_accepts_mention_alias(self):
+        # W11 S8 sends "mention"; it must mean the mentioned bot only, not the
+        # silent fallback to "everyone" that ran every member in sequence.
+        from veya.oskill.pure.group_roles import normalize_reply_mode, select_replying_bots
+
+        members = ["writer_bot", "coder_bot"]
+        assert normalize_reply_mode("mention") == "mention-only"
+        assert select_replying_bots("mention", "writer_bot", members, "ask @coder_bot") == [
+            "coder_bot"
+        ]
+        assert select_replying_bots("mention", "writer_bot", members, "hello room") == [
+            "writer_bot"
+        ]
+
 
 class TestGroupRolesStoreAndTurn:
     """GroupStore serialization, update, and run_group_turn routing."""

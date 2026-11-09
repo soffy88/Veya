@@ -83,6 +83,85 @@ async def test_correction_during_turn_reaches_the_reply(monkeypatch, tmp_path):
     assert queue.turn_state(bot.bot_id) != "running", "the turn must release the conversation"
 
 
+@pytest.mark.asyncio
+async def test_correction_inside_coalesce_window_is_the_latest_instruction(monkeypatch, tmp_path):
+    """S4's fast-model failure: the correction lands before the first model call.
+
+    It used to be appended to the original request as one more line, and the
+    fixed Chinese response instruction at the end of ``build_objective`` then
+    won: the model answered the original Chinese request.  It must be folded in
+    as the latest instruction (one model run, S3) and the reply must follow it.
+    """
+
+    import asyncio
+
+    from server.bot_team import turns as turns_mod
+    from server.bot_team.conversations import ConversationStore
+    from server.goal_run.bot_identity import BotSpec
+    from server.nano_w10 import turn_queue as tq
+    from server.routes import product as product_routes
+
+    monkeypatch.setenv("VEYA_TURN_QUEUE", "1")
+    monkeypatch.setenv("VEYA_TURN_COALESCE_S", "0.5")
+    monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path / "bots"))
+    queue = tq.get_turn_queue()
+    bot = BotSpec(bot_id="bot_s4_fast", owner_id="u1", name="S4", runner_id="local")
+    objectives: list[str] = []
+
+    async def fake_open(**kwargs: Any) -> tuple[str, str]:
+        return "s_s4f", "t_s4f"
+
+    async def fake_run(**kwargs: Any) -> dict[str, Any]:
+        objective = kwargs["objective"]
+        objectives.append(objective)
+        # Only the corrected objective carries the "latest wins" framing and
+        # the language override; a stale objective is answered as before.
+        obeyed = "改成用英文回答" in objective and "以用户的最新要求为准" in objective
+        reply = (
+            "The Great Wall spans more than two thousand years."
+            if obeyed
+            else "长城有两千多年的历史。"
+        )
+        return {"status": "completed", "reply": reply}
+
+    monkeypatch.setattr(product_routes, "_open_task_projection", fake_open)
+    monkeypatch.setattr(product_routes, "_run_product_task", fake_run)
+    conversations = ConversationStore(tmp_path / "conv") if _takes_root(ConversationStore) else None
+
+    async def correct_while_starting() -> None:
+        await asyncio.sleep(0.1)
+        assert queue.turn_state(bot.bot_id) == "running"
+        queue.steer(bot.bot_id, "改成用英文回答")
+
+    correction = asyncio.create_task(correct_while_starting())
+    result = await turns_mod.run_bot_turn(
+        bot=bot,
+        text="用中文写三段话介绍长城的历史，每段至少五句。",
+        user={"user_id": "u1"},
+        conversations=conversations,
+    )
+    await correction
+
+    assert len(objectives) == 1, "a correction inside the coalescing window is one run"
+    objective = objectives[0]
+    assert "改成用英文回答" in objective
+    assert objective.index("以新消息为准") > objective.index("介绍长城")
+    assert "以用户的最新要求为准" in objective
+    assert result.reply.startswith("The Great Wall")
+
+
+def test_build_objective_defers_language_to_the_latest_instruction() -> None:
+    from server.bot_team.turns import build_objective
+    from server.goal_run.bot_identity import BotSpec
+
+    bot = BotSpec(bot_id="b_s4_lang", name="S4", instructions="按用户要求的语言回答。")
+    objective = build_objective(bot=bot, text="用中文写三段话。\n\n改成用英文回答。")
+
+    assert "请使用中文" in objective, "the Chinese default is unchanged"
+    assert "以用户的最新要求为准" in objective
+    assert objective.index("以用户的最新要求为准") > objective.index("请使用中文")
+
+
 def _takes_root(cls: Any) -> bool:
     import inspect
 

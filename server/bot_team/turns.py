@@ -264,8 +264,31 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "", materials: st
             f"{MATERIALS_MARKER_OPEN}\n{MATERIALS_NOTICE}\n"
             f"{sanitize_materials(materials.strip())}\n{MATERIALS_MARKER_CLOSE}"
         )
-    parts.append("请使用中文（与用户消息或回忆的语言保持一致）简洁、准确地回答用户。")
+    parts.append(
+        "请使用中文（与用户消息或回忆的语言保持一致）简洁、准确地回答用户；"
+        "如果用户消息（尤其是最新一条）明确要求其他语言、格式或范围，以用户的最新要求为准。"
+    )
     return "\n\n".join(part for part in parts if part)
+
+
+#: How a message the user sent *while this turn was already running* is framed
+#: when it is folded into the same model run.  The "latest wins" clause is what
+#: makes a correction ("改成用英文回答") override the request it corrects
+#: instead of being read as one more sentence of it.  Shared by the pre-run
+#: coalescing window (S3 burst) and the post-run correction re-answer (S4).
+_LATE_MESSAGE_FRAME = (
+    "\n\n用户在本轮对话中又发来了消息（一起回答；与前面冲突时以新消息为准，"
+    "按最新要求给出最终答复）："
+)
+
+
+def _merge_late_messages(text: str, messages: list[str]) -> str:
+    """Fold mid-turn messages into ``text`` so the latest one stays authoritative."""
+
+    clean = [str(message).strip() for message in messages if str(message or "").strip()]
+    if not clean:
+        return text
+    return f"{text}{_LATE_MESSAGE_FRAME}" + "；".join(clean)
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +518,10 @@ async def finish_bot_turn(
         await asyncio.sleep(_coalesce_window_s())
         burst = [str(t).strip() for t in queue.drain_steers(bot.bot_id) if str(t or "").strip()]
         if burst:
-            text = "\n".join([str(text or ""), *burst])
+            # One run (S3), but the burst must read as the latest instruction:
+            # a correction landing inside this window used to lose to the
+            # original request and the fixed Chinese default further down.
+            text = _merge_late_messages(str(text or ""), burst)
     from server.bot_team.repeat_guard import bind_repeat_detector, reset_repeat_detector
     from server.bot_team.sentinel import bind_taint_context, reset_taint_context
     from server.bot_team.thread_usage import (
@@ -538,10 +564,7 @@ async def finish_bot_turn(
                         if not late:
                             break
                         rounds += 1
-                        corrected = (
-                            f"{text}\n\n用户在你回答过程中又发来了消息（一起回答；与前面冲突时以新消息为准）："
-                            + "；".join(late)
-                        )
+                        corrected = _merge_late_messages(str(text or ""), late)
                         response = await product_routes._run_product_task(
                             task_id=start.task_id,
                             session_id=start.session_id,

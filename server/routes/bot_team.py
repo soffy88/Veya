@@ -267,6 +267,10 @@ def _validate_reply_mode(value: str | None) -> str:
     """Accept only known reply modes; anything else is a client error."""
 
     mode = str(value or "everyone").strip().lower()
+    if mode == "mention":
+        # Short alias for "mention-only", accepted so a caller asking for a
+        # restriction never silently gets every member.
+        mode = "mention-only"
     if mode not in ("everyone", "admin-first", "mention-only", LEAD_REPLY_MODE, AUTO_REPLY_MODE):
         raise HTTPException(status_code=422, detail=f"unknown reply_mode: {value!r}")
     return mode

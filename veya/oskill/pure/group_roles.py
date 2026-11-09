@@ -11,6 +11,20 @@ import re
 # Allowed reply modes
 REPLY_MODES = ("everyone", "admin-first", "mention-only")
 
+#: Callers (and the landing scenarios) use the short word ``mention`` for
+#: ``mention-only``.  Applying the alias where the mode is interpreted keeps
+#: the restriction the caller asked for instead of silently running everyone.
+_REPLY_MODE_ALIASES = {"mention": "mention-only"}
+
+
+def normalize_reply_mode(value: str | None) -> str:
+    """Canonical reply mode; an unknown value keeps the historical default."""
+
+    mode = str(value or "everyone").strip().lower()
+    mode = _REPLY_MODE_ALIASES.get(mode, mode)
+    return mode if mode in REPLY_MODES else "everyone"
+
+
 # Defined roles
 ROLE_USER = "user"
 ROLE_MAIN_BOT = "main_bot"
@@ -115,9 +129,7 @@ def select_replying_bots(
     - 'admin-first': admin answers by default; other members take turns only if @mentioned.
     - 'mention-only': only @mentioned bots answer; if no @mention, admin answers.
     """
-    mode = (reply_mode or "everyone").strip().lower()
-    if mode not in REPLY_MODES:
-        mode = "everyone"
+    mode = normalize_reply_mode(reply_mode)
 
     members = [str(m) for m in member_bot_ids if m]
     if not members:
@@ -164,5 +176,6 @@ __all__ = [
     "ROLE_USER",
     "evaluate_group_permission",
     "extract_mentions",
+    "normalize_reply_mode",
     "select_replying_bots",
 ]
