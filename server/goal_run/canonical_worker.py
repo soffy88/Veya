@@ -67,6 +67,17 @@ def _pending_approval_reply(state: Any) -> str:
     return "这个操作需要你批准后才会执行。我已经在批准列表里提交了申请，通过后我会继续。"
 
 
+#: A model-decision timeout is terminal for this turn, not a retry trigger.
+#: The brain pool already walked every tier inside its own budget; letting the
+#: timeout propagate makes the GoalRun retry the *whole* 120 s decision, so one
+#: user turn can spend ~4x120 s before returning — longer than the client's
+#: 300 s turn timeout.  Answering once with a visible sentence keeps the turn
+#: inside that timeout and never claims the work succeeded.
+_MODEL_TIMEOUT_REPLY = (
+    "模型服务这次没有及时响应，这条消息没有处理。请稍后再发一次，或者换一个模型/引擎重试。"
+)
+
+
 class CanonicalWorkerAdapter:
     """Bind frozen runtimes to one GoalRun without owning execution authority."""
 
@@ -482,12 +493,23 @@ class CanonicalWorkerAdapter:
         with contextlib.suppress(Exception):
             deliver_steers_to_turn(self.semantic_agent, session_id, state.bot_id)
         prior_result = (state.budget or {}).get("semantic_prior_result")
-        decision = await self.semantic_agent.semantic_step(
-            task.instruction,
-            session_id=session_id,
-            llm_kwargs=self.semantic_llm_kwargs or None,
-            prior_result=prior_result if isinstance(prior_result, dict) else None,
-        )
+        try:
+            decision = await self.semantic_agent.semantic_step(
+                task.instruction,
+                session_id=session_id,
+                llm_kwargs=self.semantic_llm_kwargs or None,
+                prior_result=prior_result if isinstance(prior_result, dict) else None,
+            )
+        except TimeoutError:
+            # One bounded model-decision slice already elapsed.  Retrying the
+            # semantic step re-pays that slice (observed: 4 x 120 s > the 300 s
+            # client timeout); answer the turn once instead.
+            state.budget["reply"] = _MODEL_TIMEOUT_REPLY
+            return LeafResult(
+                status="completed",
+                summary=_MODEL_TIMEOUT_REPLY,
+                stop_reason="model_timeout",
+            )
         if decision.get("kind") != "action" or not decision.get("tool"):
             # A direct answer — the model replied without choosing a tool — is a
             # valid, verifiable outcome for a chat turn: the reply itself is the

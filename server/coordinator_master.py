@@ -1751,6 +1751,16 @@ class MasterCoordinator:
         "关键事实/尚未解决的 TODO。不要输出 JSON, 直接输出摘要正文, 300-600 字。"
     )
 
+    #: Long-history turns used to render the *entire* middle window into the
+    #: summarisation prompt and wait for the summary with no bound at all.  On
+    #: a slow/flaky upstream that turned "history is long" into multi-minute
+    #: turns before the real answer even started.  Both knobs are env-tunable
+    #: and only shrink the work; they never change what the answer is.
+    _COMPACT_SUMMARY_MAX_CHARS_ENV = "VEYA_COMPACT_SUMMARY_MAX_CHARS"
+    _DEFAULT_COMPACT_SUMMARY_MAX_CHARS = 24_000
+    _COMPACT_SUMMARY_TIMEOUT_ENV = "VEYA_COMPACT_SUMMARY_TIMEOUT_S"
+    _DEFAULT_COMPACT_SUMMARY_TIMEOUT_S = 25.0
+
     async def _maybe_compact_history(self, sid: str) -> None:
         """token 预算超阈值 → 摘要 + 保留尾部, 原地替换持久历史中被丢弃的中段。
 
@@ -1913,16 +1923,49 @@ class MasterCoordinator:
         )
 
     async def _summarize_for_compaction(self, messages: list[dict[str, Any]]) -> str:
-        """把待压缩片段渲染 → 走 `_bound_llm` 摘要 (复用现有 key/endpoint 装配)。"""
+        """把待压缩片段渲染 → 走 `_bound_llm` 摘要 (复用现有 key/endpoint 装配)。
+
+        长历史轮次的两个上界 (都只缩小工作量, 不改变摘要语义):
+
+        * ``VEYA_COMPACT_SUMMARY_MAX_CHARS`` — 截断渲染后的对话片段, 避免把
+          70k+ token 的窗口整段塞进一次摘要请求;
+        * ``VEYA_COMPACT_SUMMARY_TIMEOUT_S`` — 摘要请求自身的墙钟上限。此前这里
+          没有超时, 上游抖动时一轮对话会先卡在"摘要"上数分钟, 主模型请求还没
+          开始, 表现为"历史越长越慢"。超时抛 ``TimeoutError``, 由
+          ``_maybe_compact_history`` 既有的失败分支跳过压缩并保留原历史。
+        """
         convo = render_messages_for_summary(messages)
         if not convo.strip():
             return ""
+        try:
+            max_chars = int(
+                os.environ.get(
+                    self._COMPACT_SUMMARY_MAX_CHARS_ENV,
+                    str(self._DEFAULT_COMPACT_SUMMARY_MAX_CHARS),
+                )
+            )
+        except ValueError:
+            max_chars = self._DEFAULT_COMPACT_SUMMARY_MAX_CHARS
+        if max_chars > 0 and len(convo) > max_chars:
+            convo = "[较早内容已截断]\n" + convo[-max_chars:]
         prompt_messages = [
             {"role": "system", "content": self._COMPACT_SUMMARY_SYSTEM},
             {"role": "user", "content": f"对话片段:\n{convo}\n\n请输出摘要。"},
         ]
         llm_fn = self._compact_llm_fn or self._bound_llm
-        resp = await llm_fn(prompt_messages)
+        try:
+            timeout_s = float(
+                os.environ.get(
+                    self._COMPACT_SUMMARY_TIMEOUT_ENV,
+                    str(self._DEFAULT_COMPACT_SUMMARY_TIMEOUT_S),
+                )
+            )
+        except ValueError:
+            timeout_s = self._DEFAULT_COMPACT_SUMMARY_TIMEOUT_S
+        if timeout_s > 0:
+            resp = await asyncio.wait_for(llm_fn(prompt_messages), timeout=timeout_s)
+        else:
+            resp = await llm_fn(prompt_messages)
         if isinstance(resp, dict):
             choices = resp.get("choices") or []
             if choices:
