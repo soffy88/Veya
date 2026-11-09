@@ -645,7 +645,7 @@ class RoutineClock:
         except Exception:
             _lg.exception("Failed to save routine clock state")
 
-    async def tick(self) -> list[dict]:
+    def _collect_due_handoffs(self) -> list[dict]:
         now = datetime.now(UTC)
         handoffs = []
 
@@ -729,20 +729,57 @@ class RoutineClock:
                     self.last_fired[routine_id] = now.isoformat()
                     self._save_state()
 
-        if handoffs:
-            try:
-                await self.dispatch_fn(handoffs)
-            except Exception:
-                _lg.exception("Failed to dispatch scheduled routines")
+        return handoffs
 
+    async def _dispatch(self, handoffs: list[dict]) -> None:
+        try:
+            await self.dispatch_fn(handoffs)
+        except Exception:
+            _lg.exception("Failed to dispatch scheduled routines")
+
+    async def tick(self) -> list[dict]:
+        """One scheduling pass: collect due routines, then run their handoffs.
+
+        Awaiting the handoffs here keeps the fired list observable to callers
+        (and tests) before returning. ``run_forever`` deliberately does not use
+        this path — see below.
+        """
+
+        handoffs = self._collect_due_handoffs()
+        if handoffs:
+            await self._dispatch(handoffs)
         return handoffs
 
     async def run_forever(self, interval_s=30):
-        while True:
-            try:
-                await self.tick()
-            except asyncio.CancelledError:
-                break
-            except Exception:
-                _lg.exception("Error in routine clock tick")
-            await asyncio.sleep(interval_s)
+        """Tick on cadence without letting a handoff stall the schedule.
+
+        A handoff runs a full bot turn (a model call, tens of seconds up to the
+        turn timeout). Awaiting that inside the loop meant one slow routine
+        delayed every routine after it: the next tick could be minutes late, so
+        a fresh ``every 2m`` routine waited far past the landing S6 budget
+        ("routine did not post on its own within 200s"). Dispatching in a
+        background task leaves the scheduler on its interval; the per-bot turn
+        lock in ``server.bot_team.turn_lock`` still serialises one bot's turns.
+        """
+
+        tasks: set[asyncio.Task] = set()
+        try:
+            while True:
+                try:
+                    handoffs = self._collect_due_handoffs()
+                    if handoffs:
+                        task = asyncio.create_task(self._dispatch(handoffs))
+                        tasks.add(task)
+                        task.add_done_callback(tasks.discard)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    _lg.exception("Error in routine clock tick")
+                await asyncio.sleep(interval_s)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            for task in list(tasks):
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)

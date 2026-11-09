@@ -203,6 +203,49 @@ async def test_dispatch_failure_does_not_break_the_clock(registry, tmp_path) -> 
 
 
 @pytest.mark.asyncio
+async def test_run_forever_keeps_ticking_while_a_handoff_is_slow(registry, tmp_path) -> None:
+    """A slow bot turn must not stall the scheduler (landing S6).
+
+    Before the fix ``run_forever`` awaited the dispatch inline, so one routine's
+    multi-minute bot turn delayed every later routine; a freshly created
+    ``every 2m`` routine could miss the 200s landing budget by minutes.
+    """
+
+    registry.register(_spec("r1"))
+    calls: list[str] = []
+    release = asyncio.Event()
+
+    async def dispatch(handoffs):
+        calls.extend(handoff["routine_id"] for handoff in handoffs)
+        if handoffs[0]["routine_id"] == "r1":
+            await release.wait()
+
+    clock = RoutineClock(registry, clock_path=tmp_path / "clock.json", dispatch_fn=dispatch)
+    clock.last_fired["r1"] = "2020-01-01T00:00:00+00:00"
+    loop_task = asyncio.create_task(clock.run_forever(interval_s=0.01))
+    try:
+        for _ in range(200):
+            if "r1" in calls:
+                break
+            await asyncio.sleep(0.01)
+        assert "r1" in calls, "first due routine was never dispatched"
+
+        # A second routine becomes due while r1's handoff is still blocked.
+        # The scheduler must pick it up on the next tick, not behind r1.
+        registry.register(_spec("r2"))
+        clock.last_fired["r2"] = "2020-01-01T00:00:00+00:00"
+        for _ in range(200):
+            if "r2" in calls:
+                break
+            await asyncio.sleep(0.01)
+        assert "r2" in calls, "scheduler stalled behind a slow handoff"
+    finally:
+        release.set()
+        loop_task.cancel()
+        await asyncio.gather(loop_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_clock_state_survives_restart(registry, tmp_path) -> None:
     registry.register(_spec())
     clock_path = tmp_path / "clock.json"
