@@ -66,6 +66,7 @@ from veya.oskill.pure.context_compress import (
     render_messages_for_summary,
     should_compact,
     split_compaction_window,
+    truncate_oversized_tool_results,
 )
 from veya.platform import oservi as _load_oservi
 
@@ -1749,6 +1750,11 @@ class MasterCoordinator:
         "结果), 把它压缩成一段自然语言摘要, 供后续对话继续使用而不丢失关键上下文。"
         "必须覆盖: 用户的目标/已经做出的决定/发生过的文件或代码改动/工具调用得到的"
         "关键事实/尚未解决的 TODO。不要输出 JSON, 直接输出摘要正文, 300-600 字。"
+        "摘要必须用固定的 Markdown 小节组织, 至少包含以下两节 (标题格式 `## 节名`): "
+        "`## Summary`(自然语言摘要) 与 `## Exact facts`(必须原样保留的硬事实, 每行"
+        "`key=value`, key 只能由字母/数字/下划线/点/冒号/连字符组成、首字符为字母; "
+        "记录名字、数字、路径、ID、决定等——例如 `order_id=ORD-123`、"
+        "`file_path=/repo/a.py`、`retry_count=3`。没有任何硬事实时该节留空但不能省略)。"
     )
 
     #: Long-history turns used to render the *entire* middle window into the
@@ -1760,6 +1766,12 @@ class MasterCoordinator:
     _DEFAULT_COMPACT_SUMMARY_MAX_CHARS = 24_000
     _COMPACT_SUMMARY_TIMEOUT_ENV = "VEYA_COMPACT_SUMMARY_TIMEOUT_S"
     _DEFAULT_COMPACT_SUMMARY_TIMEOUT_S = 25.0
+    #: 开关: 启用 Exact-facts 合并（跨压缩累积 key=value 硬事实）与超大 tool 截断。
+    _CONTEXT_EXACT_FACTS_ENV = "VEYA_CONTEXT_EXACT_FACTS"
+    _DEFAULT_CONTEXT_EXACT_FACTS = 1
+    #: 单条 tool 结果送往摘要/模型的副本在压缩切窗前的最大字符数；超长则头尾截断。
+    _TOOL_RESULT_MAX_CHARS_ENV = "VEYA_CONTEXT_TOOL_RESULT_MAX_CHARS"
+    _DEFAULT_TOOL_RESULT_MAX_CHARS = 40_000
 
     async def _maybe_compact_history(self, sid: str) -> None:
         """token 预算超阈值 → 摘要 + 保留尾部, 原地替换持久历史中被丢弃的中段。
@@ -1770,6 +1782,13 @@ class MasterCoordinator:
         失败一律静默不影响主对话 (审计记录里能看到跳过原因)。
         """
         if os.environ.get("VEYA_CONTEXT_COMPACT_ENABLED", "1") == "0":
+            return
+        if (
+            os.environ.get(self._CONTEXT_EXACT_FACTS_ENV, str(self._DEFAULT_CONTEXT_EXACT_FACTS))
+            == "0"
+        ):
+            # 开关关闭时行为与原来完全一致: 直接走既有压缩路径。
+            await self._compact_history_core(sid)
             return
         hist = getattr(self._agent, "_histories", None)
         if hist is None:
@@ -1791,6 +1810,44 @@ class MasterCoordinator:
         except ValueError:
             tail_n = 20
 
+        await self._compact_history_core(sid, budget=budget, ratio=ratio, tail_n=tail_n)
+
+    async def _compact_history_core(
+        self,
+        sid: str,
+        *,
+        budget: int | None = None,
+        ratio: float | None = None,
+        tail_n: int | None = None,
+    ) -> None:
+        """压缩实现（开关关闭时也走这里，行为与原来一致）。
+
+        仅在 ``VEYA_CONTEXT_EXACT_FACTS=1`` 时附加: 超大 tool 截断、上一份摘要的
+        Exact facts 合并、以及缺节兜底（保留上一份摘要原文）。
+        """
+        hist = getattr(self._agent, "_histories", None)
+        if hist is None:
+            return
+        msgs = hist.get(sid)
+        if not msgs:
+            return
+
+        if budget is None:
+            try:
+                budget = int(os.environ.get("VEYA_CONTEXT_TOKEN_BUDGET", "100000"))
+            except ValueError:
+                budget = 100000
+        if ratio is None:
+            try:
+                ratio = float(os.environ.get("VEYA_CONTEXT_COMPACT_TRIGGER_RATIO", "0.7"))
+            except ValueError:
+                ratio = 0.7
+        if tail_n is None:
+            try:
+                tail_n = int(os.environ.get("VEYA_CONTEXT_COMPACT_TAIL_MSGS", "20"))
+            except ValueError:
+                tail_n = 20
+
         try:
             if not should_compact(msgs, max_tokens=budget, trigger_ratio=ratio):
                 return
@@ -1803,10 +1860,28 @@ class MasterCoordinator:
         if not to_compact:
             return
 
+        # 超大 tool 结果截断（仅副本，不污染持久化历史），保障 tool_call 配对完整。
+        exact_facts_on = (
+            os.environ.get(self._CONTEXT_EXACT_FACTS_ENV, str(self._DEFAULT_CONTEXT_EXACT_FACTS))
+            != "0"
+        )
+        compact_input = to_compact
+        if exact_facts_on:
+            try:
+                max_chars = int(
+                    os.environ.get(
+                        self._TOOL_RESULT_MAX_CHARS_ENV,
+                        str(self._DEFAULT_TOOL_RESULT_MAX_CHARS),
+                    )
+                )
+            except ValueError:
+                max_chars = self._DEFAULT_TOOL_RESULT_MAX_CHARS
+            compact_input = truncate_oversized_tool_results(to_compact, max_chars=max_chars)
+
         summary_text = ""
         summarize_error = ""
         try:
-            summary_text = await self._summarize_for_compaction(to_compact)
+            summary_text = await self._summarize_for_compaction(compact_input)
         except Exception as exc:
             summarize_error = str(exc)
         if not summary_text.strip():
@@ -1824,6 +1899,13 @@ class MasterCoordinator:
                 reasoning=summarize_error or "摘要为空",
             )
             return
+
+        # Exact facts 合并 + 兜底（仅开关开启时）。若合并/兜底失败则保留原摘要，
+        # 不影响压缩本身（最坏情况退化为旧行为：仅新摘要）。
+        if exact_facts_on:
+            merged = self._merge_prior_exact_facts(msgs, summary_text)
+            if merged is not None:
+                summary_text = merged
 
         try:
             new_msgs = build_compacted_messages(head, summary_text, tail)
@@ -1858,6 +1940,46 @@ class MasterCoordinator:
             after_msgs=msgs,
             reasoning=f"tokens~{before_tokens} >= {budget}*{ratio}",
         )
+
+    def _merge_prior_exact_facts(self, msgs: list, new_summary: str) -> str | None:
+        """从上一份压缩摘要合并 Exact facts；失败则兜底保留原文。
+
+        返回写回后的新摘要；任何异常返回 ``None``（由调用方保留未合并的新摘要）。
+        """
+        try:
+            from veya.oskill.pure.context_compress import (
+                PRIOR_RETAINED_MARKER,
+                ExactFactsError,
+                merge_exact_facts,
+            )
+
+            previous_summary = self._find_existing_summary_text(msgs)
+            try:
+                return merge_exact_facts(previous_summary, new_summary)
+            except ExactFactsError:
+                # 新摘要缺 'Exact facts' 节或解析失败：保留上一份摘要原文，不丢事实。
+                if previous_summary:
+                    return f"{new_summary.rstrip()}\n\n{PRIOR_RETAINED_MARKER}\n{previous_summary}"
+                return new_summary
+        except Exception:
+            logger.exception("[compact] exact-facts merge failed, keep new summary")
+            return None
+
+    @staticmethod
+    def _find_existing_summary_text(msgs: list) -> str:
+        """在历史中找已存在的压缩摘要消息正文（倒序，取最近一份）。"""
+        from veya.oskill.pure.context_compress import _COMPACT_SUMMARY_PREFIX
+
+        for m in reversed(msgs):
+            if not isinstance(m, dict):
+                continue
+            if m.get("role") != "assistant":
+                continue
+            content = m.get("content")
+            if isinstance(content, str) and content.startswith(_COMPACT_SUMMARY_PREFIX):
+                # 剥离前缀行，返回纯摘要正文（含 Exact facts 节）。
+                return content[len(_COMPACT_SUMMARY_PREFIX) :].lstrip("\n")
+        return ""
 
     async def _maybe_compact_rounds(self, sid: str, *, rounds: int) -> None:
         """Fold earlier ReAct rounds into one summary (flag-gated).
