@@ -81,9 +81,9 @@ class CliCapability:
 
 
 # Idle defaults are deliberately generous: an agent that is thinking, compiling
-# or waiting on a model can be silent for minutes. 600s only catches a child
-# that is truly wedged (no stdout *and* no stderr), and the wall default is
-# three times that so the idle guard fires first instead of being shadowed.
+# or waiting on a model can be silent for minutes. 480s only catches a child
+# that is truly wedged (no stdout *and* no stderr). The wall default stays at
+# the historical 600s so callers without an explicit timeout keep old behavior.
 _CAPABILITIES: dict[str, CliCapability] = {
     "claude_code": CliCapability(
         name="claude_code",
@@ -96,8 +96,8 @@ _CAPABILITIES: dict[str, CliCapability] = {
         # `-p` without --permission-mode/--dangerously-skip-permissions cannot
         # answer a permission prompt, so tool use stays effectively denied.
         permission_scope="read_only",
-        default_idle_timeout_s=600.0,
-        default_wall_timeout_s=1800.0,
+        default_idle_timeout_s=480.0,
+        default_wall_timeout_s=600.0,
     ),
     "codex": CliCapability(
         name="codex",
@@ -110,8 +110,8 @@ _CAPABILITIES: dict[str, CliCapability] = {
         output_format="text",
         # Explicit in the argv table: `--sandbox workspace-write`.
         permission_scope="workspace_write",
-        default_idle_timeout_s=600.0,
-        default_wall_timeout_s=1800.0,
+        default_idle_timeout_s=480.0,
+        default_wall_timeout_s=600.0,
     ),
     "grok": CliCapability(
         name="grok",
@@ -121,8 +121,8 @@ _CAPABILITIES: dict[str, CliCapability] = {
         output_format="stream-json",
         # `grok -p` with no permission flag; unknown, so assume the narrow one.
         permission_scope="read_only",
-        default_idle_timeout_s=600.0,
-        default_wall_timeout_s=1800.0,
+        default_idle_timeout_s=480.0,
+        default_wall_timeout_s=600.0,
     ),
     "pi": CliCapability(
         name="pi",
@@ -132,8 +132,8 @@ _CAPABILITIES: dict[str, CliCapability] = {
         supports_streaming=False,
         output_format="text",
         permission_scope="read_only",
-        default_idle_timeout_s=600.0,
-        default_wall_timeout_s=1800.0,
+        default_idle_timeout_s=480.0,
+        default_wall_timeout_s=600.0,
     ),
     "dsh": CliCapability(
         name="dsh",
@@ -142,8 +142,8 @@ _CAPABILITIES: dict[str, CliCapability] = {
         supports_streaming=False,
         output_format="text",
         permission_scope="read_only",
-        default_idle_timeout_s=600.0,
-        default_wall_timeout_s=1800.0,
+        default_idle_timeout_s=480.0,
+        default_wall_timeout_s=600.0,
     ),
     "opencode": CliCapability(
         name="opencode",
@@ -156,8 +156,8 @@ _CAPABILITIES: dict[str, CliCapability] = {
         # `--auto` (worktree writes) is only added for a verified coding mode;
         # the default record therefore stays read-only.
         permission_scope="read_only",
-        default_idle_timeout_s=600.0,
-        default_wall_timeout_s=1800.0,
+        default_idle_timeout_s=480.0,
+        default_wall_timeout_s=600.0,
     ),
 }
 
