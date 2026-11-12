@@ -2,7 +2,38 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
+import stat
+import sys
+
 import pytest
+
+from server import exec_process
+
+
+async def _wait_dead(pid: int, timeout: float = 5.0) -> bool:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not exec_process._proc_alive(pid):
+            return True
+        await asyncio.sleep(0.05)
+    return False
+
+
+@pytest.fixture
+def fake_pi(tmp_path, monkeypatch):
+    """一个可执行 `pi`，使 build_argv 的能力表解析落到我们身上。"""
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    script = bin_dir / "pi"
+    script.write_text(f"#{sys.executable}\n", encoding="utf-8")
+    script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    return bin_dir
 
 
 @pytest.mark.asyncio
@@ -188,6 +219,92 @@ def test_engines_endpoint_in_container(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda n: f"/bin/{n}")
     res2 = TestClient(app).get("/api/v1/engines")
     assert set(res2.json()["engines"]) == {"master", "pi", "claude", "codex"}
+
+
+# ---------------------------------------------------------------------------
+# 宿主直拉路径 (_run_external_cli): 与 stream_engine 同源的统一看门狗 + 杀整棵树
+# ---------------------------------------------------------------------------
+
+
+async def test_run_external_cli_idle_timeout_kills_the_group(fake_pi, tmp_path, monkeypatch):
+    """直拉引擎静默超空闲截止 → 整个进程组（含孙进程）被收掉。"""
+    pidfile = tmp_path / "pids"
+    fake_pi.joinpath("pi").write_text(
+        f"#!{sys.executable}\n"
+        "import os, subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+        f"open({str(pidfile)!r}, 'w').write(f'{{os.getpid()}} {{child.pid}}')\n"
+        "time.sleep(120)\n",
+        encoding="utf-8",
+    )
+    fake_pi.joinpath("pi").chmod(0o755)
+    monkeypatch.setenv(exec_process.IDLE_TIMEOUT_ENV, "0.4")
+
+    from server.engine_runner import _run_external_cli
+
+    result = await asyncio.wait_for(_run_external_cli("pi", "hi", timeout_s=20), timeout=30.0)
+    assert result["ok"] is False
+    assert "静默" in str(result["error"]) or "超时" in str(result["error"])
+
+    leader, grandchild = (int(part) for part in pidfile.read_text().split())
+    assert await _wait_dead(leader)
+    assert await _wait_dead(grandchild)
+
+
+async def test_run_external_cli_returns_output_on_success(fake_pi, monkeypatch):
+    """直拉引擎正常退出 → 返回全文输出 (ok=True)。"""
+    fake_pi.joinpath("pi").write_text(
+        f"#!{sys.executable}\nimport sys\nprint('RESULT OK', flush=True)\n",
+        encoding="utf-8",
+    )
+    fake_pi.joinpath("pi").chmod(0o755)
+
+    from server.engine_runner import _run_external_cli
+
+    result = await asyncio.wait_for(_run_external_cli("pi", "hi", timeout_s=20), timeout=30.0)
+    assert result["ok"] is True
+    assert "RESULT OK" in result["output"]
+
+
+def test_run_engine_uses_unified_supervisor_by_default(monkeypatch):
+    """默认路径: run_engine 宿主直拉走 _run_external_cli (统一看门狗)。"""
+    import server.engine_runner as er
+
+    monkeypatch.setattr(er, "_IN_CONTAINER", False)
+    called = {}
+
+    async def _fake_cli(engine, prompt, **kwargs):
+        called["cli"] = (engine, prompt)
+        return {"ok": True, "output": "x", "duration_s": 0.0}
+
+    monkeypatch.setattr(er, "_run_external_cli", _fake_cli)
+    monkeypatch.setattr(er, "_engine_bin_available", lambda e: True)
+    monkeypatch.setattr(er, "opencode_client", type("X", (), {"send_message": None}))
+
+    async def _go():
+        return await er.run_engine("pi", "hi", timeout_s=20)
+
+    outcome = asyncio.run(_go())
+    assert outcome["ok"] is True
+    assert called.get("cli") == ("pi", "hi")
+
+
+def test_cli_host_direct_default_on(monkeypatch):
+    """默认走统一看门狗直拉路径 (VEYA_CLI_HOST_DIRECT=1)。"""
+    import server.engine_runner as er
+
+    monkeypatch.delenv("VEYA_CLI_HOST_DIRECT", raising=False)
+    assert er._cli_host_direct() is True
+    monkeypatch.setenv("VEYA_CLI_HOST_DIRECT", "1")
+    assert er._cli_host_direct() is True
+
+
+def test_cli_host_direct_switch_off_restores_harness(monkeypatch):
+    """VEYA_CLI_HOST_DIRECT=0 → 退回 run_harness 兼容路径。"""
+    import server.engine_runner as er
+
+    monkeypatch.setenv("VEYA_CLI_HOST_DIRECT", "0")
+    assert er._cli_host_direct() is False
 
 
 def test_build_argv_is_oskill_table():
