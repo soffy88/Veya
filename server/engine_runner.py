@@ -16,16 +16,41 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import shutil
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 from server import opencode_client
+from server.cli_capabilities import find_capability
+from server.exec_process import (
+    ActivityClock,
+    WatchdogOutcome,
+    WatchdogReason,
+    supervise_process,
+    terminate_process,
+    watchdog_enabled,
+    watchdog_idle_timeout,
+)
 
 logger = logging.getLogger(__name__)
+
+#: Wall deadline for an engine with no capability record (kept for parity with
+#: the historical default); known engines take theirs from the inventory.
+DEFAULT_WALL_TIMEOUT_S = 600.0
+
+#: After the leader exits, trailing bytes are normally already buffered. A
+#: grandchild can keep the pipe open, so collection stops after this long
+#: instead of hanging a finished run.
+POST_EXIT_DRAIN_S = 5.0
+
+#: Last N bytes of stderr kept for the timeout error (the rest is drained and
+#: discarded, which is what keeps a chatty engine from blocking on the pipe).
+_STDERR_TAIL_BYTES = 8192
 
 ENGINE_ALIASES = {
     "claude": "claude",
@@ -343,25 +368,59 @@ def build_argv(
     return list(rec["argv"])
 
 
+def _resolve_timeouts(engine: str, timeout_s: float | None) -> tuple[float | None, float]:
+    """(idle_timeout_s, wall_timeout_s) for one engine spawn.
+
+    The wall deadline is the caller's when given, otherwise the engine's
+    capability default. The idle deadline comes from the same record, unless
+    ``VEYA_CLI_WATCHDOG=0`` turns the guard off or ``VEYA_CLI_IDLE_TIMEOUT_S``
+    overrides it. An idle deadline that cannot fire before the wall deadline is
+    dropped, so a reported ``wall_timeout`` is never really an idle timeout.
+    """
+    capability = find_capability(engine)
+    if timeout_s is not None and timeout_s > 0:
+        wall = float(timeout_s)
+    elif capability is not None:
+        wall = capability.default_wall_timeout_s
+    else:
+        wall = DEFAULT_WALL_TIMEOUT_S
+    if not watchdog_enabled():
+        return None, wall
+    idle = watchdog_idle_timeout(
+        capability.default_idle_timeout_s if capability is not None else wall
+    )
+    if idle is not None and idle >= wall:
+        return None, wall
+    return idle, wall
+
+
 async def run_engine(
     engine: str,
     prompt: str,
     *,
     model: str | None = None,
     cwd: str | None = None,
-    timeout_s: float = 600.0,
+    timeout_s: float | None = None,
     system: str | None = None,
 ) -> dict[str, object]:
-    """聚合执行: 引擎跑完返回全文 (run 契约)。system 仅供 opencode 常驻会话注入。"""
+    """聚合执行: 引擎跑完返回全文 (run 契约)。system 仅供 opencode 常驻会话注入。
+
+    timeout_s 为 None 时取引擎能力表的墙钟默认值; 这条路径在 omodul 内部
+    subprocess 里跑, 只看得到墙钟截止, 空闲看门狗在 :func:`stream_engine`。
+    """
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
     if reason := _container_engine_block(engine):
         return {"ok": False, "error": reason}
+    _, wall_timeout_s = _resolve_timeouts(engine, timeout_s)
     # opencode 引擎: 优先 HTTP 常驻会话 (免每次 spawn CLI), 失败回退 CLI
     if engine == "opencode":
         try:
             return await opencode_client.send_message(
-                prompt, model or "opencode-go/deepseek-v4-flash", timeout_s=timeout_s, system=system
+                prompt,
+                model or "opencode-go/deepseek-v4-flash",
+                timeout_s=wall_timeout_s,
+                system=system,
             )
         except Exception as exc:
             logger.info("opencode serve 不可用, 回退 CLI spawn: %s", exc)
@@ -387,7 +446,7 @@ async def run_engine(
         prompt,
         workspace=cwd,
         purpose="harness_host",
-        timeout_s=timeout_s,
+        timeout_s=wall_timeout_s,
         env={**os.environ, **(_container_proxy_env() if _IN_CONTAINER else {})},
         model=model,
         extra=extra or None,
@@ -396,8 +455,8 @@ async def run_engine(
     if rec.get("timed_out"):
         return {
             "ok": False,
-            "error": f"引擎 {engine} 超时 ({timeout_s:.0f}s)",
-            "duration_s": timeout_s,
+            "error": f"引擎 {engine} 超时 ({wall_timeout_s:.0f}s)",
+            "duration_s": wall_timeout_s,
         }
     if not rec.get("ok"):
         return {
@@ -416,24 +475,32 @@ async def stream_engine(
     *,
     model: str | None = None,
     cwd: str | None = None,
-    timeout_s: float = 600.0,
+    timeout_s: float | None = None,
     system: str | None = None,
 ) -> AsyncIterator[dict[str, object]]:
-    """流式执行: 逐行产出 {type: text_delta|engine_done|engine_error, ...}。
+    """流式执行: 逐行产出 {type: text_delta|tool_call|engine_done|engine_error, ...}。
 
     claude stream-json 输出逐行 JSON, 提取 text 块; 其余引擎按行透传。
     system 仅供 opencode 常驻会话注入。
+
+    超时分两档 (server.exec_process): 静默超过 idle 截止 → ``reason:
+    idle_timeout``; 总时长超过墙钟截止 → ``reason: wall_timeout``。两者都先
+    SIGTERM 整个进程组、宽限后再 SIGKILL, 所以引擎拉起的子进程不会留在后台。
     """
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
     if reason := _container_engine_block(engine):
         yield {"type": "engine_error", "engine": engine, "error": reason}
         return
+    idle_timeout_s, wall_timeout_s = _resolve_timeouts(engine, timeout_s)
     # opencode 引擎: 优先 SSE 真流式 (HTTP 常驻会话), 失败回退 CLI 行级流
     if engine == "opencode":
         try:
             async for delta in opencode_client.stream_send(
-                prompt, model or "opencode-go/deepseek-v4-flash", timeout_s=timeout_s, system=system
+                prompt,
+                model or "opencode-go/deepseek-v4-flash",
+                timeout_s=wall_timeout_s,
+                system=system,
             ):
                 yield {"type": "text_delta", "engine": engine, "delta": delta}
             yield {"type": "engine_done", "engine": engine, "status": "success"}
@@ -455,79 +522,181 @@ async def stream_engine(
         env={**os.environ, **(_container_proxy_env() if _IN_CONTAINER else {})},
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        # Own process group: the watchdog can then terminate the engine *and*
+        # everything it spawned, instead of orphaning helpers on a kill.
+        start_new_session=True,
     )
 
     cost_usd: float = 0.0
-    model: str = ""
+    model_name: str = ""
+    activity = ActivityClock()
+    events: asyncio.Queue[dict[str, object] | None] = asyncio.Queue()
+    stderr_tail = bytearray()
 
-    async def _read() -> None:
-        nonlocal cost_usd, model
+    async def _pump() -> None:
+        """Read stdout line by line and publish decoded events."""
+        nonlocal cost_usd, model_name
         assert proc.stdout is not None
-        line = await proc.stdout.readline()
-        while line:
-            text = line.decode(errors="replace").rstrip("\n")
-            if engine in ("claude", "grok") and text.strip().startswith("{"):
-                # claude stream-json / grok streaming-messages-json (Anthropic 系):
-                #  - content_block_delta (流式逐 token, grok)
-                #  - assistant (claude 整条消息: message.content[].text)
-                #  - content_block_start + tool_use → 工具轨迹
-                #  - result (claude 终态: total_cost_usd / model → P2 用量透传)
-                try:
-                    evt = json.loads(text)
-                    t = evt.get("type")
-                    if t == "result":
-                        cost_usd = float(evt.get("total_cost_usd") or 0) or cost_usd
-                        model = str(evt.get("model") or model)
-                    elif t == "content_block_delta":
-                        delta = (evt.get("delta") or {}).get("text", "")
-                        if delta:
-                            yield {"type": "text_delta", "engine": engine, "delta": delta}
-                    elif t == "assistant":
-                        msg = evt.get("message") or {}
-                        for block in msg.get("content") or []:
-                            if not isinstance(block, dict):
-                                continue
-                            if block.get("type") == "text" and block.get("text"):
-                                yield {
-                                    "type": "text_delta",
-                                    "engine": engine,
-                                    "delta": block["text"],
-                                }
-                            elif block.get("type") == "tool_use":
-                                yield {
-                                    "type": "tool_call",
-                                    "engine": engine,
-                                    "tool_name": block.get("name", "tool"),
-                                    "tool_args": block.get("input", {}),
-                                }
-                    elif t == "content_block_start":
-                        cb = evt.get("content_block") or {}
-                        if cb.get("type") == "tool_use":
-                            yield {
-                                "type": "tool_call",
-                                "engine": engine,
-                                "tool_name": cb.get("name", "tool"),
-                                "tool_args": cb.get("input", {}),
-                            }
-                except json.JSONDecodeError:
-                    yield {"type": "text_delta", "engine": engine, "delta": text}
-            else:
-                yield {"type": "text_delta", "engine": engine, "delta": text}
+        try:
             line = await proc.stdout.readline()
+            while line:
+                activity.touch()
+                text = line.decode(errors="replace").rstrip("\n")
+                if engine in ("claude", "grok") and text.strip().startswith("{"):
+                    # claude stream-json / grok streaming-messages-json (Anthropic 系):
+                    #  - content_block_delta (流式逐 token, grok)
+                    #  - assistant (claude 整条消息: message.content[].text)
+                    #  - content_block_start + tool_use → 工具轨迹
+                    #  - result (claude 终态: total_cost_usd / model → P2 用量透传)
+                    try:
+                        evt = json.loads(text)
+                        t = evt.get("type")
+                        if t == "result":
+                            cost_usd = float(evt.get("total_cost_usd") or 0) or cost_usd
+                            model_name = str(evt.get("model") or model_name)
+                        elif t == "content_block_delta":
+                            delta = (evt.get("delta") or {}).get("text", "")
+                            if delta:
+                                events.put_nowait(
+                                    {"type": "text_delta", "engine": engine, "delta": delta}
+                                )
+                        elif t == "assistant":
+                            msg = evt.get("message") or {}
+                            for block in msg.get("content") or []:
+                                if not isinstance(block, dict):
+                                    continue
+                                if block.get("type") == "text" and block.get("text"):
+                                    events.put_nowait(
+                                        {
+                                            "type": "text_delta",
+                                            "engine": engine,
+                                            "delta": block["text"],
+                                        }
+                                    )
+                                elif block.get("type") == "tool_use":
+                                    events.put_nowait(
+                                        {
+                                            "type": "tool_call",
+                                            "engine": engine,
+                                            "tool_name": block.get("name", "tool"),
+                                            "tool_args": block.get("input", {}),
+                                        }
+                                    )
+                        elif t == "content_block_start":
+                            cb = evt.get("content_block") or {}
+                            if cb.get("type") == "tool_use":
+                                events.put_nowait(
+                                    {
+                                        "type": "tool_call",
+                                        "engine": engine,
+                                        "tool_name": cb.get("name", "tool"),
+                                        "tool_args": cb.get("input", {}),
+                                    }
+                                )
+                    except json.JSONDecodeError:
+                        events.put_nowait({"type": "text_delta", "engine": engine, "delta": text})
+                else:
+                    events.put_nowait({"type": "text_delta", "engine": engine, "delta": text})
+                line = await proc.stdout.readline()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # a broken pipe must not wedge the run
+            logger.exception("engine %s stdout reader failed", engine)
+        finally:
+            events.put_nowait(None)
+
+    async def _drain_stderr() -> None:
+        """Consume stderr so a chatty engine cannot block on a full pipe.
+
+        The tail is kept for the timeout error, and stderr bytes count as
+        activity: an engine printing progress there is not wedged.
+        """
+        assert proc.stderr is not None
+        while chunk := await proc.stderr.read(4096):
+            activity.touch()
+            stderr_tail.extend(chunk)
+            if len(stderr_tail) > _STDERR_TAIL_BYTES:
+                del stderr_tail[: len(stderr_tail) - _STDERR_TAIL_BYTES]
+
+    supervisor = asyncio.create_task(
+        supervise_process(
+            proc,
+            activity,
+            idle_timeout_s=idle_timeout_s,
+            wall_timeout_s=wall_timeout_s,
+        )
+    )
+    pump = asyncio.create_task(_pump())
+    drain = asyncio.create_task(_drain_stderr())
+    getter: asyncio.Task[dict[str, object] | None] | None = asyncio.create_task(events.get())
+    outcome: WatchdogOutcome | None = None
 
     try:
-        async with asyncio.timeout(timeout_s):
-            async for evt in _read():
-                yield evt
-        code = await proc.wait()
-        yield {
-            "type": "engine_done",
+        while outcome is None:
+            assert getter is not None
+            done, _ = await asyncio.wait({getter, supervisor}, return_when=asyncio.FIRST_COMPLETED)
+            if getter in done:
+                item = getter.result()
+                getter = asyncio.create_task(events.get())
+                if item is not None:
+                    yield item
+                continue
+            outcome = supervisor.result()
+        # Supervisor is done. Anything still queued was produced before the
+        # exit and belongs to the run, so deliver it — but a grandchild can
+        # hold the pipe open, hence a bounded drain instead of an EOF wait.
+        if outcome.reason is WatchdogReason.EXITED:
+            deadline = time.monotonic() + POST_EXIT_DRAIN_S
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                assert getter is not None
+                done, _ = await asyncio.wait({getter}, timeout=remaining)
+                if getter not in done:
+                    break
+                item = getter.result()
+                if item is None:
+                    break
+                getter = asyncio.create_task(events.get())
+                yield item
+    finally:
+        # Early consumer stop or a deadline: nothing may outlive the stream.
+        for task in (getter, pump, drain, supervisor):
+            if task is not None and not task.done():
+                task.cancel()
+        if proc.returncode is None:
+            await terminate_process(proc)
+        await asyncio.gather(
+            *(task for task in (getter, pump, drain, supervisor) if task is not None),
+            return_exceptions=True,
+        )
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(proc.wait(), 5.0)
+
+    assert outcome is not None
+    stderr_excerpt = bytes(stderr_tail).decode(errors="replace").strip()
+    if outcome.reason is not WatchdogReason.EXITED:
+        idle = outcome.reason is WatchdogReason.IDLE_TIMEOUT
+        error: dict[str, object] = {
+            "type": "engine_error",
             "engine": engine,
-            "status": "success" if code == 0 else "failed",
-            "cost_usd": round(cost_usd, 6),
-            "model": model,
+            "reason": "idle_timeout" if idle else "wall_timeout",
+            "error": (
+                f"引擎静默超过 {(outcome.idle_timeout_s or 0.0):.0f}s, 已终止进程组"
+                if idle
+                else f"引擎超时 ({wall_timeout_s:.0f}s)"
+            ),
         }
-    except TimeoutError:
-        proc.kill()
-        await proc.wait()
-        yield {"type": "engine_error", "engine": engine, "error": f"引擎超时 ({timeout_s:.0f}s)"}
+        if stderr_excerpt:
+            error["stderr"] = stderr_excerpt[-500:]
+        yield error
+        return
+    code = proc.returncode
+    yield {
+        "type": "engine_done",
+        "engine": engine,
+        "status": "success" if code == 0 else "failed",
+        "cost_usd": round(cost_usd, 6),
+        "model": model_name,
+    }
