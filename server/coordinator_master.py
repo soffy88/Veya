@@ -61,8 +61,11 @@ from veya.memory_store import default_memory_store
 from veya.obase.async_utils import run_sync_in_daemon_thread
 from veya.omodul.session_tree import default_session_tree_mirror
 from veya.oskill.pure.context_compress import (
+    ExactFactsError,
     build_compacted_messages,
+    build_emergency_summary,
     estimate_messages_tokens,
+    merge_exact_facts,
     render_messages_for_summary,
     should_compact,
     split_compaction_window,
@@ -1772,6 +1775,22 @@ class MasterCoordinator:
     #: 单条 tool 结果送往摘要/模型的副本在压缩切窗前的最大字符数；超长则头尾截断。
     _TOOL_RESULT_MAX_CHARS_ENV = "VEYA_CONTEXT_TOOL_RESULT_MAX_CHARS"
     _DEFAULT_TOOL_RESULT_MAX_CHARS = 40_000
+    #: 紧急压缩开关：摘要 LLM 失败/超时且历史已逼近预算时，用确定性兜底摘要
+    #: （不调 LLM）原地压缩，避免历史继续超预算。默认开启；设 0 关闭（退回原
+    #: skipped_summary_failed 行为）。
+    _CONTEXT_EMERGENCY_COMPACT_ENV = "VEYA_CONTEXT_EMERGENCY_COMPACT"
+    _DEFAULT_CONTEXT_EMERGENCY_COMPACT = 1
+    #: 触发紧急压缩的预算占用比例：估算 token >= 预算 * 该比例时，摘要失败即兜底压缩。
+    _CONTEXT_EMERGENCY_RATIO_ENV = "VEYA_CONTEXT_EMERGENCY_RATIO"
+    _DEFAULT_CONTEXT_EMERGENCY_RATIO = 0.95
+    #: 紧急摘要里“最近用户诉求”保留条数与单条最大字符数。
+    _CONTEXT_EMERGENCY_RECENT_USER_ASKS_ENV = "VEYA_CONTEXT_EMERGENCY_RECENT_USER_ASKS"
+    _DEFAULT_CONTEXT_EMERGENCY_RECENT_USER_ASKS = 3
+    _CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS_ENV = "VEYA_CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS"
+    _DEFAULT_CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS = 200
+    #: 紧急摘要副本的最大字符数（仅约束兜底摘要文本，不约束被保留的尾部原文）。
+    _CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS_ENV = "VEYA_CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS"
+    _DEFAULT_CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS = 2000
 
     async def _maybe_compact_history(self, sid: str) -> None:
         """token 预算超阈值 → 摘要 + 保留尾部, 原地替换持久历史中被丢弃的中段。
@@ -1885,6 +1904,25 @@ class MasterCoordinator:
         except Exception as exc:
             summarize_error = str(exc)
         if not summary_text.strip():
+            # 摘要 LLM 失败/超时：默认原样返回 (skipped_summary_failed)，但历史
+            # 已逼近预算时，继续超预算会把后续轮次拖死。此时做确定性紧急压缩
+            # （不调 LLM），保留 head + 尾部最近消息原文 + 一条兜底摘要消息，
+            # 把被丢弃中段换成紧急摘要，避免历史无限膨胀。
+            if self._try_emergency_compact(
+                sid,
+                msgs=msgs,
+                head=head,
+                to_compact=to_compact,
+                tail=tail,
+                budget=budget,
+                ratio=ratio,
+                tail_n=tail_n,
+                before_count=before_count,
+                before_tokens=before_tokens,
+                to_compact_in=compact_input,
+                summarize_error=summarize_error,
+            ):
+                return
             self._record_compaction_decision(
                 sid,
                 outcome="skipped_summary_failed",
@@ -1980,6 +2018,122 @@ class MasterCoordinator:
                 # 剥离前缀行，返回纯摘要正文（含 Exact facts 节）。
                 return content[len(_COMPACT_SUMMARY_PREFIX) :].lstrip("\n")
         return ""
+
+    def _try_emergency_compact(
+        self,
+        sid: str,
+        *,
+        msgs: list,
+        head: list,
+        to_compact: list,
+        tail: list,
+        budget: int,
+        ratio: float,
+        tail_n: int,
+        before_count: int,
+        before_tokens: int,
+        to_compact_in: list,
+        summarize_error: str,
+    ) -> bool:
+        """摘要 LLM 失败/超时时的确定性兜底压缩（不调 LLM）。
+
+        仅在开关开启、且估算 token 已逼近预算（>= 预算 * VEYA_CONTEXT_EMERGENCY_RATIO）
+        时触发，避免历史继续超预算。返回 True 表示已做紧急压缩并改写历史。
+
+        行为：保留 head（系统消息等）、保留尾部 tail（最近消息原文，不改写、保证
+        tool_call/tool 配对完整）、把被丢弃的中段 to_compact 替换成一条确定性兜底
+        摘要（build_emergency_summary：上一份摘要的 Exact facts 合并 + 最近用户诉求）。
+        全程纯函数、无 I/O、无随机，结果可复现。
+        """
+        if (
+            os.environ.get(
+                self._CONTEXT_EMERGENCY_COMPACT_ENV,
+                str(self._DEFAULT_CONTEXT_EMERGENCY_COMPACT),
+            )
+            == "0"
+        ):
+            return False
+        try:
+            ratio = float(
+                os.environ.get(
+                    self._CONTEXT_EMERGENCY_RATIO_ENV,
+                    str(self._DEFAULT_CONTEXT_EMERGENCY_RATIO),
+                )
+            )
+        except ValueError:
+            ratio = self._DEFAULT_CONTEXT_EMERGENCY_RATIO
+        if budget <= 0 or ratio <= 0:
+            return False
+        if before_tokens < budget * ratio:
+            return False
+
+        try:
+            recent_user_asks = int(
+                os.environ.get(
+                    self._CONTEXT_EMERGENCY_RECENT_USER_ASKS_ENV,
+                    str(self._DEFAULT_CONTEXT_EMERGENCY_RECENT_USER_ASKS),
+                )
+            )
+        except ValueError:
+            recent_user_asks = self._DEFAULT_CONTEXT_EMERGENCY_RECENT_USER_ASKS
+        try:
+            user_ask_max = int(
+                os.environ.get(
+                    self._CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS_ENV,
+                    str(self._DEFAULT_CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS),
+                )
+            )
+        except ValueError:
+            user_ask_max = self._DEFAULT_CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS
+        try:
+            summary_max = int(
+                os.environ.get(
+                    self._CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS_ENV,
+                    str(self._DEFAULT_CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS),
+                )
+            )
+        except ValueError:
+            summary_max = self._DEFAULT_CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS
+
+        prior_summary = self._find_existing_summary_text(msgs)
+        # 确定性合并上一份摘要的 Exact facts：失败则降级为空（build_emergency_summary 内部已兜底）。
+        merged_facts_summary = ""
+        if prior_summary:
+            try:
+                merged_facts_summary = merge_exact_facts(prior_summary, "")
+            except ExactFactsError:
+                merged_facts_summary = prior_summary
+
+        emergency_text = build_emergency_summary(
+            merged_facts_summary or prior_summary,
+            to_compact_in,
+            max_chars=summary_max,
+            recent_user_asks=recent_user_asks,
+            user_ask_max_chars=user_ask_max,
+        )
+        try:
+            new_msgs = build_compacted_messages(head, emergency_text, tail)
+        except Exception:
+            logger.exception("[compact %s] emergency merge failed, skip", sid)
+            return False
+        msgs[:] = new_msgs
+        self._record_compaction_decision(
+            sid,
+            outcome="emergency_compacted",
+            before_count=before_count,
+            before_tokens=before_tokens,
+            budget=budget,
+            ratio=ratio,
+            tail_n=tail_n,
+            to_compact=to_compact,
+            tail=tail,
+            after_msgs=msgs,
+            reasoning=(
+                f"摘要失败/超时且 token>=预算*{ratio}: 确定性紧急压缩"
+                f" ({summarize_error or '摘要为空'})"
+            ),
+        )
+        return True
 
     async def _maybe_compact_rounds(self, sid: str, *, rounds: int) -> None:
         """Fold earlier ReAct rounds into one summary (flag-gated).

@@ -34,6 +34,13 @@ PRIOR_RETAINED_MARKER = "[Prior summary retained verbatim]"
 TOOL_RESULT_TRUNCATED_MARKER = "[truncated {} chars]"
 # 截断标记占用的字符预算（足够容纳 "[truncated 1234567890 chars]"）。
 _TRUNCATION_MARKER_RESERVE = 32
+# 摘要 LLM 失败/超时时的确定性兜底摘要标记与预算。
+EMERGENCY_SUMMARY_MARKER = (
+    "[EMERGENCY COMPACTION — LLM summary unavailable, deterministic facts retained]"
+)
+_DEFAULT_EMERGENCY_SUMMARY_MAX_CHARS = 2000
+_EMERGENCY_RECENT_USER_ASKS = 3
+_EMERGENCY_USER_ASK_MAX_CHARS = 200
 
 
 class ExactFactsError(ValueError):
@@ -408,6 +415,68 @@ def merge_exact_facts(previous_summary: str, new_summary: str) -> str:
     before = lines[:body_start]  # 含 header 行
     after = lines[body_end:]
     return "\n".join([*before, *merged_lines, *after])
+
+
+def build_emergency_summary(
+    prior_summary: str,
+    messages: list,
+    *,
+    max_chars: int = _DEFAULT_EMERGENCY_SUMMARY_MAX_CHARS,
+    recent_user_asks: int = _EMERGENCY_RECENT_USER_ASKS,
+    user_ask_max_chars: int = _EMERGENCY_USER_ASK_MAX_CHARS,
+) -> str:
+    """摘要 LLM 不可用时的确定性兜底摘要（无 I/O、无随机）。
+
+    保留两样压缩后最不能丢的东西：
+
+    - 上一份摘要的 ``Exact facts`` 原样带入（缺节/解析失败降级为空，不阻断）；
+    - 最近 ``recent_user_asks`` 条用户消息的头部（``extract_key_info``），
+      作为无 key 事实行追加——用户诉求是摘要失败时唯一还可靠的信号。
+
+    输出固定带 ``## Exact facts`` 节，因此下一次正常压缩仍可继续合并事实。
+    """
+    try:
+        facts = parse_exact_facts(prior_summary)
+    except ExactFactsError:
+        facts = []
+
+    asks: list[str] = []
+    if recent_user_asks > 0:
+        for m in reversed(messages):
+            if not isinstance(m, dict) or m.get("role") != "user":
+                continue
+            content = m.get("content")
+            if not isinstance(content, str) or not content.strip():
+                continue
+            # 折叠换行，保证每条事实占一行。
+            one_line = " ".join(content.split())
+            asks.append(extract_key_info(one_line, max_chars=user_ask_max_chars))
+            if len(asks) >= recent_user_asks:
+                break
+    asks.reverse()
+
+    seen: set[str] = set()
+    ask_lines: list[str] = []
+    for ask in asks:
+        line = f"user_ask: {ask}"
+        if line not in seen:
+            seen.add(line)
+            ask_lines.append(line)
+
+    body = "\n".join(
+        [
+            "## Summary",
+            EMERGENCY_SUMMARY_MARKER,
+            "",
+            "## Exact facts",
+            *facts,
+            *ask_lines,
+        ]
+    )
+    if max_chars > 0 and len(body) > max_chars:
+        # 保头部：事实最密集，尾部截断只会先丢用户诉求。
+        body = body[:max_chars]
+    return body
 
 
 def truncate_oversized_tool_results(messages: list, *, max_chars: int = 40000) -> list:

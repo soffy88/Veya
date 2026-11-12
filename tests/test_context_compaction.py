@@ -17,6 +17,8 @@ from server.decision_ledger import DecisionLedger
 from veya.oskill.pure.context_compress import (
     _COMPACT_SUMMARY_PREFIX,
     build_compacted_messages,
+    build_emergency_summary,
+    merge_exact_facts,
     render_messages_for_summary,
     should_compact,
     split_compaction_window,
@@ -284,6 +286,8 @@ async def test_maybe_compact_llm_failure_keeps_history_and_records_skip(
 ):
     monkeypatch.setenv("VEYA_CONTEXT_TOKEN_BUDGET", "200")
     monkeypatch.setenv("VEYA_CONTEXT_COMPACT_TRIGGER_RATIO", "0.5")
+    # 显式关闭紧急压缩, 仅验证"摘要失败 → 原样保留历史 + 记录 skip"的 legacy 路径。
+    monkeypatch.setenv("VEYA_CONTEXT_EMERGENCY_COMPACT", "0")
     sid = "s3"
     original = _big_history(30)
     original_copy = [dict(m) for m in original]
@@ -353,7 +357,6 @@ async def test_maybe_compact_tail_preserves_tool_call_group(coord, fake_ledger, 
 
 from veya.oskill.pure.context_compress import (  # noqa: E402
     ExactFactsError,
-    merge_exact_facts,
     parse_exact_facts,
     truncate_oversized_tool_results,
 )
@@ -461,3 +464,55 @@ def test_truncate_oversized_tool_results_under_limit_passthrough():
 def test_truncate_disabled_when_max_chars_le_zero():
     msgs = [{"role": "tool", "tool_call_id": "c1", "content": "Y" * 10000}]
     assert truncate_oversized_tool_results(msgs, max_chars=0) == msgs
+
+
+# ---------------------------------------------------------------------------
+# 紧急压缩确定性: 同输入同输出、顺序稳定 (任务 1 纯函数约束)
+# ---------------------------------------------------------------------------
+
+
+def test_build_emergency_summary_deterministic():
+    prior = "## Summary\nold.\n\n## Exact facts\norder_id=ORD-9\npath=/repo/a.py\n"
+    msgs = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "用户诉求A 长长长" * 20},
+        {"role": "assistant", "content": "思考A"},
+        {"role": "user", "content": "用户诉求B 长长长" * 20},
+        {"role": "assistant", "content": "思考B"},
+        {"role": "user", "content": "用户诉求C 长长长" * 20},
+    ]
+    out1 = build_emergency_summary(prior, msgs)
+    out2 = build_emergency_summary(prior, msgs)
+    assert out1 == out2
+    # 固定带 Exact facts 节, 且上一份事实被确定性带入
+    assert "## Exact facts" in out1
+    assert "order_id=ORD-9" in out1
+    assert "用户诉求A" in out1 and "用户诉求B" in out1 and "用户诉求C" in out1
+
+
+def test_build_emergency_summary_recent_ask_order_stable():
+    prior = ""
+    msgs = [
+        {"role": "user", "content": "first ask 内容" * 30},
+        {"role": "assistant", "content": "r1"},
+        {"role": "user", "content": "second ask 内容" * 30},
+        {"role": "assistant", "content": "r2"},
+        {"role": "user", "content": "third ask 内容" * 30},
+    ]
+    out = build_emergency_summary(prior, msgs, recent_user_asks=2)
+    # 只保留最近 2 条用户诉求, 顺序为对话时间序
+    assert "first ask" not in out
+    assert "second ask" in out and "third ask" in out
+    assert "second ask" in out.split("third ask")[0]
+
+
+def test_build_emergency_summary_truncates_to_max_chars():
+    prior = "## Exact facts\n" + "k=v\n" * 50
+    msgs = [{"role": "user", "content": "ask " + "内容" * 40}]
+    out = build_emergency_summary(prior, msgs, max_chars=120)
+    assert len(out) <= 120
+
+
+def test_merge_exact_facts_deterministic_same_input():
+    s = "## Summary\nx\n\n## Exact facts\nid=A\nname=B\n"
+    assert merge_exact_facts(s, s) == merge_exact_facts(s, s)
