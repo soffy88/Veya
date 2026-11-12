@@ -345,3 +345,119 @@ async def test_maybe_compact_tail_preserves_tool_call_group(coord, fake_ledger, 
             and any(tc.get("id") == call_id for tc in (m.get("tool_calls") or []))
             for m in result
         )
+
+
+# ---------------------------------------------------------------------------
+# Exact facts 解析 / 合并（merge_exact_facts）
+# ---------------------------------------------------------------------------
+
+from veya.oskill.pure.context_compress import (  # noqa: E402
+    ExactFactsError,
+    merge_exact_facts,
+    parse_exact_facts,
+    truncate_oversized_tool_results,
+)
+
+
+def _summary(body: str) -> str:
+    return f"{_COMPACT_SUMMARY_PREFIX}\n## Summary\n一些摘要\n\n## Exact facts\n{body}\n"
+
+
+def test_parse_exact_facts_returns_stripped_lines():
+    text = _summary("order_id=ORD-123\nfile_path=/repo/a.py\n")
+    assert parse_exact_facts(text) == ["order_id=ORD-123", "file_path=/repo/a.py"]
+
+
+def test_parse_exact_facts_missing_section_raises():
+    with pytest.raises(ExactFactsError):
+        parse_exact_facts("## Summary\n只有摘要, 没有 Exact facts")
+
+
+def test_merge_last_write_wins_overrides_same_key():
+    prev = _summary("order_id=ORD-123\nretry_count=1\n")
+    new = _summary("retry_count=3\nfile_path=/repo/a.py\n")
+    merged = merge_exact_facts(prev, new)
+    facts = parse_exact_facts(merged)
+    assert "retry_count=3" in facts  # new 覆盖 prev
+    assert "retry_count=1" not in facts
+    assert "order_id=ORD-123" in facts  # prev 保留
+    assert "file_path=/repo/a.py" in facts  # new 新增
+
+
+def test_merge_keyless_accumulates_dedup():
+    prev = _summary("user_name=Alice\n无 key 叙述 A\n")
+    new = _summary("user_name=Bob\n无 key 叙述 A\n无 key 叙述 B\n")
+    merged = merge_exact_facts(prev, new)
+    facts = parse_exact_facts(merged)
+    # keyless: 去重累积, 顺序 prev→new
+    assert facts == [
+        "user_name=Bob",  # new 覆盖
+        "无 key 叙述 A",
+        "无 key 叙述 B",
+    ]
+
+
+def test_merge_preserves_rest_of_new_summary():
+    prev = _summary("k=v\n")
+    new = "## Summary\n最新摘要正文\n\n## Exact facts\nk2=v2\n\n## Open questions\n还剩什么\n"
+    merged = merge_exact_facts(prev, new)
+    assert "## Summary" in merged
+    assert "最新摘要正文" in merged
+    assert "## Open questions" in merged
+    assert "还剩什么" in merged
+    assert "k=v" in merged  # prev 累积
+    assert "k2=v2" in merged
+
+
+def test_merge_new_missing_section_raises():
+    prev = _summary("k=v\n")
+    new = "## Summary\n没有 Exact facts 节\n"
+    with pytest.raises(ExactFactsError):
+        merge_exact_facts(prev, new)
+
+
+def test_merge_prev_missing_section_is_degrade_empty():
+    # 上一份缺节不应拖垮本轮: prev 降级为空, 仅合并 new 的节
+    prev = "## Summary\n根本没有 exact facts\n"
+    new = _summary("order_id=ORD-9\n")
+    merged = merge_exact_facts(prev, new)
+    assert parse_exact_facts(merged) == ["order_id=ORD-9"]
+
+
+# ---------------------------------------------------------------------------
+# 超大 tool 结果截断（truncate_oversized_tool_results）
+# ---------------------------------------------------------------------------
+
+
+def test_truncate_oversized_tool_results_keeps_pairs_and_marks():
+    call_id = "c1"
+    msgs = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": call_id, "function": {"name": "run", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": call_id, "content": "X" * 10000},
+    ]
+    out = truncate_oversized_tool_results(msgs, max_chars=400)
+    assert out[0] is msgs[0]  # assistant 不动
+    tool = out[1]
+    assert tool["role"] == "tool"
+    assert tool["tool_call_id"] == call_id
+    # 头尾各一段 + 中间截断标记
+    assert tool["content"].startswith("X" * 150)
+    assert tool["content"].endswith("X" * 150)
+    assert "[truncated" in tool["content"]
+    # 原始持久化消息未被改动
+    assert msgs[1]["content"] == "X" * 10000
+
+
+def test_truncate_oversized_tool_results_under_limit_passthrough():
+    msgs = [{"role": "tool", "tool_call_id": "c1", "content": "short"}]
+    out = truncate_oversized_tool_results(msgs, max_chars=40000)
+    assert out == msgs
+
+
+def test_truncate_disabled_when_max_chars_le_zero():
+    msgs = [{"role": "tool", "tool_call_id": "c1", "content": "Y" * 10000}]
+    assert truncate_oversized_tool_results(msgs, max_chars=0) == msgs

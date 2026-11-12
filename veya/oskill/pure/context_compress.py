@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 # 确定性启发式: 中文≈1 token/字符, 英文≈4 字符/token
@@ -18,6 +19,74 @@ _CJK_RANGES = (
     (0x3040, 0x30FF),  # 日文假名
     (0xAC00, 0xD7AF),  # 韩文
 )
+
+# ── Exact facts（跨压缩必须原样保留的硬事实）────────────────────────
+# 摘要提示词固定小节之一。每行 ``key=value``，key 须匹配 ``_KEY_RE``；
+# 无 key 的行（纯叙述）按"去重累积"处理。解析以 Markdown ``## Exact facts``
+# 标题定位节，节体延续到下一个 Markdown 标题或文本末尾。
+_EXACT_FACTS_HEADER_RE = re.compile(r"^#{1,6}\s*exact\s+facts\s*:?\s*$", re.IGNORECASE)
+_MARKDOWN_HEADER_RE = re.compile(r"^#{1,6}\s+\S")
+# key 必须匹配 ^[A-Za-z][A-Za-z0-9_.:-]{0,127}$（见 merge_exact_facts 文档）。
+_KEY_VALUE_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_.:-]{0,127})=(.*)$")
+# 兜底段落前缀：新摘要缺节/解析失败时，把上一份摘要原文附在其后。
+PRIOR_RETAINED_MARKER = "[Prior summary retained verbatim]"
+# 超大 tool 结果截断标记。
+TOOL_RESULT_TRUNCATED_MARKER = "[truncated {} chars]"
+# 截断标记占用的字符预算（足够容纳 "[truncated 1234567890 chars]"）。
+_TRUNCATION_MARKER_RESERVE = 32
+
+
+class ExactFactsError(ValueError):
+    """新摘要缺少 'Exact facts' 节或解析失败（触发兜底保留上一份摘要）。"""
+
+
+def _find_exact_facts_bounds(text: str):
+    """定位 'Exact facts' 节的边界。
+
+    返回 ``(lines, header_idx, body_start, body_end)``，找不到节时返回 ``None``。
+    ``body_start==header_idx+1``；``body_end`` 为节体之后首个 Markdown 标题或末尾。
+    """
+    if not text:
+        return None
+    lines = text.split("\n")
+    header_idx = None
+    for i, line in enumerate(lines):
+        if _EXACT_FACTS_HEADER_RE.match(line):
+            header_idx = i
+            break
+    if header_idx is None:
+        return None
+    body_start = header_idx + 1
+    body_end = body_start
+    while body_end < len(lines) and not _MARKDOWN_HEADER_RE.match(lines[body_end]):
+        body_end += 1
+    return lines, header_idx, body_start, body_end
+
+
+def parse_exact_facts(text: str) -> list[str]:
+    """抽取 'Exact facts' 节内的非空事实行（原样，已 strip）。
+
+    节缺失或文本为空 → 抛 ``ExactFactsError``。
+    """
+    bounds = _find_exact_facts_bounds(text)
+    if bounds is None:
+        raise ExactFactsError("no Exact facts section")
+    lines, _hi, body_start, body_end = bounds
+    body = lines[body_start:body_end]
+    return [ln.strip() for ln in body if ln.strip()]
+
+
+def _classify_facts(fact_lines: list[str]) -> tuple[dict, list]:
+    """把事实行分成 (keyed: {key: value}, keyless: [line, ...])。"""
+    keyed: dict[str, str] = {}
+    keyless: list[str] = []
+    for ln in fact_lines:
+        m = _KEY_VALUE_RE.match(ln)
+        if m:
+            keyed[m.group(1)] = m.group(2).strip()
+        else:
+            keyless.append(ln)
+    return keyed, keyless
 
 
 def _is_cjk(ch: str) -> bool:
@@ -298,14 +367,90 @@ def extract_key_info(text: str, *, max_chars: int = 200) -> str:
     return stripped[: max(0, max_chars - 1)] + "…"
 
 
+def merge_exact_facts(previous_summary: str, new_summary: str) -> str:
+    """合并两份摘要的 Exact facts 节，结果写回新摘要的该节。
+
+    - 有 ``key=value`` 的行：同 key 后写覆盖（new 优先，last-write-wins）。
+    - 无 key 的行：去重累积（保留顺序，先 prev 后 new）。
+    - 新摘要缺少 Exact facts 节或解析失败 → 抛 ``ExactFactsError``
+      （调用方应触发兜底：保留上一份摘要原文，不丢事实）。
+    - 上一份摘要缺节/解析失败 → 降级为空，不阻断合并。
+    """
+    if _find_exact_facts_bounds(new_summary) is None:
+        raise ExactFactsError("new summary missing Exact facts section")
+
+    # 上一份可降级为空（缺失/异常都不应拖垮本轮压缩）。
+    prev_facts: list[str] = []
+    try:
+        prev_facts = parse_exact_facts(previous_summary)
+    except ExactFactsError:
+        prev_facts = []
+
+    new_facts = parse_exact_facts(new_summary)
+
+    prev_keyed, prev_keyless = _classify_facts(prev_facts)
+    new_keyed, new_keyless = _classify_facts(new_facts)
+
+    # last-write-wins：prev 在前，new 覆盖同 key（保持 prev→new 顺序）。
+    merged_keyed = {**prev_keyed, **new_keyed}
+
+    # 无 key 行：去重累积，保持顺序。
+    seen: set[str] = set()
+    merged_keyless: list[str] = []
+    for ln in [*prev_keyless, *new_keyless]:
+        if ln not in seen:
+            seen.add(ln)
+            merged_keyless.append(ln)
+
+    merged_lines = [f"{k}={v}" for k, v in merged_keyed.items()] + merged_keyless
+
+    lines, _hi, body_start, body_end = _find_exact_facts_bounds(new_summary)
+    before = lines[:body_start]  # 含 header 行
+    after = lines[body_end:]
+    return "\n".join([*before, *merged_lines, *after])
+
+
+def truncate_oversized_tool_results(messages: list, *, max_chars: int = 40000) -> list:
+    """把超长 ``role=='tool'`` 消息截断到头尾各一段 + ``[truncated N chars]`` 标记。
+
+    纯函数，只返回副本：绝不删除消息、只缩短 ``content`` 字符串，因此
+    ``tool_call`` 与 ``tool`` 的配对不被破坏；也不改动持久化历史。
+    ``max_chars<=0`` 视为关闭（原样返回）。
+    """
+    if max_chars <= 0:
+        return list(messages)
+    out: list = []
+    for m in messages:
+        if isinstance(m, dict) and m.get("role") == "tool":
+            content = m.get("content")
+            if isinstance(content, str) and len(content) > max_chars:
+                # 预留标记长度预算，保证截断后总长度不超过 max_chars。
+                keep = max(1, (max_chars - _TRUNCATION_MARKER_RESERVE) // 2)
+                head = content[:keep]
+                tail = content[-keep:]
+                removed = len(content) - len(head) - len(tail)
+                copy = dict(m)
+                copy["content"] = TOOL_RESULT_TRUNCATED_MARKER.format(removed).join([head, tail])
+                out.append(copy)
+                continue
+        out.append(m)
+    return out
+
+
 __all__ = [
+    "PRIOR_RETAINED_MARKER",
+    "TOOL_RESULT_TRUNCATED_MARKER",
+    "ExactFactsError",
     "build_compacted_messages",
     "estimate_messages_tokens",
     "estimate_tokens",
     "extract_key_info",
+    "merge_exact_facts",
+    "parse_exact_facts",
     "render_messages_for_summary",
     "should_compact",
     "sliding_window",
     "split_compaction_window",
+    "truncate_oversized_tool_results",
     "truncate_to_token_budget",
 ]
