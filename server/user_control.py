@@ -19,6 +19,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from server.action_risk import (
+    RISK_DESTRUCTIVE,
+    RISK_OUTBOUND,
+    classify_action,
+    external_send_ask_enabled,
+)
 from server.approvals import approval_gates_enabled
 from server.events import (
     append_canonical_event,
@@ -346,12 +352,8 @@ async def _wait_approval(
     from server.approvals import approval_gates_enabled
 
     if not approval_gates_enabled():
-        return await _wait_approval_legacy(
-            tool, kwargs, on_verdict=on_verdict, sentinel=sentinel
-        )
-    return await _wait_approval_gated(
-        tool, kwargs, on_verdict=on_verdict, sentinel=sentinel
-    )
+        return await _wait_approval_legacy(tool, kwargs, on_verdict=on_verdict, sentinel=sentinel)
+    return await _wait_approval_gated(tool, kwargs, on_verdict=on_verdict, sentinel=sentinel)
 
 
 async def _wait_approval_gated(
@@ -820,8 +822,88 @@ async def user_control_policy(name: str, kwargs: dict, source: str) -> str | Non
         freeze_err_after = await _check_freeze()
         if freeze_err_after:
             return f"{freeze_err_after} (freeze applied during approval wait)"
+        # Already approved by the user for this call: never open a second card.
+        return None
+
+    # Orkas-style default gate: external sends (H) and destructive (D) actions
+    # are approved by default even with require_approval=False and gates off.
+    # Existing grants still release H; D cannot be released by an ALWAYS grant.
+    if _requires_external_send_approval(name, kwargs, source):
+        if _sentinel_evaluated():
+            return None
+        if _external_grant_allows(name, _scope_of_current()):
+            return None
+        if _consume_once(name, kwargs):
+            return None
+        wait_err = await _wait_approval(name, kwargs)
+        if wait_err:
+            return wait_err
+
+        freeze_err_after = await _check_freeze()
+        if freeze_err_after:
+            return f"{freeze_err_after} (freeze applied during approval wait)"
 
     return None
+
+
+def _requires_external_send_approval(name: str, kwargs: dict, source: str) -> bool:
+    """Whether an outbound (H) / destructive (D) call must be approved by default.
+
+    Orkas-style: external sends and destructive actions are gated even when
+    ``require_approval=False`` and even when ``VEYA_APPROVAL_GATES`` is off.
+    The ``VEYA_EXTERNAL_SEND_ASK`` switch restores the original behaviour
+    (default ON = ask).
+    """
+    if not external_send_ask_enabled():
+        return False
+    # Internal chat replies (the bot answering in its own conversation) are not
+    # outbound communication; only third-party sends reach here.
+    if source == "internal_chat":
+        return False
+    tier = classify_action(name, kwargs)
+    return tier in {RISK_OUTBOUND, RISK_DESTRUCTIVE}
+
+
+def _external_grant_allows(tool: str, scope: str) -> bool:
+    """Whether an existing grant covers this external/destructive call.
+
+    H (outbound) calls may be covered by either a durable ALWAYS grant or an
+    in-memory SESSION grant. D (destructive) calls are never covered by a
+    grant: no standing grant may silently pass a destructive action; it can
+    only be approved ONCE (per physical call).
+    """
+    from server.approvals import session_grants
+
+    # Destructive calls are never covered by a standing grant (ALWAYS or
+    # SESSION): each physical call needs its own ONCE approval.
+    if classify_action(tool) == RISK_DESTRUCTIVE:
+        return False
+    # H calls: an in-memory SESSION grant counts.
+    if any(
+        grant_scope == scope and grant_tool == tool for (grant_scope, grant_tool) in session_grants
+    ):
+        return True
+    # H calls: consult the durable always-grant store.
+    try:
+        from server.approvals import get_approval_service
+
+        store = get_approval_service().store
+        grant = store.lookup_grant(scope=scope, tool=tool)
+        return grant is not None
+    except Exception:
+        return False
+
+
+def _scope_of_current() -> str:
+    """Pseudonymized scope for the current request (mirrors the gated path)."""
+    try:
+        from server.approvals import get_approval_service
+        from server.auth import current_user
+
+        user_id = str(current_user().get("user_id") or "anonymous")
+        return get_approval_service().scope_for(user_id)
+    except Exception:
+        return ""
 
 
 def install_user_control_policy(guard: Any | None = None) -> None:
@@ -832,5 +914,6 @@ def install_user_control_policy(guard: Any | None = None) -> None:
     if guard.has_policy(_POLICY):
         return
     guard.register_policy(_POLICY, user_control_policy, enforce=True)
+
 
 _pending = _pending_waiters
