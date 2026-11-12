@@ -1096,7 +1096,9 @@ class MasterCoordinator:
                 return msgs
 
         async def _call(msgs: list) -> Any:
-            compacted = _compact(msgs)
+            # 准入上限: 工具结果进入模型请求前按 VEYA_CONTEXT_TOOL_RESULT_ADMIT_MAX_CHARS
+            # 截断 (只作用于副本, 不污染持久化历史)。这与压缩输入上限相互独立。
+            compacted = self._admit_tool_result_capped(_compact(msgs))
             call_kwargs = {
                 "config": merged_cfg,
                 "model": req_model or self.model,
@@ -1767,6 +1769,10 @@ class MasterCoordinator:
     #: and only shrink the work; they never change what the answer is.
     _COMPACT_SUMMARY_MAX_CHARS_ENV = "VEYA_COMPACT_SUMMARY_MAX_CHARS"
     _DEFAULT_COMPACT_SUMMARY_MAX_CHARS = 24_000
+    #: 单条 tool 结果在摘要输入中被截断到的字符上限 (与总量上限 _COMPACT_SUMMARY_MAX_CHARS
+    #: 互不影响；默认沿用 render_messages_for_summary 的 500 现状)。
+    _COMPACT_TOOL_RESULT_SNIPPET_CHARS_ENV = "VEYA_COMPACT_TOOL_RESULT_SNIPPET_CHARS"
+    _DEFAULT_COMPACT_TOOL_RESULT_SNIPPET_CHARS = 500
     _COMPACT_SUMMARY_TIMEOUT_ENV = "VEYA_COMPACT_SUMMARY_TIMEOUT_S"
     _DEFAULT_COMPACT_SUMMARY_TIMEOUT_S = 25.0
     #: 开关: 启用 Exact-facts 合并（跨压缩累积 key=value 硬事实）与超大 tool 截断。
@@ -1775,6 +1781,11 @@ class MasterCoordinator:
     #: 单条 tool 结果送往摘要/模型的副本在压缩切窗前的最大字符数；超长则头尾截断。
     _TOOL_RESULT_MAX_CHARS_ENV = "VEYA_CONTEXT_TOOL_RESULT_MAX_CHARS"
     _DEFAULT_TOOL_RESULT_MAX_CHARS = 40_000
+    #: 单条 tool 结果进入发给模型的消息时的准入上限（只作用于副本，不改持久化
+    #: 历史）。默认沿用 ``VEYA_CONTEXT_TOOL_RESULT_MAX_CHARS`` 的值；与压缩输入
+    #: 上限（``VEYA_COMPACT_SUMMARY_MAX_CHARS``）相互独立。
+    _TOOL_RESULT_ADMIT_MAX_CHARS_ENV = "VEYA_CONTEXT_TOOL_RESULT_ADMIT_MAX_CHARS"
+    _DEFAULT_TOOL_RESULT_ADMIT_MAX_CHARS = 40_000
     #: 紧急压缩开关：摘要 LLM 失败/超时且历史已逼近预算时，用确定性兜底摘要
     #: （不调 LLM）原地压缩，避免历史继续超预算。默认开启；设 0 关闭（退回原
     #: skipped_summary_failed 行为）。
@@ -2210,20 +2221,40 @@ class MasterCoordinator:
           开始, 表现为"历史越长越慢"。超时抛 ``TimeoutError``, 由
           ``_maybe_compact_history`` 既有的失败分支跳过压缩并保留原历史。
         """
-        convo = render_messages_for_summary(messages)
-        if not convo.strip():
-            return ""
+        # The total ceiling for the summary input is read here and passed into
+        # ``render_messages_for_summary`` as its ``max_chars`` so it actually
+        # takes effect. Previously the renderer defaulted to 8000 while this
+        # knob (24000) was applied *after* rendering, so the larger budget was
+        # silently overridden by the 8000 default. The per-tool-result snippet
+        # truncation is a separate, independent ceiling inside the renderer and
+        # is threaded through here from VEYA_COMPACT_TOOL_RESULT_SNIPPET_CHARS
+        # (default 500) so it can be tuned without touching the total budget.
         try:
-            max_chars = int(
+            summary_max_chars = int(
                 os.environ.get(
                     self._COMPACT_SUMMARY_MAX_CHARS_ENV,
                     str(self._DEFAULT_COMPACT_SUMMARY_MAX_CHARS),
                 )
             )
         except ValueError:
-            max_chars = self._DEFAULT_COMPACT_SUMMARY_MAX_CHARS
-        if max_chars > 0 and len(convo) > max_chars:
-            convo = "[较早内容已截断]\n" + convo[-max_chars:]
+            summary_max_chars = self._DEFAULT_COMPACT_SUMMARY_MAX_CHARS
+        try:
+            snippet_chars = int(
+                os.environ.get(
+                    self._COMPACT_TOOL_RESULT_SNIPPET_CHARS_ENV,
+                    str(self._DEFAULT_COMPACT_TOOL_RESULT_SNIPPET_CHARS),
+                )
+            )
+        except ValueError:
+            snippet_chars = self._DEFAULT_COMPACT_TOOL_RESULT_SNIPPET_CHARS
+        if summary_max_chars > 0:
+            convo = render_messages_for_summary(
+                messages, max_chars=summary_max_chars, tool_result_snippet_chars=snippet_chars
+            )
+        else:
+            convo = render_messages_for_summary(messages)
+        if not convo.strip():
+            return ""
         prompt_messages = [
             {"role": "system", "content": self._COMPACT_SUMMARY_SYSTEM},
             {"role": "user", "content": f"对话片段:\n{convo}\n\n请输出摘要。"},
@@ -2250,6 +2281,41 @@ class MasterCoordinator:
         if isinstance(resp, str):
             return resp.strip()
         return ""
+
+    def _admit_tool_result_capped(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """准入上限: 工具结果进入发给模型的消息前, 对副本按
+        ``VEYA_CONTEXT_TOOL_RESULT_ADMIT_MAX_CHARS`` 截断超长单条工具结果。
+
+        只返回副本 (不改动持久化历史 ``_histories[sid]``)，且保持 tool_call /
+        tool 配对完整 (整条消息替换 content)。关闭 (<=0) 时原样返回 ``messages``。
+        这是与压缩输入上限 (``VEYA_COMPACT_SUMMARY_MAX_CHARS``) 相互独立的一道
+        闸：改这里不影响摘要输入上限，反之亦然。
+        """
+        try:
+            max_chars = int(
+                os.environ.get(
+                    self._TOOL_RESULT_ADMIT_MAX_CHARS_ENV,
+                    str(self._DEFAULT_TOOL_RESULT_ADMIT_MAX_CHARS),
+                )
+            )
+        except ValueError:
+            max_chars = self._DEFAULT_TOOL_RESULT_ADMIT_MAX_CHARS
+        if max_chars <= 0:
+            return messages
+        out: list[dict[str, Any]] = []
+        truncated = False
+        for m in messages:
+            if isinstance(m, dict) and m.get("role") == "tool":
+                content = m.get("content")
+                if isinstance(content, str) and len(content) > max_chars:
+                    copy = dict(m)
+                    copy["content"] = content[:max_chars] + "…"
+                    out.append(copy)
+                    truncated = True
+                    continue
+            out.append(m)
+        # 没有任何工具结果被截断时, 复用原列表 (零拷贝, 不影响调用方引用语义)。
+        return out if truncated else messages
 
     def _record_compaction_decision(
         self,

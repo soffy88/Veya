@@ -293,7 +293,16 @@ def _flatten(units: list[list[dict]]) -> list[dict]:
     return out
 
 
-def render_messages_for_summary(messages: list, *, max_chars: int = 8000) -> str:
+#: 单条 tool 结果在摘要输入中被截断到的字符上限 (与总量上限 max_chars 互不影响)。
+_DEFAULT_SUMMARY_TOOL_RESULT_SNIPPET_CHARS = 500
+
+
+def render_messages_for_summary(
+    messages: list,
+    *,
+    max_chars: int = 8000,
+    tool_result_snippet_chars: int = _DEFAULT_SUMMARY_TOOL_RESULT_SNIPPET_CHARS,
+) -> str:
     """把待压缩片段渲染成摘要 LLM 的输入文本。
 
     与 ``memory_distill._render_conversation`` 的关键差异：
@@ -329,7 +338,7 @@ def render_messages_for_summary(messages: list, *, max_chars: int = 8000) -> str
                 lines.append(f"assistant: {content}")
             continue
         if role == "tool":
-            content = str(m.get("content") or "")[:500]
+            content = str(m.get("content") or "")[:tool_result_snippet_chars]
             lines.append(f"tool[{m.get('tool_call_id', '')}]: {content}")
             continue
         content = m.get("content")
