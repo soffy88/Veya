@@ -276,3 +276,35 @@ def test_always_grant_releases_h(user_ctx, temp_service, monkeypatch):
         assert verdict is None
     finally:
         _deactivate(tokens)
+
+
+def test_session_grant_does_not_release_d(user_ctx, temp_service, monkeypatch):
+    """A SESSION grant must NOT release a destructive (D) call either.
+
+    与既有 test_always_grant_does_not_release_d 互补: D 既不被 ALWAYS (耐久)
+    授权放行, 也不被 SESSION (内存) 授权放行 —— 任何常驻授权都不能静默放行
+    破坏性动作, 只能逐次 ONCE 审批。这是 orkas-3 的核心不变量。
+    """
+    scope = approvals_mod.get_approval_service().scope_for("user-1")
+    # SESSION 授权: (scope, tool) 加入内存集合。
+    approvals_mod.session_grants.add((scope, "delete_file"))
+    # _external_grant_allows 是常驻授权唯一裁决入口; D 必须返回 False。
+    assert uc._external_grant_allows("delete_file", scope) is False
+    calls = _stub_wait(monkeypatch)
+    tokens = _activate(require_approval=False)
+    try:
+        verdict = asyncio.run(uc.user_control_policy("delete_file", {"path": "/tmp/x"}, "master"))
+        # D 不被 SESSION 授权放行 → 新分支打开审批。
+        assert "delete_file" in calls
+        assert verdict is None
+    finally:
+        _deactivate(tokens)
+
+
+def test_external_grant_allows_is_single_authority_for_d(user_ctx, temp_service):
+    """_external_grant_allows 是常驻授权对 D 的唯一裁决点: 同时有 ALWAYS 与
+    SESSION 授权时, D 仍被拒绝 (验证不是两条路径各自放行导致漏网)。"""
+    scope = approvals_mod.get_approval_service().scope_for("user-1")
+    approvals_mod.get_approval_service().store.put_grant(scope=scope, tool="delete_file")
+    approvals_mod.session_grants.add((scope, "delete_file"))
+    assert uc._external_grant_allows("delete_file", scope) is False

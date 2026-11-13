@@ -223,3 +223,134 @@ async def test_switch_off_keeps_legacy_behavior(fake_ledger, monkeypatch):
     summary = next(m for m in result if m.get("content", "").startswith(_COMPACT_SUMMARY_PREFIX))
     body = summary["content"][len(_COMPACT_SUMMARY_PREFIX) :]
     assert "## Exact facts" in body  # 原样, 与我返回的一致
+
+
+# ---------------------------------------------------------------------------
+# 紧急压缩: 摘要 LLM 失败/超时 + 历史逼近预算 → 确定性兜底压缩 (不调 LLM)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_emergency_compact_when_summary_fails_near_budget(fake_ledger, monkeypatch):
+    """摘要失败且 token>=预算*ratio → 确定性紧急压缩, 保留 head+tail 原文。"""
+    monkeypatch.setenv("VEYA_CONTEXT_TOKEN_BUDGET", "200")
+    monkeypatch.setenv("VEYA_CONTEXT_COMPACT_TRIGGER_RATIO", "0.5")
+    monkeypatch.setenv("VEYA_CONTEXT_COMPACT_TAIL_MSGS", "2")
+    monkeypatch.setenv("VEYA_CONTEXT_EMERGENCY_RATIO", "0.5")
+    sid = "s-emg-1"
+    original = [
+        {"role": "system", "content": "sys"},
+        # 上一份压缩摘要, 含 Exact facts (应急摘要会合并其事实)
+        _summary("## Summary\nold.\n\n## Exact facts\nkeep_id=KEEP-1\n"),
+        {"role": "user", "content": "用户诉求A " + "内容" * 60},
+        {"role": "assistant", "content": "思考 " + "内容" * 60},
+        {"role": "user", "content": "用户诉求B " + "内容" * 60},
+        {"role": "assistant", "content": "思考B " + "内容" * 60},
+    ]
+    coord = _coordinator()
+    coord._agent._histories = {sid: original}
+
+    # 摘要 LLM 失败 → 抛出, 触发 emergency 分支
+    async def _summarize_fails(messages):
+        raise RuntimeError("llm timeout")
+
+    coord._summarize_for_compaction = _summarize_fails
+    await coord._maybe_compact_history(sid)
+
+    result = coord._agent._histories[sid]
+    # 历史被原地改写 (o(1) 紧急压缩生效)
+    assert result[0]["role"] == "system"  # head 保留
+    summary = next(m for m in result if m.get("content", "").startswith(_COMPACT_SUMMARY_PREFIX))
+    body = summary["content"][len(_COMPACT_SUMMARY_PREFIX) :]
+    assert "EMERGENCY COMPACTION" in body
+    assert "keep_id=KEEP-1" in body  # 上一份 Exact facts 被确定性合并
+    assert "用户诉求A" in body  # 被丢弃段的最近用户诉求被提取进应急摘要
+    assert any(m.get("role") == "assistant" and "思考B" in str(m.get("content")) for m in result)
+    # 尾部最近消息原文保留 (不改写)
+    assert any(m.get("role") == "user" and "用户诉求B" in str(m.get("content")) for m in result)
+
+
+@pytest.mark.asyncio
+async def test_no_emergency_compact_when_far_below_budget(fake_ledger, monkeypatch):
+    """摘要失败但 token 远低于预算*ratio → 退回 skipped_summary_failed (不压缩)。"""
+    monkeypatch.setenv("VEYA_CONTEXT_TOKEN_BUDGET", "100000")
+    monkeypatch.setenv("VEYA_CONTEXT_COMPACT_TRIGGER_RATIO", "0.7")
+    monkeypatch.setenv("VEYA_CONTEXT_COMPACT_TAIL_MSGS", "2")
+    monkeypatch.setenv("VEYA_CONTEXT_EMERGENCY_RATIO", "0.95")
+    sid = "s-emg-2"
+    original = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+    ]
+    coord = _coordinator()
+    coord._agent._histories = {sid: original}
+
+    async def _summarize_fails(messages):
+        raise RuntimeError("llm timeout")
+
+    coord._summarize_for_compaction = _summarize_fails
+    await coord._maybe_compact_history(sid)
+
+    # 未触发 should_compact (远低于预算), 历史完全不变
+    assert coord._agent._histories[sid] == original
+
+
+@pytest.mark.asyncio
+async def test_emergency_compact_switch_off_restores_legacy(fake_ledger, monkeypatch):
+    """VEYA_CONTEXT_EMERGENCY_COMPACT=0 → 摘要失败退回 skipped_summary_failed。"""
+    monkeypatch.setenv("VEYA_CONTEXT_TOKEN_BUDGET", "200")
+    monkeypatch.setenv("VEYA_CONTEXT_COMPACT_TRIGGER_RATIO", "0.5")
+    monkeypatch.setenv("VEYA_CONTEXT_COMPACT_TAIL_MSGS", "2")
+    monkeypatch.setenv("VEYA_CONTEXT_EMERGENCY_COMPACT", "0")
+    sid = "s-emg-3"
+    original = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "用户诉求A " + "内容" * 60},
+        {"role": "assistant", "content": "思考 " + "内容" * 60},
+    ]
+    coord = _coordinator()
+    coord._agent._histories = {sid: original}
+
+    async def _summarize_fails(messages):
+        raise RuntimeError("llm timeout")
+
+    coord._summarize_for_compaction = _summarize_fails
+    await coord._maybe_compact_history(sid)
+
+    # 开关关闭 → 不压缩, 历史原样保留
+    assert coord._agent._histories[sid] == original
+
+
+@pytest.mark.asyncio
+async def test_emergency_compact_deterministic(fake_ledger, monkeypatch):
+    """同一输入两次紧急压缩 → 输出逐字节一致 (纯函数, 无随机/无 I/O)。"""
+    monkeypatch.setenv("VEYA_CONTEXT_TOKEN_BUDGET", "200")
+    monkeypatch.setenv("VEYA_CONTEXT_COMPACT_TRIGGER_RATIO", "0.5")
+    monkeypatch.setenv("VEYA_CONTEXT_COMPACT_TAIL_MSGS", "2")
+    monkeypatch.setenv("VEYA_CONTEXT_EMERGENCY_RATIO", "0.5")
+    sid = "s-emg-4"
+    original = [
+        {"role": "system", "content": "sys"},
+        _summary("## Summary\nold.\n\n## Exact facts\norder=99\n"),
+        {"role": "user", "content": "用户诉求A " + "内容" * 60},
+        {"role": "assistant", "content": "思考 " + "内容" * 60},
+    ]
+    coord = _coordinator()
+
+    async def _summarize_fails(messages):
+        raise RuntimeError("llm timeout")
+
+    coord._summarize_for_compaction = _summarize_fails
+
+    coord._agent._histories = {sid: list(original)}
+    await coord._maybe_compact_history(sid)
+    out1 = coord._agent._histories[sid]
+    summary1 = next(m for m in out1 if m.get("content", "").startswith(_COMPACT_SUMMARY_PREFIX))
+
+    coord._agent._histories = {sid: list(original)}
+    await coord._maybe_compact_history(sid)
+    out2 = coord._agent._histories[sid]
+    summary2 = next(m for m in out2 if m.get("content", "").startswith(_COMPACT_SUMMARY_PREFIX))
+
+    assert summary1["content"] == summary2["content"]

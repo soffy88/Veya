@@ -61,8 +61,11 @@ from veya.memory_store import default_memory_store
 from veya.obase.async_utils import run_sync_in_daemon_thread
 from veya.omodul.session_tree import default_session_tree_mirror
 from veya.oskill.pure.context_compress import (
+    ExactFactsError,
     build_compacted_messages,
+    build_emergency_summary,
     estimate_messages_tokens,
+    merge_exact_facts,
     render_messages_for_summary,
     should_compact,
     split_compaction_window,
@@ -1093,7 +1096,9 @@ class MasterCoordinator:
                 return msgs
 
         async def _call(msgs: list) -> Any:
-            compacted = _compact(msgs)
+            # 准入上限: 工具结果进入模型请求前按 VEYA_CONTEXT_TOOL_RESULT_ADMIT_MAX_CHARS
+            # 截断 (只作用于副本, 不污染持久化历史)。这与压缩输入上限相互独立。
+            compacted = self._admit_tool_result_capped(_compact(msgs))
             call_kwargs = {
                 "config": merged_cfg,
                 "model": req_model or self.model,
@@ -1764,6 +1769,10 @@ class MasterCoordinator:
     #: and only shrink the work; they never change what the answer is.
     _COMPACT_SUMMARY_MAX_CHARS_ENV = "VEYA_COMPACT_SUMMARY_MAX_CHARS"
     _DEFAULT_COMPACT_SUMMARY_MAX_CHARS = 24_000
+    #: 单条 tool 结果在摘要输入中被截断到的字符上限 (与总量上限 _COMPACT_SUMMARY_MAX_CHARS
+    #: 互不影响；默认沿用 render_messages_for_summary 的 500 现状)。
+    _COMPACT_TOOL_RESULT_SNIPPET_CHARS_ENV = "VEYA_COMPACT_TOOL_RESULT_SNIPPET_CHARS"
+    _DEFAULT_COMPACT_TOOL_RESULT_SNIPPET_CHARS = 500
     _COMPACT_SUMMARY_TIMEOUT_ENV = "VEYA_COMPACT_SUMMARY_TIMEOUT_S"
     _DEFAULT_COMPACT_SUMMARY_TIMEOUT_S = 25.0
     #: 开关: 启用 Exact-facts 合并（跨压缩累积 key=value 硬事实）与超大 tool 截断。
@@ -1772,6 +1781,27 @@ class MasterCoordinator:
     #: 单条 tool 结果送往摘要/模型的副本在压缩切窗前的最大字符数；超长则头尾截断。
     _TOOL_RESULT_MAX_CHARS_ENV = "VEYA_CONTEXT_TOOL_RESULT_MAX_CHARS"
     _DEFAULT_TOOL_RESULT_MAX_CHARS = 40_000
+    #: 单条 tool 结果进入发给模型的消息时的准入上限（只作用于副本，不改持久化
+    #: 历史）。默认沿用 ``VEYA_CONTEXT_TOOL_RESULT_MAX_CHARS`` 的值；与压缩输入
+    #: 上限（``VEYA_COMPACT_SUMMARY_MAX_CHARS``）相互独立。
+    _TOOL_RESULT_ADMIT_MAX_CHARS_ENV = "VEYA_CONTEXT_TOOL_RESULT_ADMIT_MAX_CHARS"
+    _DEFAULT_TOOL_RESULT_ADMIT_MAX_CHARS = 40_000
+    #: 紧急压缩开关：摘要 LLM 失败/超时且历史已逼近预算时，用确定性兜底摘要
+    #: （不调 LLM）原地压缩，避免历史继续超预算。默认开启；设 0 关闭（退回原
+    #: skipped_summary_failed 行为）。
+    _CONTEXT_EMERGENCY_COMPACT_ENV = "VEYA_CONTEXT_EMERGENCY_COMPACT"
+    _DEFAULT_CONTEXT_EMERGENCY_COMPACT = 1
+    #: 触发紧急压缩的预算占用比例：估算 token >= 预算 * 该比例时，摘要失败即兜底压缩。
+    _CONTEXT_EMERGENCY_RATIO_ENV = "VEYA_CONTEXT_EMERGENCY_RATIO"
+    _DEFAULT_CONTEXT_EMERGENCY_RATIO = 0.95
+    #: 紧急摘要里“最近用户诉求”保留条数与单条最大字符数。
+    _CONTEXT_EMERGENCY_RECENT_USER_ASKS_ENV = "VEYA_CONTEXT_EMERGENCY_RECENT_USER_ASKS"
+    _DEFAULT_CONTEXT_EMERGENCY_RECENT_USER_ASKS = 3
+    _CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS_ENV = "VEYA_CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS"
+    _DEFAULT_CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS = 200
+    #: 紧急摘要副本的最大字符数（仅约束兜底摘要文本，不约束被保留的尾部原文）。
+    _CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS_ENV = "VEYA_CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS"
+    _DEFAULT_CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS = 2000
 
     async def _maybe_compact_history(self, sid: str) -> None:
         """token 预算超阈值 → 摘要 + 保留尾部, 原地替换持久历史中被丢弃的中段。
@@ -1885,6 +1915,25 @@ class MasterCoordinator:
         except Exception as exc:
             summarize_error = str(exc)
         if not summary_text.strip():
+            # 摘要 LLM 失败/超时：默认原样返回 (skipped_summary_failed)，但历史
+            # 已逼近预算时，继续超预算会把后续轮次拖死。此时做确定性紧急压缩
+            # （不调 LLM），保留 head + 尾部最近消息原文 + 一条兜底摘要消息，
+            # 把被丢弃中段换成紧急摘要，避免历史无限膨胀。
+            if self._try_emergency_compact(
+                sid,
+                msgs=msgs,
+                head=head,
+                to_compact=to_compact,
+                tail=tail,
+                budget=budget,
+                ratio=ratio,
+                tail_n=tail_n,
+                before_count=before_count,
+                before_tokens=before_tokens,
+                to_compact_in=compact_input,
+                summarize_error=summarize_error,
+            ):
+                return
             self._record_compaction_decision(
                 sid,
                 outcome="skipped_summary_failed",
@@ -1981,6 +2030,122 @@ class MasterCoordinator:
                 return content[len(_COMPACT_SUMMARY_PREFIX) :].lstrip("\n")
         return ""
 
+    def _try_emergency_compact(
+        self,
+        sid: str,
+        *,
+        msgs: list,
+        head: list,
+        to_compact: list,
+        tail: list,
+        budget: int,
+        ratio: float,
+        tail_n: int,
+        before_count: int,
+        before_tokens: int,
+        to_compact_in: list,
+        summarize_error: str,
+    ) -> bool:
+        """摘要 LLM 失败/超时时的确定性兜底压缩（不调 LLM）。
+
+        仅在开关开启、且估算 token 已逼近预算（>= 预算 * VEYA_CONTEXT_EMERGENCY_RATIO）
+        时触发，避免历史继续超预算。返回 True 表示已做紧急压缩并改写历史。
+
+        行为：保留 head（系统消息等）、保留尾部 tail（最近消息原文，不改写、保证
+        tool_call/tool 配对完整）、把被丢弃的中段 to_compact 替换成一条确定性兜底
+        摘要（build_emergency_summary：上一份摘要的 Exact facts 合并 + 最近用户诉求）。
+        全程纯函数、无 I/O、无随机，结果可复现。
+        """
+        if (
+            os.environ.get(
+                self._CONTEXT_EMERGENCY_COMPACT_ENV,
+                str(self._DEFAULT_CONTEXT_EMERGENCY_COMPACT),
+            )
+            == "0"
+        ):
+            return False
+        try:
+            ratio = float(
+                os.environ.get(
+                    self._CONTEXT_EMERGENCY_RATIO_ENV,
+                    str(self._DEFAULT_CONTEXT_EMERGENCY_RATIO),
+                )
+            )
+        except ValueError:
+            ratio = self._DEFAULT_CONTEXT_EMERGENCY_RATIO
+        if budget <= 0 or ratio <= 0:
+            return False
+        if before_tokens < budget * ratio:
+            return False
+
+        try:
+            recent_user_asks = int(
+                os.environ.get(
+                    self._CONTEXT_EMERGENCY_RECENT_USER_ASKS_ENV,
+                    str(self._DEFAULT_CONTEXT_EMERGENCY_RECENT_USER_ASKS),
+                )
+            )
+        except ValueError:
+            recent_user_asks = self._DEFAULT_CONTEXT_EMERGENCY_RECENT_USER_ASKS
+        try:
+            user_ask_max = int(
+                os.environ.get(
+                    self._CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS_ENV,
+                    str(self._DEFAULT_CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS),
+                )
+            )
+        except ValueError:
+            user_ask_max = self._DEFAULT_CONTEXT_EMERGENCY_USER_ASK_MAX_CHARS
+        try:
+            summary_max = int(
+                os.environ.get(
+                    self._CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS_ENV,
+                    str(self._DEFAULT_CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS),
+                )
+            )
+        except ValueError:
+            summary_max = self._DEFAULT_CONTEXT_EMERGENCY_SUMMARY_MAX_CHARS
+
+        prior_summary = self._find_existing_summary_text(msgs)
+        # 确定性合并上一份摘要的 Exact facts：失败则降级为空（build_emergency_summary 内部已兜底）。
+        merged_facts_summary = ""
+        if prior_summary:
+            try:
+                merged_facts_summary = merge_exact_facts(prior_summary, "")
+            except ExactFactsError:
+                merged_facts_summary = prior_summary
+
+        emergency_text = build_emergency_summary(
+            merged_facts_summary or prior_summary,
+            to_compact_in,
+            max_chars=summary_max,
+            recent_user_asks=recent_user_asks,
+            user_ask_max_chars=user_ask_max,
+        )
+        try:
+            new_msgs = build_compacted_messages(head, emergency_text, tail)
+        except Exception:
+            logger.exception("[compact %s] emergency merge failed, skip", sid)
+            return False
+        msgs[:] = new_msgs
+        self._record_compaction_decision(
+            sid,
+            outcome="emergency_compacted",
+            before_count=before_count,
+            before_tokens=before_tokens,
+            budget=budget,
+            ratio=ratio,
+            tail_n=tail_n,
+            to_compact=to_compact,
+            tail=tail,
+            after_msgs=msgs,
+            reasoning=(
+                f"摘要失败/超时且 token>=预算*{ratio}: 确定性紧急压缩"
+                f" ({summarize_error or '摘要为空'})"
+            ),
+        )
+        return True
+
     async def _maybe_compact_rounds(self, sid: str, *, rounds: int) -> None:
         """Fold earlier ReAct rounds into one summary (flag-gated).
 
@@ -2056,20 +2221,40 @@ class MasterCoordinator:
           开始, 表现为"历史越长越慢"。超时抛 ``TimeoutError``, 由
           ``_maybe_compact_history`` 既有的失败分支跳过压缩并保留原历史。
         """
-        convo = render_messages_for_summary(messages)
-        if not convo.strip():
-            return ""
+        # The total ceiling for the summary input is read here and passed into
+        # ``render_messages_for_summary`` as its ``max_chars`` so it actually
+        # takes effect. Previously the renderer defaulted to 8000 while this
+        # knob (24000) was applied *after* rendering, so the larger budget was
+        # silently overridden by the 8000 default. The per-tool-result snippet
+        # truncation is a separate, independent ceiling inside the renderer and
+        # is threaded through here from VEYA_COMPACT_TOOL_RESULT_SNIPPET_CHARS
+        # (default 500) so it can be tuned without touching the total budget.
         try:
-            max_chars = int(
+            summary_max_chars = int(
                 os.environ.get(
                     self._COMPACT_SUMMARY_MAX_CHARS_ENV,
                     str(self._DEFAULT_COMPACT_SUMMARY_MAX_CHARS),
                 )
             )
         except ValueError:
-            max_chars = self._DEFAULT_COMPACT_SUMMARY_MAX_CHARS
-        if max_chars > 0 and len(convo) > max_chars:
-            convo = "[较早内容已截断]\n" + convo[-max_chars:]
+            summary_max_chars = self._DEFAULT_COMPACT_SUMMARY_MAX_CHARS
+        try:
+            snippet_chars = int(
+                os.environ.get(
+                    self._COMPACT_TOOL_RESULT_SNIPPET_CHARS_ENV,
+                    str(self._DEFAULT_COMPACT_TOOL_RESULT_SNIPPET_CHARS),
+                )
+            )
+        except ValueError:
+            snippet_chars = self._DEFAULT_COMPACT_TOOL_RESULT_SNIPPET_CHARS
+        if summary_max_chars > 0:
+            convo = render_messages_for_summary(
+                messages, max_chars=summary_max_chars, tool_result_snippet_chars=snippet_chars
+            )
+        else:
+            convo = render_messages_for_summary(messages)
+        if not convo.strip():
+            return ""
         prompt_messages = [
             {"role": "system", "content": self._COMPACT_SUMMARY_SYSTEM},
             {"role": "user", "content": f"对话片段:\n{convo}\n\n请输出摘要。"},
@@ -2096,6 +2281,41 @@ class MasterCoordinator:
         if isinstance(resp, str):
             return resp.strip()
         return ""
+
+    def _admit_tool_result_capped(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """准入上限: 工具结果进入发给模型的消息前, 对副本按
+        ``VEYA_CONTEXT_TOOL_RESULT_ADMIT_MAX_CHARS`` 截断超长单条工具结果。
+
+        只返回副本 (不改动持久化历史 ``_histories[sid]``)，且保持 tool_call /
+        tool 配对完整 (整条消息替换 content)。关闭 (<=0) 时原样返回 ``messages``。
+        这是与压缩输入上限 (``VEYA_COMPACT_SUMMARY_MAX_CHARS``) 相互独立的一道
+        闸：改这里不影响摘要输入上限，反之亦然。
+        """
+        try:
+            max_chars = int(
+                os.environ.get(
+                    self._TOOL_RESULT_ADMIT_MAX_CHARS_ENV,
+                    str(self._DEFAULT_TOOL_RESULT_ADMIT_MAX_CHARS),
+                )
+            )
+        except ValueError:
+            max_chars = self._DEFAULT_TOOL_RESULT_ADMIT_MAX_CHARS
+        if max_chars <= 0:
+            return messages
+        out: list[dict[str, Any]] = []
+        truncated = False
+        for m in messages:
+            if isinstance(m, dict) and m.get("role") == "tool":
+                content = m.get("content")
+                if isinstance(content, str) and len(content) > max_chars:
+                    copy = dict(m)
+                    copy["content"] = content[:max_chars] + "…"
+                    out.append(copy)
+                    truncated = True
+                    continue
+            out.append(m)
+        # 没有任何工具结果被截断时, 复用原列表 (零拷贝, 不影响调用方引用语义)。
+        return out if truncated else messages
 
     def _record_compaction_decision(
         self,

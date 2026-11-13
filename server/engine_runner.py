@@ -325,6 +325,20 @@ def _engine_bin_available(engine: str) -> bool:
     return shutil.which(engine) is not None
 
 
+def _cli_host_direct() -> bool:
+    """宿主直拉外部 CLI 是否走统一看门狗路径（默认开启）。
+
+    开（默认）：``run_engine`` 经 :func:`_run_external_cli` 起子进程，自带进程组
+    + 统一看门狗（墙钟+空闲）+ SIGTERM→SIGKILL 杀整棵树，与 ``stream_engine`` 同源。
+    关（``VEYA_CLI_HOST_DIRECT=0``）：退回既有 ``run_harness``（沙箱隔离）路径，
+    保留向后兼容与既有"自有进程组"隔离语义。
+    """
+    raw = os.environ.get("VEYA_CLI_HOST_DIRECT")
+    if raw is None or not raw.strip():
+        return True
+    return raw.strip().lower() not in {"0", "false", "off", "no", "disabled", "none"}
+
+
 def build_argv(
     engine: str,
     prompt: str,
@@ -429,6 +443,12 @@ async def run_engine(
             "ok": False,
             "error": f"引擎 {engine} 不可用: CLI 未安装 (可用: {sorted(available_engines())})",
         }
+    # 宿主直拉路径（默认）：经统一看门狗 + 杀整棵树监督器起子进程，与
+    # ``stream_engine`` 同源；空闲/墙钟双截止，超时 SIGTERM→SIGKILL 收掉孙进程。
+    if _cli_host_direct():
+        return await _run_external_cli(engine, prompt, model=model, cwd=cwd, timeout_s=timeout_s)
+    # 兼容路径（VEYA_CLI_HOST_DIRECT=0）：退回既有沙箱 harness（run_harness），
+    # 保留"自有进程组"隔离语义。
     from veya.platform import load
 
     extra: list[str] = []
@@ -699,4 +719,91 @@ async def stream_engine(
         "status": "success" if code == 0 else "failed",
         "cost_usd": round(cost_usd, 6),
         "model": model_name,
+    }
+
+
+async def _run_external_cli(
+    engine: str,
+    prompt: str,
+    *,
+    model: str | None = None,
+    cwd: str | None = None,
+    timeout_s: float | None = None,
+) -> dict[str, object]:
+    """Spawn an external CLI engine directly and supervise it end-to-end.
+
+    This is the host path that does *not* go through the sandbox harness: the
+    child is started in its own process group (``start_new_session=True``) and
+    watched by the unified supervisor, so a silent or over-budget run is killed
+    with the whole tree (``terminate_process`` → SIGTERM, grace, SIGKILL) rather
+    than leaving an orphaned grandchild behind. Timeouts come from the capability
+    inventory via :func:`_resolve_timeouts`, honouring ``VEYA_CLI_WATCHDOG`` and
+    ``VEYA_CLI_IDLE_TIMEOUT_S``.
+    """
+    idle_timeout_s, wall_timeout_s = _resolve_timeouts(engine, timeout_s)
+    argv = build_argv(engine, prompt, model=model, streaming=False)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            cwd=cwd,
+            env={**os.environ, **(_container_proxy_env() if _IN_CONTAINER else {})},
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except (OSError, ValueError) as exc:
+        return {
+            "ok": False,
+            "error": f"引擎 {engine} 启动失败: {exc}",
+            "duration_s": 0.0,
+        }
+    activity = ActivityClock()
+    chunks: list[bytes] = []
+    stderr_tail = bytearray()
+
+    async def _collect(stream, store):
+        assert stream is not None
+        while data := await stream.read(65536):
+            activity.touch()
+            store.append(data)
+
+    supervisor = asyncio.create_task(
+        supervise_process(
+            proc, activity, idle_timeout_s=idle_timeout_s, wall_timeout_s=wall_timeout_s
+        )
+    )
+    pump_out = asyncio.create_task(_collect(proc.stdout, chunks))
+    pump_err = asyncio.create_task(_collect(proc.stderr, stderr_tail))
+    try:
+        outcome = await supervisor
+    finally:
+        # Nothing may outlive the run: cancel readers and SIGTERM→SIGKILL survivors.
+        for task in (pump_out, pump_err):
+            if not task.done():
+                task.cancel()
+        if proc.returncode is None:
+            await terminate_process(proc)
+        await asyncio.gather(pump_out, pump_err, return_exceptions=True)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(proc.wait(), 5.0)
+
+    output = b"".join(chunks).decode(errors="replace")
+    stderr_excerpt = bytes(stderr_tail).decode(errors="replace").strip()
+    if outcome.reason is not WatchdogReason.EXITED:
+        idle = outcome.reason is WatchdogReason.IDLE_TIMEOUT
+        return {
+            "ok": False,
+            "error": (
+                f"引擎静默超过 {(outcome.idle_timeout_s or 0.0):.0f}s, 已终止进程组"
+                if idle
+                else f"引擎超时 ({wall_timeout_s:.0f}s)"
+            ),
+            "duration_s": outcome.elapsed_s,
+            **({"stderr": stderr_excerpt[-500:]} if stderr_excerpt else {}),
+        }
+    return {
+        "ok": proc.returncode == 0,
+        "output": output,
+        "duration_s": outcome.elapsed_s,
+        **({"stderr": stderr_excerpt[-500:]} if stderr_excerpt and proc.returncode != 0 else {}),
     }
