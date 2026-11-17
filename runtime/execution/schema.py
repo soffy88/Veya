@@ -273,6 +273,7 @@ _TABLES = (
     """
     CREATE TABLE IF NOT EXISTS memory_records (
         id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL DEFAULT 'default',
         scope_type TEXT NOT NULL,
         scope_id TEXT NOT NULL,
         memory_type TEXT NOT NULL,
@@ -588,4 +589,16 @@ POSTGRES_ADDITIVE_DDL = (
         PRIMARY KEY (tenant, seq)
     )
     """,
+    # Buzz-style FTS: generated tsvector + GIN on the durable memory table.
+    # 'simple' avoids language stemming surprises; CJK queries fall back to
+    # the existing ILIKE path. Additive only: no rewrite of existing columns.
+    """
+    ALTER TABLE memory_records
+    ADD COLUMN IF NOT EXISTS search_tsv TSVECTOR
+    GENERATED ALWAYS AS (to_tsvector('simple', coalesce(content, '') || ' ' || coalesce(tags, ''))) STORED
+    """,
+    # Server-supplied tenant only; never inferred from client payload.
+    "ALTER TABLE memory_records ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'",
+    "CREATE INDEX IF NOT EXISTS memory_search_tsv_idx ON memory_records USING GIN (search_tsv)",
+    "CREATE INDEX IF NOT EXISTS memory_tenant_idx ON memory_records (tenant_id, scope_type, scope_id)",
 )

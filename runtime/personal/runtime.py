@@ -21,7 +21,12 @@ from pathlib import Path
 from typing import Any
 
 from runtime.execution.durable import DurableExecutionError
-from runtime.execution.schema import POSTGRES_SCHEMA, SCHEMA_VERSION, SQLITE_SCHEMA
+from runtime.execution.schema import (
+    POSTGRES_ADDITIVE_DDL,
+    POSTGRES_SCHEMA,
+    SCHEMA_VERSION,
+    SQLITE_SCHEMA,
+)
 from runtime.personal.quality import (
     evaluate_learning_gate,
     memory_eligibility,
@@ -309,6 +314,9 @@ class PersonalRuntimeStore:
                     "SELECT pg_advisory_xact_lock(hashtext($1))", "veya:execution:schema"
                 )
                 for statement in POSTGRES_SCHEMA:
+                    await conn.execute(statement)
+                # Additive-only FTS columns/index; SQLite path is unchanged.
+                for statement in POSTGRES_ADDITIVE_DDL:
                     await conn.execute(statement)
                 await conn.execute(
                     "INSERT INTO execution_schema_meta(version, applied_at) VALUES($1,$2) ON CONFLICT(version) DO NOTHING",
@@ -878,11 +886,15 @@ class PersonalRuntimeStore:
         now = _now()
         supersede_ids = list(dict.fromkeys([*supersedes, *(conflicts if allow_conflicts else [])]))
         provenance = {"candidate_id": candidate_id, "reason": candidate.get("reason", "")}
+        from veya.obase.tenant import current_tenant
+
+        tenant_id = current_tenant().tenant_id
         if sqlite:
             conn.execute(
-                "INSERT INTO memory_records(id,scope_type,scope_id,memory_type,content,source_event_ids,source_session_ids,source_task_ids,provenance_json,confidence,created_at,updated_at,last_verified_at,status,supersedes,superseded_by,tags,canonical_fingerprint,schema_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO memory_records(id,tenant_id,scope_type,scope_id,memory_type,content,source_event_ids,source_session_ids,source_task_ids,provenance_json,confidence,created_at,updated_at,last_verified_at,status,supersedes,superseded_by,tags,canonical_fingerprint,schema_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     record_id,
+                    tenant_id,
                     scope_type,
                     scope_id,
                     memory_type,
@@ -939,8 +951,9 @@ class PersonalRuntimeStore:
                 "record": self._memory_out(dict(row)),
             }
         await conn.execute(
-            "INSERT INTO memory_records(id,scope_type,scope_id,memory_type,content,source_event_ids,source_session_ids,source_task_ids,provenance_json,confidence,created_at,updated_at,last_verified_at,status,supersedes,superseded_by,tags,canonical_fingerprint,schema_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",
+            "INSERT INTO memory_records(id,tenant_id,scope_type,scope_id,memory_type,content,source_event_ids,source_session_ids,source_task_ids,provenance_json,confidence,created_at,updated_at,last_verified_at,status,supersedes,superseded_by,tags,canonical_fingerprint,schema_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
             record_id,
+            tenant_id,
             scope_type,
             scope_id,
             memory_type,
@@ -1192,9 +1205,19 @@ class PersonalRuntimeStore:
         limit: int = 20,
         min_confidence: float = 0.0,
         include_superseded: bool = False,
+        tenant_id: str | None = None,
     ) -> list[dict[str, Any]]:
         await self._ensure_connected()
-        limit = max(1, min(int(limit), 100))
+        from runtime.personal.fts import (
+            MAX_RESULTS,
+            fts_enabled,
+            has_latin_tokens,
+            normalize_query,
+            search_candidate_ids_sql,
+        )
+
+        query = normalize_query(query)
+        limit = max(1, min(int(limit), MAX_RESULTS))
         statuses = (
             ("active", "superseded", "invalidated", "forgotten")
             if include_superseded
@@ -1236,6 +1259,67 @@ class PersonalRuntimeStore:
                 ]
 
             return await asyncio.to_thread(lambda: self._read_sqlite(read))
+        # Postgres FTS is opt-out and additive. CJK-only queries have no
+        # 'simple' tokens, so keep the pre-existing ILIKE path for them.
+        use_fts = (
+            self.backend == "postgres"
+            and fts_enabled()
+            and bool(query)
+            and has_latin_tokens(query)
+        )
+        if use_fts:
+            from veya.obase.tenant import current_tenant
+
+            tenant = tenant_id or current_tenant().tenant_id
+            candidate_clauses = [
+                "status = ANY($1::text[])",
+                "confidence >= $2",
+                "scope_type = $3",
+                "scope_id = $4",
+            ]
+            candidate_params: list[object] = [list(statuses), float(min_confidence), scope_type, scope_id]
+            if memory_type:
+                candidate_clauses.append("memory_type = $5")
+                candidate_params.append(memory_type)
+            # Server-derived tenant column, never a client-controlled tag.
+            candidate_clauses.append("tenant_id = $6")
+            candidate_params.append(tenant)
+            fts_sql, candidate_params = search_candidate_ids_sql(candidate_clauses, candidate_params)
+            candidate_params.append(limit)
+            candidate_ids = [
+                str(row["id"])
+                for row in await self._pool.fetch(
+                    fts_sql + f" LIMIT ${len(candidate_params)}", *candidate_params
+                )
+            ]
+            if not candidate_ids:
+                return []
+            # Re-fetch from the authoritative table and re-apply authorization.
+            # FTS only supplies candidate ids; it never decides visibility.
+            rows = await self._pool.fetch(
+                "SELECT * FROM memory_records WHERE id = ANY($1::text[])"
+                " AND status = ANY($2::text[]) AND confidence >= $3"
+                " AND scope_type = $4 AND scope_id = $5"
+                " AND tenant_id = $6"
+                " ORDER BY confidence DESC, updated_at DESC LIMIT $7",
+                candidate_ids,
+                list(statuses),
+                float(min_confidence),
+                scope_type,
+                scope_id,
+                tenant,
+                limit,
+            )
+            return [
+                self._annotate_memory(
+                    dict(row),
+                    query=query,
+                    workspace_id=scope_id if scope_type == "workspace" else None,
+                    user_id=scope_id if scope_type == "user" else None,
+                    min_confidence=min_confidence,
+                )
+                for row in rows
+            ]
         clauses = ["status = ANY($1::text[])", "confidence >= $2"]
         params: list[Any] = [list(statuses), float(min_confidence)]
         idx = 3
