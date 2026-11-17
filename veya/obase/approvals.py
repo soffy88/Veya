@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from veya.obase.audit_chain import DEFAULT_TENANT, safe_append
+from veya.obase.audit_chain import safe_append
 
 DEFAULT_APPROVALS_PATH = "~/.veya/approvals.db"
 
@@ -171,7 +171,6 @@ class ApprovalStore:
 
         safe_append(
             action=action,
-            tenant=DEFAULT_TENANT,
             actor=str(row.get("actor") or ""),
             object_id=str(row.get("request_id") or ""),
             detail={

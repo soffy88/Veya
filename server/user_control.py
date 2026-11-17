@@ -764,12 +764,11 @@ async def ask_question(question: str, options: list[str] | None = None) -> str:
 async def user_control_policy(name: str, kwargs: dict, source: str) -> str | None:
     """Plan mode = read-only allowlist; freeze = writes locked to one subdir; HITL on high-impact."""
     from server.action_risk import RISK_DESTRUCTIVE, RISK_OUTBOUND, classify_action
-    from veya.obase.audit_chain import DEFAULT_TENANT, safe_append
+    from veya.obase.audit_chain import safe_append
 
     _risk_tier = classify_action(name, kwargs)
     safe_append(
         action="risk.asked",
-        tenant=DEFAULT_TENANT,
         actor=str(source),
         object_id=name,
         detail={"risk": _risk_tier},
@@ -778,7 +777,6 @@ async def user_control_policy(name: str, kwargs: dict, source: str) -> str | Non
     if _risk_tier in {RISK_OUTBOUND, RISK_DESTRUCTIVE}:
         safe_append(
             action="risk.allowed" if verdict is None else "risk.denied",
-            tenant=DEFAULT_TENANT,
             actor=str(source),
             object_id=name,
             detail={"risk": _risk_tier, "reason": str(verdict or "")[:500]},

@@ -567,7 +567,25 @@ class AuthGateMiddleware:
             await _send_401(send)
             return
         _user_ctx.set(user)
-        await self.app(scope, receive, send)
+        # Tenant is resolved once, server-side, from the authenticated user and
+        # the ASGI Host. Never read a client-supplied tenant field.
+        from veya.obase.tenant import (
+            TenantResolutionError,
+            bind_tenant_context,
+            reset_tenant_context,
+            resolve_tenant_context,
+        )
+
+        try:
+            tenant = resolve_tenant_context(scope, user)
+        except TenantResolutionError:
+            await _send_403(send, "tenant not allowed")
+            return
+        token_ctx = bind_tenant_context(tenant)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            reset_tenant_context(token_ctx)
 
 
 async def _send_401(send: Any) -> None:
@@ -578,6 +596,23 @@ async def _send_401(send: Any) -> None:
         {
             "type": "http.response.start",
             "status": 401,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
+
+
+async def _send_403(send: Any, detail: str) -> None:
+    import json as _json
+
+    body = _json.dumps({"detail": detail}, ensure_ascii=False).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 403,
             "headers": [
                 (b"content-type", b"application/json"),
                 (b"content-length", str(len(body)).encode()),

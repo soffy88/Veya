@@ -98,11 +98,10 @@ class SideEffectLedger:
                 # Durable tenant-scoped chain: same side-effect evidence,
                 # independent of the in-memory per-run receipt chain.
                 try:
-                    from veya.obase.audit_chain import DEFAULT_TENANT, safe_append
+                    from veya.obase.audit_chain import safe_append
 
                     safe_append(
                         action="tool.side_effect",
-                        tenant=DEFAULT_TENANT,
                         actor=bot_id,
                         object_id=operation_key,
                         detail={

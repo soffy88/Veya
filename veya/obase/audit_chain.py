@@ -160,7 +160,7 @@ class AuditChainStore:
         self,
         *,
         action: str,
-        tenant: str = DEFAULT_TENANT,
+        tenant: str | None = None,
         actor: str = "",
         object_id: str = "",
         detail: dict[str, Any] | None = None,
@@ -170,7 +170,14 @@ class AuditChainStore:
 
         if action not in AUDIT_ACTIONS:
             raise ValueError(f"unknown audit action: {action}")
-        tid = str(tenant)
+        # Resolve the server-side tenant at write time so a long-lived process
+        # cannot write another request's tenant hash.
+        if tenant is None:
+            from veya.obase.tenant import current_tenant
+
+            tid = str(current_tenant().tenant_id)
+        else:
+            tid = str(tenant)
         if not tid or len(tid) > 256:
             raise ValueError("invalid audit tenant")
         safe_detail = dict(detail or {})
@@ -289,7 +296,7 @@ def configure_audit_chain_store(store: AuditChainStore | None) -> AuditChainStor
     return _store
 
 
-def safe_append(*, action: str, tenant: str = DEFAULT_TENANT, **fields: Any) -> dict[str, Any] | None:
+def safe_append(*, action: str, tenant: str | None = None, **fields: Any) -> dict[str, Any] | None:
     """Best-effort audit write: failures are logged, never raised into a turn."""
 
     if not audit_chain_enabled():
