@@ -60,6 +60,7 @@ ENGINE_ALIASES = {
     "dsh": "dsh",
     "opencode": "opencode",
     "master": "master",
+    "acp": "acp",
 }
 
 # 容器环境检测 (docker 镜像设 VEYA_WORKSPACE=/app; /.dockerenv 兜底)
@@ -424,6 +425,8 @@ async def run_engine(
     """
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
+    if engine == "acp":
+        return await _run_acp_engine(prompt, cwd=cwd, timeout_s=timeout_s)
     if reason := _container_engine_block(engine):
         return {"ok": False, "error": reason}
     _, wall_timeout_s = _resolve_timeouts(engine, timeout_s)
@@ -509,6 +512,15 @@ async def stream_engine(
     """
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
+    if engine == "acp":
+        result = await _run_acp_engine(prompt, cwd=cwd, timeout_s=timeout_s)
+        if not result.get("ok"):
+            yield {"type": "engine_error", "engine": engine, "error": result.get("error", "")}
+            return
+        if result.get("text"):
+            yield {"type": "text_delta", "engine": engine, "delta": result["text"]}
+        yield {"type": "engine_done", "engine": engine, "status": "success"}
+        return
     if reason := _container_engine_block(engine):
         yield {"type": "engine_error", "engine": engine, "error": reason}
         return
@@ -720,6 +732,42 @@ async def stream_engine(
         "cost_usd": round(cost_usd, 6),
         "model": model_name,
     }
+
+
+async def _run_acp_engine(
+    prompt: str,
+    *,
+    cwd: str | None = None,
+    timeout_s: float | None = None,
+) -> dict[str, object]:
+    """Run one ACP prompt through a supervised stdio adapter.
+
+    The adapter child is started in its own process group and closed through
+    the shared ``terminate_process`` supervisor. Missing binaries or disabled
+    adapter degrade to a structured error, never a 500.
+    """
+    from server.acp import ACPClient, acp_enabled
+    from server.acp.registry import adapter_for
+
+    if not acp_enabled():
+        return {"ok": False, "error": "ACP is disabled (set VEYA_ACP=1)"}
+    adapter_name = str(os.environ.get("VEYA_ACP_ADAPTER") or "codex")
+    try:
+        adapter = adapter_for(adapter_name)
+    except RuntimeError as exc:
+        return {"ok": False, "error": str(exc)}
+    client = ACPClient(
+        list(adapter.argv),
+        cwd=cwd,
+        request_timeout_s=timeout_s or _resolve_timeouts("acp", None)[1],
+    )
+    try:
+        result = await client.prompt(prompt, session_id=await client.new_session(cwd=cwd))
+        return result.to_dict()
+    except Exception as exc:
+        return {"ok": False, "error": f"ACP engine failed: {exc}"}
+    finally:
+        await client.close()
 
 
 async def _run_external_cli(

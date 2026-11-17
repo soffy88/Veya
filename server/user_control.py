@@ -763,6 +763,29 @@ async def ask_question(question: str, options: list[str] | None = None) -> str:
 
 async def user_control_policy(name: str, kwargs: dict, source: str) -> str | None:
     """Plan mode = read-only allowlist; freeze = writes locked to one subdir; HITL on high-impact."""
+    from server.action_risk import RISK_DESTRUCTIVE, RISK_OUTBOUND, classify_action
+    from veya.obase.audit_chain import safe_append
+
+    _risk_tier = classify_action(name, kwargs)
+    safe_append(
+        action="risk.asked",
+        actor=str(source),
+        object_id=name,
+        detail={"risk": _risk_tier},
+    )
+    verdict = await _user_control_policy_inner(name, kwargs, source)
+    if _risk_tier in {RISK_OUTBOUND, RISK_DESTRUCTIVE}:
+        safe_append(
+            action="risk.allowed" if verdict is None else "risk.denied",
+            actor=str(source),
+            object_id=name,
+            detail={"risk": _risk_tier, "reason": str(verdict or "")[:500]},
+        )
+    return verdict
+
+
+async def _user_control_policy_inner(name: str, kwargs: dict, source: str) -> str | None:
+    """Existing policy body, with the final verdict audited by the caller."""
     if current_mode() == "plan" and name not in PLAN_ALLOW:
         return (
             f"plan mode: '{name}' writes or executes. Stay read-only, draft a plan "

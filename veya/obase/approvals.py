@@ -30,6 +30,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from veya.obase.audit_chain import safe_append
+
 DEFAULT_APPROVALS_PATH = "~/.veya/approvals.db"
 
 STATUS_PENDING = "pending"
@@ -164,6 +166,21 @@ class ApprovalStore:
             )
             self._conn.commit()
 
+    def _audit(self, action: str, row: dict[str, Any]) -> None:
+        """Log an approval decision into the tenant-scoped hash chain."""
+
+        safe_append(
+            action=action,
+            actor=str(row.get("actor") or ""),
+            object_id=str(row.get("request_id") or ""),
+            detail={
+                "scope": str(row.get("scope") or ""),
+                "tool": str(row.get("tool") or ""),
+                "status": str(row.get("status") or ""),
+                "decision": str(row.get("decision") or ""),
+            },
+        )
+
     # ── approvals ────────────────────────────────────────────────────
     def create_approval(self, record: dict[str, Any]) -> dict[str, Any]:
         now = time.time()
@@ -212,7 +229,9 @@ class ApprovalStore:
                 ),
             )
             self._conn.commit()
-        return self.get_approval(row["request_id"]) or row
+        created = self.get_approval(row["request_id"]) or row
+        self._audit("approval.requested", created)
+        return created
 
     def get_approval(self, request_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -298,7 +317,10 @@ class ApprovalStore:
             self._conn.commit()
             if cursor.rowcount == 0:
                 return None
-        return self.get_approval(request_id)
+        updated = self.get_approval(request_id)
+        if updated is not None:
+            self._audit("approval.resolved", updated)
+        return updated
 
     # ── turn resumes (Autoloop graft item 1) ─────────────────────────
     def create_turn_resume(self, record: dict[str, Any]) -> dict[str, Any]:

@@ -273,6 +273,7 @@ _TABLES = (
     """
     CREATE TABLE IF NOT EXISTS memory_records (
         id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL DEFAULT 'default',
         scope_type TEXT NOT NULL,
         scope_id TEXT NOT NULL,
         memory_type TEXT NOT NULL,
@@ -569,4 +570,35 @@ POSTGRES_ADDITIVE_COLUMNS = (
     # Agent-runtime goal text. Same idempotent pattern: pre-existing
     # databases gain the column with an empty default, no version bump.
     "ALTER TABLE goal_runs ADD COLUMN IF NOT EXISTS goal_text TEXT NOT NULL DEFAULT ''",
+)
+
+# Additive audit chain: an independent table, no existing schema/ABI change.
+# Applied under the same advisory lock as the durable migrate path.
+POSTGRES_ADDITIVE_DDL = (
+    """
+    CREATE TABLE IF NOT EXISTS audit_chain (
+        tenant TEXT NOT NULL,
+        seq BIGINT NOT NULL,
+        prev_hash TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        action TEXT NOT NULL,
+        actor TEXT NOT NULL DEFAULT '',
+        object_id TEXT NOT NULL DEFAULT '',
+        detail TEXT NOT NULL DEFAULT '{}',
+        created_at DOUBLE PRECISION NOT NULL,
+        PRIMARY KEY (tenant, seq)
+    )
+    """,
+    # Buzz-style FTS: generated tsvector + GIN on the durable memory table.
+    # 'simple' avoids language stemming surprises; CJK queries fall back to
+    # the existing ILIKE path. Additive only: no rewrite of existing columns.
+    """
+    ALTER TABLE memory_records
+    ADD COLUMN IF NOT EXISTS search_tsv TSVECTOR
+    GENERATED ALWAYS AS (to_tsvector('simple', coalesce(content, '') || ' ' || coalesce(tags, ''))) STORED
+    """,
+    # Server-supplied tenant only; never inferred from client payload.
+    "ALTER TABLE memory_records ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'",
+    "CREATE INDEX IF NOT EXISTS memory_search_tsv_idx ON memory_records USING GIN (search_tsv)",
+    "CREATE INDEX IF NOT EXISTS memory_tenant_idx ON memory_records (tenant_id, scope_type, scope_id)",
 )
