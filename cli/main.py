@@ -270,6 +270,11 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_auth_cli(argv[1:])
 
+    if argv and argv[0] == "audit-chain":
+        from server.audit_chain_admin import run_audit_chain_cli
+
+        return run_audit_chain_cli(argv[1:])
+
     # 产品化子命令: veya init / start / doctor / upgrade / migrate / code
     if argv and argv[0] in _PRODUCT_COMMANDS:
         from cli import product

@@ -95,6 +95,29 @@ class SideEffectLedger:
                 )
                 chain.append(receipt)
                 self._receipt_operations.add((goal_run_id, operation_key))
+                # Durable tenant-scoped chain: same side-effect evidence,
+                # independent of the in-memory per-run receipt chain.
+                try:
+                    from veya.obase.audit_chain import DEFAULT_TENANT, safe_append
+
+                    safe_append(
+                        action="tool.side_effect",
+                        tenant=DEFAULT_TENANT,
+                        actor=bot_id,
+                        object_id=operation_key,
+                        detail={
+                            "goal_run_id": goal_run_id,
+                            "work_item_id": work_item_id,
+                            "operation_type": operation_type,
+                            "capability": capability,
+                            "target_ref": target_ref,
+                            "receipt_digest": receipt.signature,
+                        },
+                    )
+                except Exception:
+                    # safe_append is already best-effort; a broken import must
+                    # still never alter the side-effect path.
+                    pass
                 return receipt
         except Exception:
             self.receipt_failures += 1

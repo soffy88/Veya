@@ -26,6 +26,7 @@ from runtime.bot_scope import DEFAULT_BOT_ID
 
 from .schema import (
     POSTGRES_ADDITIVE_COLUMNS,
+    POSTGRES_ADDITIVE_DDL,
     POSTGRES_SCHEMA,
     POSTGRES_UPGRADES,
     SCHEMA_VERSION,
@@ -333,6 +334,8 @@ class DurableExecutionRepository:
                 # P3-A additive columns: idempotent, applied on every migrate
                 # (no SCHEMA_VERSION bump) so pre-P3-A databases gain bot_id.
                 for statement in POSTGRES_ADDITIVE_COLUMNS:
+                    await conn.execute(statement)
+                for statement in POSTGRES_ADDITIVE_DDL:
                     await conn.execute(statement)
                 current_version = await conn.fetchval(
                     "SELECT COALESCE(MAX(version),0) FROM execution_schema_meta"
