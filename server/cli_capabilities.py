@@ -45,6 +45,7 @@ CANONICAL_NAMES: tuple[str, ...] = (
     "pi",
     "dsh",
     "opencode",
+    "acp",
 )
 
 #: Aliases accepted on lookup. ``engine_runner`` talks about ``claude``; the
@@ -55,6 +56,7 @@ _ALIASES = {
     "claude_code": "claude_code",
     "open-code": "opencode",
     "opencode_go": "opencode",
+    "acp": "acp",
 }
 
 
@@ -155,6 +157,18 @@ _CAPABILITIES: dict[str, CliCapability] = {
         output_format="json",
         # `--auto` (worktree writes) is only added for a verified coding mode;
         # the default record therefore stays read-only.
+        permission_scope="read_only",
+        default_idle_timeout_s=480.0,
+        default_wall_timeout_s=600.0,
+    ),
+    "acp": CliCapability(
+        name="acp",
+        binary="acp",
+        # ACP sessions are persistent via session/new + session/prompt.
+        supports_resume=True,
+        supports_streaming=False,
+        output_format="json",
+        # Permission scope is decided per request by session/request_permission.
         permission_scope="read_only",
         default_idle_timeout_s=480.0,
         default_wall_timeout_s=600.0,
