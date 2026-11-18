@@ -177,6 +177,41 @@ async def test_run_script_uses_args_execution():
         await executor.stop()
 
 
+@pytest.mark.asyncio
+async def test_legacy_bwrap_preserves_dev_null():
+    """The network-isolation wrapper must not break /dev/null in the child.
+
+    bwrap installs its own /dev after the root bind. Without an explicit
+    device-tree bind, Python cannot open /dev/urandom and even the trusted
+    resource-limit prefix fails on `2>/dev/null`.
+    """
+    import shutil
+    import subprocess
+
+    from veya.sandbox import SafeExecutor, SandboxConfig
+
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        pytest.skip("bubblewrap is not installed")
+    probe = subprocess.run(
+        [bwrap, "--unshare-net", "--bind", "/", "/", "--", "true"],
+        capture_output=True,
+        timeout=5,
+    )
+    if probe.returncode != 0:
+        pytest.skip("unprivileged bubblewrap namespaces are unavailable")
+
+    executor = SafeExecutor(config=SandboxConfig(time_limit=5, memory_limit=64 * 1024 * 1024))
+    await executor.start()
+    try:
+        result = await executor.execute("printf ok >/dev/null && ulimit -v")
+        assert result["exit_code"] == 0, result["stderr"]
+        assert result["stdout"].strip() == "65536"
+        assert "/dev/null" not in result["stderr"]
+    finally:
+        await executor.stop()
+
+
 # ── 单源守卫：tools.py 委托与 sandbox canonical 一致（§1.4） ─────────
 def test_tools_delegates_to_canonical_danger_check():
     from veya.tools import TerminalTool
