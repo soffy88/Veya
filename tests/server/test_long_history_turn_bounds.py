@@ -73,10 +73,12 @@ async def test_compaction_summary_input_is_capped(monkeypatch: pytest.MonkeyPatc
 
     assert summary == "summary"
     assert seen, "summary llm was not called"
-    assert "[较早内容已截断]" in seen[0]
-    # The rendered conversation is capped; the small instruction wrapper is not
-    # part of the cap but is a fixed, tiny prefix.
-    assert len(seen[0]) < 1200
+    # The renderer now keeps the most recent `max_chars` verbatim (tail window)
+    # instead of inserting a Chinese truncation marker. Assert the observable
+    # contract: the conversation part is capped and recent content survives.
+    convo = seen[0].split("对话片段:\n", 1)[1].split("\n\n请输出摘要。", 1)[0]
+    assert len(convo) <= 1000
+    assert "y" * 100 in convo
 
 
 @pytest.mark.asyncio
