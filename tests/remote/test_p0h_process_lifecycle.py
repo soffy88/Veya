@@ -150,7 +150,10 @@ async def test_a_refused_call_issues_no_execution_id(repo: Path) -> None:
         session,
         "shell.exec",
         {
-            "command": f'{PY} -c "import sys; sys.exit(0)"',
+            # A hard-denied catastrophic command must produce no handle at all.
+            # A plain `python -c` is now an admitted inline runtime (LOCAL2-R3),
+            # so it can no longer be used as the refusal fixture.
+            "command": "rm -rf /",
             "workspace": str(repo),
             "wait": True,
         },
