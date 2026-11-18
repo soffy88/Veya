@@ -79,7 +79,8 @@ class TestMasterBotCommunication:
 
         # Result must have all required fields
         assert result.bot_id == "test-bot-master-delegation"
-        assert result.status in ("success", "failed")
+        # Public status mirrors the canonical GoalRun terminal state.
+        assert result.status in ("completed", "failed", "paused")
         assert result.instance_id != ""
 
         # Result must be a BotExecutionResult
