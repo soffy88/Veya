@@ -32,6 +32,9 @@ class FakeTools:
     def has(self, name: str) -> bool:
         return False
 
+    def register(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
     async def execute(self, name: str, kwargs: dict) -> str:
         return "[tool executed]"
 
@@ -163,8 +166,8 @@ async def test_coordinator_long_task_quota_pause_wired():
 
 @pytest.mark.asyncio
 async def test_coordinator_default_no_long_task():
-    """默认无 factory: 行为与原来一致 (语义完成 completed)。"""
+    """默认无 factory: MasterAgent 正常返回 success。"""
     coord = _make_coordinator()
     result = await coord.chat_stream("hi", session_id="s2")
-    assert result["status"] == "completed"
+    assert result["status"] == "success"
     assert result["final_answer"] == "done"
