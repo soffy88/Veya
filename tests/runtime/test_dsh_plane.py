@@ -127,7 +127,7 @@ def test_canonical_runner_routes_through_goalrun_authority(monkeypatch):
     tasks = seen["tasks"]
     assert isinstance(tasks, list) and len(tasks) == 1
     # the selected executor is carried by the canonical execution task
-    assert tasks[0]["assignee"] in {"builtin", "hicode"}
+    assert tasks[0]["assignee"] == "antigravity"
     assert tasks[0]["instruction"] == "g"
     assert out.final_summary == "done"
 
@@ -156,7 +156,7 @@ def test_canonical_runner_blocks_when_no_executor_is_eligible(monkeypatch):
                 local=False,
                 capability_satisfied=True,
                 reachable=True,
-                authenticated=True,
+                credential_valid=True,
                 admission_supported=True,
                 provider_dependency=True,
                 health="UNAVAILABLE",

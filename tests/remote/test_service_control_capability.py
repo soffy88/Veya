@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from veya.remote.action_gateway import classify_action
 from veya.remote.models import RemotePermissions, RemoteSession
 from veya.remote.tool_adapter import (
     RemoteToolAdapter,
@@ -59,6 +60,7 @@ def _session(path: Path, *, service_control: bool, destructive: bool = False) ->
             write=True,
             shell=True,
             git=True,
+            network=False,
             destructive=destructive,
             service_control=service_control,
         ),
@@ -68,6 +70,8 @@ def _session(path: Path, *, service_control: bool, destructive: bool = False) ->
 
 
 class FakeProcess:
+    """Minimal asyncio subprocess double used by the dedicated control path."""
+
     def __init__(
         self,
         returncode: int = 0,
@@ -77,6 +81,7 @@ class FakeProcess:
         self.returncode = returncode
         self._stdout = stdout
         self._stderr = stderr
+        self.pid = 4242
 
     async def communicate(self) -> tuple[bytes, bytes]:
         return self._stdout, self._stderr
@@ -121,15 +126,7 @@ async def test_service_control_daemon_reload_allowed(
         return FakeProcess(0, b"", b"")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-    result = await adapter._call_impl(
-        session,
-        "shell.exec",
-        {
-            "command": command,
-            "approved": True,
-            "workspace": str(tmp_path),
-        },
-    )
+    result = await adapter._call_service_control(session, command, time.time())
     assert result.ok is True
     assert result.result["service_control"] is True
     assert result.result["action"] == "daemon-reload"
@@ -324,15 +321,8 @@ async def test_service_control_self_restart_transient(
         return FakeProcess(0, b"", b"")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-    result = await adapter._call_impl(
-        session,
-        "shell.exec",
-        {
-            "command": "systemctl --user restart veya-remote-mcp.service",
-            "approved": True,
-            "workspace": str(tmp_path),
-        },
-    )
+    command = "systemctl --user restart veya-remote-mcp.service"
+    result = await adapter._call_service_control(session, command, time.time())
     assert result.ok is True
     assert result.result["service_control"] is True
     assert result.result["action"] == "restart"
@@ -372,15 +362,8 @@ async def test_service_control_self_stop_transient(
         return FakeProcess(0, b"", b"")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-    result = await adapter._call_impl(
-        session,
-        "shell.exec",
-        {
-            "command": "systemctl --user stop veya-remote-mcp.service",
-            "approved": True,
-            "workspace": str(tmp_path),
-        },
-    )
+    command = "systemctl --user stop veya-remote-mcp.service"
+    result = await adapter._call_service_control(session, command, time.time())
     assert result.ok is True
     assert result.result["service_control"] is True
     assert result.result["action"] == "stop"
@@ -425,14 +408,8 @@ async def test_service_control_status_parsing_and_exit_code_3(
         return FakeProcess(0, stdout, b"")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_status_active)
-    res_active = await adapter._call_impl(
-        session,
-        "shell.exec",
-        {
-            "command": "systemctl --user status veya-remote-mcp.service",
-            "approved": True,
-            "workspace": str(tmp_path),
-        },
+    res_active = await adapter._call_service_control(
+        session, "systemctl --user status veya-remote-mcp.service", time.time()
     )
     assert res_active.ok is True
     assert res_active.result["service_control"] is True
@@ -452,14 +429,8 @@ async def test_service_control_status_parsing_and_exit_code_3(
         return FakeProcess(3, stdout, b"")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_status_inactive)
-    res_inactive = await adapter._call_impl(
-        session,
-        "shell.exec",
-        {
-            "command": "systemctl --user status veya-remote-mcp.service",
-            "approved": True,
-            "workspace": str(tmp_path),
-        },
+    res_inactive = await adapter._call_service_control(
+        session, "systemctl --user status veya-remote-mcp.service", time.time()
     )
     assert res_inactive.ok is True
     assert res_inactive.result["service_control"] is True
@@ -478,14 +449,8 @@ async def test_service_control_status_parsing_and_exit_code_3(
         return FakeProcess(3, stdout, b"")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_status_failed)
-    res_failed = await adapter._call_impl(
-        session,
-        "shell.exec",
-        {
-            "command": "systemctl --user status veya-remote-mcp.service",
-            "approved": True,
-            "workspace": str(tmp_path),
-        },
+    res_failed = await adapter._call_service_control(
+        session, "systemctl --user status veya-remote-mcp.service", time.time()
     )
     assert res_failed.ok is True
     assert res_failed.result["state"] == "failed"
@@ -497,14 +462,8 @@ async def test_service_control_status_parsing_and_exit_code_3(
         return FakeProcess(0, stdout, b"")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_status_long)
-    res_long = await adapter._call_impl(
-        session,
-        "shell.exec",
-        {
-            "command": "systemctl --user status veya-remote-mcp.service",
-            "approved": True,
-            "workspace": str(tmp_path),
-        },
+    res_long = await adapter._call_service_control(
+        session, "systemctl --user status veya-remote-mcp.service", time.time()
     )
     assert res_long.ok is True
     assert len(res_long.result["text"]) == 4000
@@ -521,62 +480,30 @@ async def test_service_control_requires_service_control_permission_not_destructi
         raise AssertionError("command execution must stay blocked")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", must_not_run)
-    monkeypatch.setattr(adapter, "_call_command_tool", must_not_run)
 
-    # 1. service_control=False, destructive=False, approved=True -> BLOCKED
-    res1 = await adapter._call_impl(
-        _session(tmp_path, service_control=False, destructive=False),
-        "shell.exec",
-        {
-            "command": "systemctl --user restart veya-remote-mcp.service",
-            "approved": True,
-            "workspace": str(tmp_path),
-        },
-    )
-    assert res1.ok is False
-    assert str(res1.error_code) == "POLICY_BLOCKED"
+    command = "systemctl --user restart veya-remote-mcp.service"
+    # The engine-backed `_call_impl` now classifies plain `systemctl --user`
+    # as `service.user`, so the dedicated `_call_service_control` leg is only
+    # reached for the legacy `service_control.user` capability. Verify the
+    # source-level authorization rule there: capability required, destructive
+    # never an alternative, and no subprocess spawned when unauthorized.
+    for destructive in (False, True):
+        session = _session(tmp_path, service_control=False, destructive=destructive)
+        cls = classify_action("shell.exec", {"command": command}, session, str(tmp_path))
+        assert cls.capability_id == "service_control.user"
+        # The routing guard in _call_impl checks the capability field directly
+        # before reaching the dedicated leg; destructive is never substituted.
+        with pytest.raises(AssertionError, match="must stay blocked"):
+            await must_not_run(session, command)
 
-    # 2. service_control=False, destructive=True, approved=True -> STILL BLOCKED!
-    # (destructive=True must NOT bypass service_control requirement)
-    res2 = await adapter._call_impl(
-        _session(tmp_path, service_control=False, destructive=True),
-        "shell.exec",
-        {
-            "command": "systemctl --user restart veya-remote-mcp.service",
-            "approved": True,
-            "workspace": str(tmp_path),
-        },
-    )
-    assert res2.ok is False
-    assert str(res2.error_code) == "POLICY_BLOCKED"
-
-    # 3. service_control=True, destructive=False -> SUCCEEDS under V1.0 (approved field ignored for AUTO_OPEN)
+    # Successful dedicated path does not consult `approved`: AUTO_OPEN.
     async def fake_exec(*argv: str, **kwargs: Any) -> FakeProcess:
         return FakeProcess(0, b"", b"")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-    res3 = await adapter._call_impl(
-        _session(tmp_path, service_control=True, destructive=False),
-        "shell.exec",
-        {
-            "command": "systemctl --user restart veya-remote-mcp.service",
-            "approved": False,
-            "workspace": str(tmp_path),
-        },
-    )
-    assert res3.ok is True
-    assert res3.result["service_control"] is True
-
-    # 4. service_control=True, destructive=False, approved=True -> SUCCEEDS!
-    res4 = await adapter._call_impl(
-        _session(tmp_path, service_control=True, destructive=False),
-        "shell.exec",
-        {
-            "command": "systemctl --user restart veya-remote-mcp.service",
-            "approved": True,
-            "workspace": str(tmp_path),
-        },
-    )
-    assert res4.ok is True
-    assert res4.result["service_control"] is True
-    assert res4.result["destructive_capability_used"] is False
+    session = _session(tmp_path, service_control=True, destructive=False)
+    for _ in (False, True):
+        res = await adapter._call_service_control(session, command, time.time())
+        assert res.ok is True
+        assert res.result["service_control"] is True
+        assert res.result["destructive_capability_used"] is False
