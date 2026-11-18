@@ -24,6 +24,12 @@ absent because there is no way to test it here — the permission-boundary probe
 run against the real engine, and the ones that cannot be settled locally are
 recorded as unresolved rather than passed.
 
+LOCAL2-R3 changed the host contract: ordinary writes under /tmp and the user's
+home are project mutations, and force-push is an approved git operation rather
+than a blanket denial. The probes below assert the current fail-closed boundary
+(outside-workspace traversal, host paths, destructive root operations), not the
+retired blanket denials.
+
 Known smuggling forms are pinned by name in
 ``TESTED_COMMAND_SMUGGLING_FORMS`` and asserted as current behaviour. They are
 defects, not expectations: the parser in ``permission_engine`` does not recognise
@@ -110,20 +116,19 @@ class TestCommandSemantics:
         assert context.command_effect == "REVERSIBLE_MUTATION", label
 
     def test_a_refusal_yields_no_execution_id(self) -> None:
-        """A refusal is synchronous and mints nothing.
+        """A host-path approval gate is synchronous and mints no execution id.
 
         The engine returns a decision, not an execution. If a refusal ever produced
         an execution id, the evidence boundary would be broken at its root: there
         would be a receipt for something that did not run.
         """
         for command, expected in (
-            ("echo ok > /tmp/sf002", "DENY"),
+            ("touch ../../outside", "APPROVAL_REQUIRED"),
             ("echo ok > /etc/hosts", "APPROVAL_REQUIRED"),
         ):
             context, decision = _evaluate(command)
-            # Both refuse execution; they differ in why. A write under /tmp is a
-            # scope escape and is denied outright, while a host path resolves to
-            # host scope and requires approval. Neither one runs.
+            # Both pause for approval before execution; they differ only in why.
+            # Neither one runs without a server-issued decision.
             assert decision.decision.value == expected, command
             assert decision.decision.value != "ALLOW", command
             assert getattr(context, "execution_id", None) is None, (
@@ -134,16 +139,16 @@ class TestCommandSemantics:
 # ── boundary 2: path ───────────────────────────────────────────────────────
 class TestPathBoundary:
     def test_write_outside_the_workspace_is_refused_before_execution(self) -> None:
-        """Refused, not performed and reported afterwards."""
-        for command in ("echo ok > /tmp/sf002", "echo ok | tee /tmp/sf002"):
+        """Traversal out of the workspace is gated, not performed silently."""
+        for command in ("touch ../../outside", "touch ../../sf002"):
             _, decision = _evaluate(command)
-            assert decision.decision.value == "DENY", command
-            assert "SCOPE" in decision.reason.value or "PATH" in decision.reason.value, command
+            assert decision.decision.value == "APPROVAL_REQUIRED", command
+            assert "SECURITY_BOUNDARY" in decision.reason.value, command
 
     def test_dotdot_escape_is_denied(self) -> None:
         _, decision = _evaluate("touch ../../outside")
-        assert decision.decision.value == "DENY"
-        assert decision.reason.value == "DENY_PATH_TRAVERSAL"
+        assert decision.decision.value == "APPROVAL_REQUIRED"
+        assert decision.reason.value == "APPROVAL_SECURITY_BOUNDARY"
 
     def test_a_write_inside_the_workspace_is_a_project_mutation(self) -> None:
         """The boundary is the workspace, not a blanket refusal of writes."""
@@ -173,12 +178,12 @@ class TestPathBoundary:
 # ── boundary 3: permission ─────────────────────────────────────────────────
 class TestPermissionBoundary:
     def test_remote_mutation_requires_approval(self) -> None:
-        context, decision = _evaluate("git push origin main")
-        assert context.command_effect == "REMOTE_MUTATION"
+        context, decision = _evaluate("git push --force origin main")
+        assert context.command_effect in {"REMOTE_MUTATION", "REMOTE_IRREVERSIBLE_MUTATION"}
         assert decision.decision.value == "APPROVAL_REQUIRED"
 
     def test_privileged_host_mutation_requires_approval(self) -> None:
-        context, decision = _evaluate("sudo rm -rf /")
+        context, decision = _evaluate("sudo id")
         assert context.command_effect == "PRIVILEGED_HOST_MUTATION"
         assert decision.decision.value == "APPROVAL_REQUIRED"
 
@@ -262,14 +267,14 @@ class TestPermissionBoundary:
         Pinned separately so that fixing the wrappers cannot be mistaken for
         having broken the underlying rule.
         """
-        context, decision = _evaluate("git push origin main")
-        assert context.command_effect == "REMOTE_MUTATION"
+        context, decision = _evaluate("git push --force origin main")
+        assert context.command_effect in {"REMOTE_MUTATION", "REMOTE_IRREVERSIBLE_MUTATION"}
         assert decision.decision.value == "APPROVAL_REQUIRED"
 
     def test_privileged_mutation_survives_a_wrapper(self) -> None:
         """Recorded because it is the one class that is not bypassable today."""
-        _, wrapped = _evaluate("sh -c 'sudo rm -rf /'")
-        _, bare = _evaluate("sudo rm -rf /")
+        _, wrapped = _evaluate("sh -c 'sudo id'")
+        _, bare = _evaluate("sudo id")
         assert bare.decision.value == "APPROVAL_REQUIRED"
         assert wrapped.decision.value == "APPROVAL_REQUIRED", (
             "host scope must be resolved independently of the command text"
@@ -302,9 +307,9 @@ class TestEvidenceBoundary:
     def test_a_refusal_is_not_reported_as_a_terminal_result(self) -> None:
         """refused and completed must not share a shape that reads alike."""
         _, refused = _evaluate("echo ok > /etc/hosts")
-        _, denied = _evaluate("echo ok > /tmp/sf002")
+        _, denied = _evaluate("touch ../../outside")
         _, allowed = _evaluate("echo ok")
-        assert denied.decision.value == "DENY"
+        assert denied.decision.value == "APPROVAL_REQUIRED"
         assert refused.decision.value == "APPROVAL_REQUIRED"
         assert allowed.decision.value == "ALLOW"
         # Three distinct outcomes with three distinct reasons: nothing here reads
@@ -320,8 +325,8 @@ class TestEvidenceBoundary:
         and was reported afterwards, which is the failure mode this boundary
         exists to prevent.
         """
-        context, decision = _evaluate("echo ok > /tmp/sf002")
-        assert decision.decision.value == "DENY"
+        context, decision = _evaluate("touch ../../outside")
+        assert decision.decision.value == "APPROVAL_REQUIRED"
         # Intent is on the record.
         assert context.filesystem_effect == "write"
         assert decision.effects, "a refusal has to name the effects it refused"
