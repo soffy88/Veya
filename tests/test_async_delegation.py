@@ -16,7 +16,7 @@ from server.bot_team.delegations import (
 )
 from server.bot_team.messaging import BotMessageRefused, BotMessenger
 from server.bot_team.tool import delegate_bot, list_bots
-from server.bot_team.turns import run_bot_turn
+from server.bot_team.turns import DELEGATION_MATERIALS_TEXT, PEER_MATERIALS_TEXT, run_bot_turn
 from server.events import EventStore
 from server.goal_run.bot_identity import (
     BotRegistry,
@@ -161,18 +161,20 @@ async def test_drain_runs_target_turn_and_follow_up(dlg_env, monkeypatch):
     _fake_master(monkeypatch, {"alpha": "say:alpha", "beta": "say:beta"}, seen)
     store = ConversationStore(dlg_env["root"])
     messenger = BotMessenger(registry, conversations=store)
-    receipt = await messenger.delegate("alpha", "beta", "do the thing", depth=0)
+    await messenger.delegate("alpha", "beta", "do the thing", depth=0)
     outcomes = await process_delegations(conversations=store, user=dict(USER))
     assert len(outcomes) == 1
     assert outcomes[0]["status"] == "done" and outcomes[0]["reply"] == "say:beta"
     assert DelegationStore(root=dlg_env["root"]).list()[0]["status"] == "done"
-    # Beta's conversation got the delegated request.
-    assert any(t == "do the thing" for _, t in _texts(store, "beta"))
-    # Alpha's conversation: the note from message_bot, the follow-up turn
-    # input (the reply), and alpha's own follow-up answer.
+    # Beta's conversation got the delegated request as a materials-bearing
+    # turn (the literal request now lives in the turn objective, not message text).
+    assert any(t == PEER_MATERIALS_TEXT for _, t in _texts(store, "beta"))
+    # Alpha's conversation: the reply delivered by message_bot and then a
+    # new follow-up turn. The reply now travels in the turn's untrusted
+    # materials section, not as literal message text, so assert the visible
+    # follow-up input plus the alpha answer and the ordered target/source turns.
     alpha_texts = [t for _, t in _texts(store, "alpha")]
-    assert "say:beta" in alpha_texts
-    assert alpha_texts.count("say:beta") >= 2
+    assert DELEGATION_MATERIALS_TEXT in alpha_texts
     assert "say:alpha" in alpha_texts
     assert seen == ["beta", "alpha"]
 
@@ -187,9 +189,7 @@ async def test_drain_hook_fires_at_turn_end(dlg_env, monkeypatch):
     await messenger.delegate("alpha", "beta", "do the thing", depth=0)
     spec = registry.get("alpha")
     assert spec is not None
-    result = await run_bot_turn(
-        bot=spec, text="hello", user=dict(USER), conversations=store
-    )
+    result = await run_bot_turn(bot=spec, text="hello", user=dict(USER), conversations=store)
     assert result.reply == "say:alpha"
     # The turn-end hook drained the queue: beta ran, alpha followed up.
     assert DelegationStore(root=dlg_env["root"]).list()[0]["status"] == "done"
