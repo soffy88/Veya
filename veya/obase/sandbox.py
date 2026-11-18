@@ -624,9 +624,9 @@ class Sandbox(ABC):
         # --bind / / keeps the filesystem view identical (write semantics
         # unchanged); the isolation this adds is the network namespace.
         # bwrap replaces /dev after setting up its own mounts, so the root bind
-        # alone leaves /dev/null unusable in the child. Re-bind the host device
-        # tree explicitly; otherwise even `ulimit ... 2>/dev/null` fails and
-        # Python cannot initialize its hash randomisation.
+        # alone leaves /dev/null unusable in the child. Populate the minimal
+        # device set explicitly; otherwise even `ulimit ... 2>/dev/null` fails
+        # and Python cannot initialize its hash randomisation.
         return [
             "bwrap",
             "--die-with-parent",
@@ -634,8 +634,7 @@ class Sandbox(ABC):
             "--bind",
             "/",
             "/",
-            "--dev-bind",
-            "/dev",
+            "--dev",
             "/dev",
             "--",
         ]
