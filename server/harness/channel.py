@@ -21,6 +21,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from veya.obase._llm_config import _DEFAULT_MODELS
+
 #: 显式覆盖用环境变量（与 harness2 的 ``HARNESS2_IMPROVER_MODEL`` 同名同义，
 #: 额外提供 provider 维度的 ``HARNESS2_IMPROVER_PROVIDER``）。
 MODEL_ENV = "HARNESS2_IMPROVER_MODEL"
@@ -28,7 +30,7 @@ PROVIDER_ENV = "HARNESS2_IMPROVER_PROVIDER"
 
 #: DeepSeek Flash：Veya 主脑池第一档（provider opencode-go）。
 DEEPSEEK_FLASH_PROVIDER = "opencode-go"
-DEEPSEEK_FLASH_MODEL = "deepseek-v4.1-flash"
+DEEPSEEK_FLASH_MODEL = _DEFAULT_MODELS[DEEPSEEK_FLASH_PROVIDER]
 
 #: 可用性探测的 max_tokens。DeepSeek Flash 是推理模型，8 token 只会喂饱
 #: reasoning 就撞 length 上限、content 为空——那会被误判成"通道不可用"。
