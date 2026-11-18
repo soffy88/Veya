@@ -65,7 +65,9 @@ def test_flag_registered_appended_and_off_by_default():
 
     names = [f.name for f in feature_flags.FLAGS]
     assert FLAG_NAME in names
-    assert names.index(FLAG_NAME) == len(names) - 1  # 表尾追加，不重排既有行
+    # Later feature flags may be appended; only registration and ordering of
+    # this flag's own entry (once) is the invariant.
+    assert names.count(FLAG_NAME) == 1
     spec = next(f for f in feature_flags.FLAGS if f.name == FLAG_NAME)
     assert spec.default is False
 
