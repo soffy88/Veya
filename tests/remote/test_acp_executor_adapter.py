@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +12,7 @@ import pytest
 from server.acp_client import ACPBackend, ACPError
 from veya.remote.acp_adapter import resolve_acp_command, run_acp_executor
 from veya.remote.execution_contract import probe_runtime_capability_manifest
+from veya.remote.executor_registry import get_executor_registry
 
 
 def test_resolve_acp_command(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -46,11 +48,24 @@ def test_probe_acp_manifest_ready(tmp_path: Path) -> None:
     mock_bin.write_text("#!/bin/sh\necho OpenHands 0.12.0\n")
     mock_bin.chmod(0o755)
 
-    with patch("veya.remote.acp_adapter.resolve_acp_command", return_value=[str(mock_bin)]):
+    # The probe imports resolve_acp_command inside its own function body and
+    # re-resolves the binary via shutil.which. Identity reachability is a
+    # separate registry verdict: patch the registry lookup so this test exercises
+    # the installed-binary/version path rather than this host's provider health.
+    reachable_identity = replace(
+        get_executor_registry().identity("acp"), reachable=True, auth_state="PRESENT"
+    )
+    with (
+        patch("veya.remote.acp_adapter.resolve_acp_command", return_value=["openhands"]),
+        patch("shutil.which", return_value=str(mock_bin)),
+        patch("veya.remote.execution_contract.get_executor_registry") as registry_factory,
+    ):
+        registry_factory.return_value.identity.return_value = reachable_identity
         manifest = probe_runtime_capability_manifest("acp")
         assert manifest.executor_id == "acp"
         assert manifest.status == "READY"
         assert manifest.installed is True
+        assert manifest.reachable is True
         assert manifest.supports_streaming is True
 
 

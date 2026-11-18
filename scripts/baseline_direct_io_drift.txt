@@ -1,0 +1,119 @@
+cli/autonomous_cli.py:134 FILE_R open
+cli/autonomous_cli.py:34 FILE_R open
+cli/autonomous_cli.py:96 FILE_R open
+config/adapters.py:43 FILE_W Path(__file__).resolve
+config/authority.py:363 FILE_W Path.cwd
+server/acp/registry.py:35 FILE_W shutil.which
+server/acp/registry.py:6 EXEC/NET import 'shutil'
+server/action_gateway_adapter.py:171 FILE_W Path.cwd
+server/action_gateway_adapter.py:172 FILE_W Path.cwd
+server/action_gateway_adapter.py:196 FILE_W Path.cwd
+server/action_gateway_adapter.py:197 FILE_W Path.cwd
+server/app.py:626 EXEC/NET import 'urllib.parse'
+server/auth.py:525 EXEC/NET import 'urllib.parse'
+server/bot_runtime/product.py:313 FILE_W os.replace
+server/bot_team/conversations.py:55 FILE_W open
+server/bot_team/conversations.py:59 FILE_W os.replace
+server/bot_team/memory.py:196 FILE_R os.fdopen
+server/bot_team/memory.py:198 FILE_W os.replace
+server/bot_team/memory.py:201 FILE_W os.unlink
+server/bot_team/memory.py:46 EXEC/NET import 'tempfile'
+server/bot_team/push.py:200 FILE_W open
+server/bot_team/push.py:204 EXEC os.chmod
+server/bot_team/push.py:205 FILE_W os.replace
+server/bot_team/push.py:40 EXEC/NET import 'urllib.parse'
+server/bot_team/runner_client.py:149 EXEC/NET import 'httpx'
+server/bot_team/runner_client.py:152 NET httpx.AsyncClient
+server/bot_team/runner_client.py:160 EXEC/NET import 'httpx'
+server/bot_team/runner_client.py:163 NET httpx.AsyncClient
+server/bot_team/sentinel.py:42 EXEC/NET import 'urllib.parse'
+server/bot_team/usage.py:28 EXEC/NET import 'subprocess'
+server/bot_team/usage.py:84 EXEC subprocess.run
+server/cad_sales/trainer.py:23 FILE_W Path(__file__).resolve
+server/channels/wechat.py:104 NET httpx.AsyncClient
+server/channels/wechat.py:18 EXEC/NET import 'httpx'
+server/decision_review_core.py:175 EXEC/NET import 'urllib.parse'
+server/dsh_runtime.py:149 EXEC/NET import 'urllib.parse'
+server/dsh_runtime.py:154 NET httpx.AsyncClient
+server/dsh_runtime.py:20 EXEC/NET import 'httpx'
+server/dsh_runtime.py:202 EXEC/NET import 'urllib.parse'
+server/dsh_runtime.py:96 EXEC/NET import 'shutil'
+server/dsh_runtime.py:98 FILE_W shutil.which
+server/evo_ontology.py:41 FILE_W Path(ws).resolve
+server/evo_ontology.py:42 FILE_W Path.cwd
+server/goal_run/delivery.py:176 EXEC subprocess.run
+server/goal_run/delivery.py:44 EXEC/NET import 'subprocess'
+server/goal_run/delivery.py:45 EXEC/NET import 'tempfile'
+server/goal_run/execution_abi.py:409 FILE_R Path(artifact).exists
+server/goal_run/execution_abi.py:413 FILE_R Path(ref.evidence_locator).exists
+server/goal_run/execution_admission.py:186 EXEC subprocess.run
+server/goal_run/execution_admission.py:30 EXEC/NET import 'subprocess'
+server/goal_run/execution_admission.py:424 FILE_W os.replace
+server/goal_run/execution_delta.py:22 EXEC/NET import 'subprocess'
+server/goal_run/execution_delta.py:46 EXEC subprocess.run
+server/goal_run/execution_delta.py:96 EXEC subprocess.run
+server/goal_run/failover.py:134 FILE_R os.open
+server/goal_run/failover.py:142 FILE_W os.write
+server/goal_run/failover.py:167 FILE_W open
+server/goal_run/failover.py:171 FILE_W os.replace
+server/goal_run/paths.py:40 FILE_W Path.cwd
+server/goal_run/pre_admission.py:230 FILE_W Path(project_root).iterdir
+server/goal_run/routine_dispatch.py:14 EXEC/NET import 'subprocess'
+server/goal_run/routine_dispatch.py:166 EXEC subprocess.run
+server/goal_run/routine_dispatch.py:68 EXEC subprocess.run
+server/goal_run/routine_dispatch.py:83 EXEC subprocess.run
+server/goal_run/routine_registry.py:61 FILE_R Path(spec.workspace_path).exists
+server/goal_run/sandbox_checks.py:128 EXEC os.killpg
+server/goal_run/sandbox_checks.py:159 FILE_R Path(root).is_dir
+server/goal_run/sandbox_checks.py:161 FILE_W shutil.copytree
+server/goal_run/sandbox_checks.py:179 FILE_W shutil.rmtree
+server/goal_run/sandbox_checks.py:28 EXEC/NET import 'shutil'
+server/goal_run/sandbox_checks.py:30 EXEC/NET import 'tempfile'
+server/harness/adapter.py:213 FILE_R Path(path).read_text
+server/harness/export_base_harness.py:168 FILE_W Path(__file__).resolve
+server/harness/export_base_harness.py:18 EXEC/NET import 'shutil'
+server/harness/export_base_harness.py:221 FILE_W shutil.rmtree
+server/harness/export_base_harness.py:225 FILE_W shutil.rmtree
+server/harness/proposer.py:129 FILE_W Path(root).resolve
+server/harness/proposer.py:24 EXEC/NET import 'shutil'
+server/harness/proposer.py:505 FILE_W shutil.rmtree
+server/harness/proposer.py:506 FILE_W shutil.copytree
+server/nano_w10/event_hub.py:443 FILE_R Path(self._rules_path).exists
+server/routes/design.py:117 FILE_W Path.cwd
+server/routes/execution_contract.py:46 FILE_W Path.cwd
+server/routes/push.py:16 EXEC/NET import 'urllib.parse'
+server/routes/review.py:148 NET urllib.parse.unquote
+server/routes/review.py:15 EXEC/NET import 'shutil'
+server/routes/review.py:16 EXEC/NET import 'subprocess'
+server/routes/review.py:17 EXEC/NET import 'urllib.parse'
+server/routes/review.py:171 NET urllib.parse.unquote
+server/routes/review.py:186 FILE_W shutil.which
+server/routes/review.py:203 EXEC subprocess.run
+server/routes/review.py:219 EXEC subprocess.run
+server/routes/review.py:247 EXEC subprocess.run
+server/routes/review.py:265 EXEC subprocess.run
+server/routes/review.py:42 FILE_R Path(repo_path).is_dir
+server/routes/review.py:43 FILE_W Path(repo_path).resolve
+server/routes/session_search.py:120 EXEC/NET import 'httpx'
+server/routes/session_search.py:122 NET httpx.AsyncClient
+server/sandbox_remote_daemon.py:177 FILE_W os.makedirs
+server/sandbox_remote_daemon.py:192 FILE_W os.unlink
+server/sandbox_remote_daemon.py:195 EXEC os.chmod
+server/sandbox_remote_daemon.py:207 FILE_W os.unlink
+server/speckit_skills.py:111 FILE_W Path(__file__).resolve
+server/speckit_workspace.py:140 FILE_W shutil.copyfile
+server/speckit_workspace.py:20 EXEC/NET import 'shutil'
+server/speckit_workspace.py:51 FILE_W Path(__file__).resolve
+server/sse.py:198 FILE_W Path(working_directory).resolve
+server/sse.py:200 FILE_W Path(root).resolve
+server/tailnet_channel.py:18 EXEC/NET import 'socket'
+server/tailnet_channel.py:1915 FILE_W Path(whois_socket).is_socket
+server/tailnet_channel.py:30 EXEC/NET import 'urllib.parse'
+server/tailnet_channel.py:386 NET socket.socket
+server/tool_registry.py:1114 EXEC/NET import 'socket'
+server/tool_registry.py:1115 EXEC/NET import 'urllib.parse'
+server/tool_registry.py:1138 NET socket.getaddrinfo
+server/tool_registry.py:1198 EXEC/NET import 'urllib.parse'
+server/tool_registry.py:1207 NET httpx.AsyncHTTPTransport
+server/workflows/loader.py:13 FILE_W Path.cwd
+veya/oskill/tools.py:619 FILE_W Path(os.environ.get('VEYA_WORKSPACE') or os.getcwd

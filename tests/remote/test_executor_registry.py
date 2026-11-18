@@ -116,7 +116,11 @@ def test_manifest_health_and_dispatch_project_one_identity() -> None:
             identity.provider or "unknown",
             identity.model or "unknown",
         )
-        assert manifest.authenticated == identity.authenticated
+        # Authentication presence on the identity is not proof of a working
+        # credential: the manifest publishes the tri-state probe result.
+        assert manifest.credential_valid == identity.credential_valid
+        assert manifest.credential_evidence == identity.credential_evidence
+        assert manifest.auth_state == identity.auth_state
         assert health.identity(worker) is identity
         assert _worker_model_identity(worker) == (
             identity.provider or "unknown",
