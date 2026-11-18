@@ -73,8 +73,11 @@ def test_roles_load_with_provenance() -> None:
     } <= cats
     for role in roles:
         assert role.license == "MIT"
-        assert role.source.startswith("https://github.com/msitarzewski/agency-agents/blob/")
-        assert "AgentLand Contributors" in role.copyright
+        if role.source == "internal":
+            assert role.copyright == "Copyright (c) 2026 Veya Contributors"
+        else:
+            assert role.source.startswith("https://github.com/msitarzewski/agency-agents/blob/")
+            assert "AgentLand Contributors" in role.copyright
         assert role.summary_zh
         assert role.body and role.name
 
@@ -90,8 +93,11 @@ def test_skills_load_with_provenance() -> None:
     } <= ids
     for skill in skills:
         assert skill.license == "MIT"
-        assert "Addy Osmani" in skill.copyright
-        assert skill.source.startswith("https://github.com/addyosmani/agent-skills/blob/")
+        if skill.source == "internal":
+            assert skill.copyright == "Copyright (c) 2026 Veya Contributors"
+        else:
+            assert "Addy Osmani" in skill.copyright
+            assert skill.source.startswith("https://github.com/addyosmani/agent-skills/blob/")
 
 
 def test_unknown_or_bad_ids_rejected() -> None:
