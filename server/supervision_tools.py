@@ -18,12 +18,14 @@ def _mission_executors() -> frozenset[str]:
 
     The registry is the only authority for executor identity, so a retired name
     disappears from admission when the registry retires it, not because this
-    module was edited.  Imported lazily: ``veya.remote`` imports this module
+    module was edited.  The runner registers its in-process substrate lazily;
+    project through its registry projection so admission does not depend on
+    import/test order.  Imported lazily: ``veya.remote`` imports this module
     while building its tool bindings, so a module-level import would cycle.
     """
-    from veya.remote.executor_registry import get_executor_registry
+    from veya.supervision.runner import _active_executors
 
-    return frozenset(get_executor_registry().snapshot())
+    return frozenset(_active_executors())
 
 
 def _validated_actions(actions: list[dict[str, Any]] | None) -> list[dict[str, Any]]:

@@ -79,9 +79,12 @@ def test_execution_report_and_review_roundtrip() -> None:
         objective="fix bug",
         status="succeeded",
         tests=[{"name": "unit", "status": "passed"}],
+        evidence_chain=[{"category": "runtime", "kind": "verified"}],
         proposed_next_action="review",
     )
-    assert ExecutionReport.from_dict(report.to_dict()).tests[0]["status"] == "passed"
+    restored_report = ExecutionReport.from_dict(report.to_dict())
+    assert restored_report.tests[0]["status"] == "passed"
+    assert restored_report.evidence_chain == [{"category": "runtime", "kind": "verified"}]
 
     review = SupervisorReview(
         mission_id="m-1",
