@@ -14,9 +14,9 @@ class TestAgentCollaborationIntegration:
     """Test suite for agent collaboration integration"""
 
     @pytest.fixture
-    def client(self):
-        """Fixture to create test client"""
-        client = TestClient(app)
+    def client(self, owner_headers):
+        """Fixture to create test client (SEC H1: authenticated owner)."""
+        client = TestClient(app, headers=owner_headers)
         yield client
         client.close()
 

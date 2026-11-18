@@ -58,7 +58,7 @@ def member_token(auth_db: Path) -> str:
 
 def test_notifications_stream_anonymous_denied(app: FastAPI) -> None:
     client = TestClient(app)
-    assert client.get("/notifications/stream").status_code == 401
+    assert client.get("/api/v1/notifications/stream").status_code == 401
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ def test_notifications_stream_query_token_allowed(
 ) -> None:
     """EventSource 无法设头 → ?token= 必须可用 (前端保持可用)。"""
     client = TestClient(app)
-    resp = client.get(f"/notifications/stream?token={member_token}")
+    resp = client.get(f"/api/v1/notifications/stream?token={member_token}")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/event-stream")
 
@@ -86,10 +86,10 @@ def test_notifications_stream_bearer_allowed(
     app: FastAPI, member_token: str, finite_stream
 ) -> None:
     client = TestClient(app)
-    resp = client.get("/notifications/stream", headers={"Authorization": f"Bearer {member_token}"})
+    resp = client.get("/api/v1/notifications/stream", headers={"Authorization": f"Bearer {member_token}"})
     assert resp.status_code == 200
 
 
 def test_approve_endpoint_requires_auth(app: FastAPI) -> None:
     client = TestClient(app)
-    assert client.post("/notifications/x/approve", json={"approved": True}).status_code == 401
+    assert client.post("/api/v1/notifications/x/approve", json={"approved": True}).status_code == 401

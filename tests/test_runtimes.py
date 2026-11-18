@@ -138,12 +138,12 @@ def test_agentscope_event_translation():
 # =========================================================================
 
 
-def test_operators_endpoint_runtime_health():
+def test_operators_endpoint_runtime_health(owner_headers):
     from fastapi.testclient import TestClient
 
     from server.app import app
 
-    r = TestClient(app).get("/api/v1/operators")
+    r = TestClient(app, headers=owner_headers).get("/api/v1/operators")
     assert r.status_code == 200
     healths = r.json()["runtime_health"]
     assert len(healths) == 3

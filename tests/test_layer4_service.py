@@ -219,13 +219,13 @@ def test_slack_formatting_is_pure_and_chunked():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def gateway_client():
+@pytest.fixture
+def gateway_client(owner_headers):
     from fastapi.testclient import TestClient
 
     from veya.server.app import app
 
-    with TestClient(app) as client:
+    with TestClient(app, headers=owner_headers) as client:
         yield client
 
 

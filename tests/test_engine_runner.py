@@ -65,13 +65,13 @@ def test_available_engines_always_has_master():
     assert engines.get("master") == "builtin"
 
 
-def test_engines_endpoint():
+def test_engines_endpoint(owner_headers):
     """GET /api/v1/engines 返回引擎清单 (前端禁用依据)。"""
     from fastapi.testclient import TestClient
 
     from server.app import app
 
-    res = TestClient(app).get("/api/v1/engines")
+    res = TestClient(app, headers=owner_headers).get("/api/v1/engines")
     assert res.status_code == 200
     data = res.json()
     assert "engines" in data
@@ -193,7 +193,7 @@ async def test_container_pi_usable_detection(monkeypatch, tmp_path):
     assert er._container_pi_usable() is False
 
 
-def test_engines_endpoint_in_container(monkeypatch):
+def test_engines_endpoint_in_container(monkeypatch, owner_headers):
     """容器内 /api/v1/engines: 无 pi 凭据 → 只 master; 有 → master+pi。"""
     from fastapi.testclient import TestClient
 
@@ -207,7 +207,7 @@ def test_engines_endpoint_in_container(monkeypatch):
     monkeypatch.setattr(er, "_container_opencode_usable", lambda: False)
     monkeypatch.setattr(er, "_container_grok_usable", lambda: False)
     monkeypatch.setattr(er, "_container_dsh_usable", lambda: False)
-    res = TestClient(app).get("/api/v1/engines")
+    res = TestClient(app, headers=owner_headers).get("/api/v1/engines")
     assert res.status_code == 200
     assert set(res.json()["engines"]) == {"master"}
 
@@ -217,7 +217,7 @@ def test_engines_endpoint_in_container(monkeypatch):
     import shutil
 
     monkeypatch.setattr(shutil, "which", lambda n: f"/bin/{n}")
-    res2 = TestClient(app).get("/api/v1/engines")
+    res2 = TestClient(app, headers=owner_headers).get("/api/v1/engines")
     assert set(res2.json()["engines"]) == {"master", "pi", "claude", "codex"}
 
 

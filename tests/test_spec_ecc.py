@@ -107,23 +107,23 @@ def test_spec_execute_invalid_and_failing_gate():
     assert r2["test_gate"]["ok"] is False
 
 
-def test_spec_api_presets():
+def test_spec_api_presets(owner_headers):
     from fastapi.testclient import TestClient
 
     from server.app import app
 
-    r = TestClient(app).get("/api/v1/spec/presets")
+    r = TestClient(app, headers=owner_headers).get("/api/v1/spec/presets")
     assert r.status_code == 200
     assert set(r.json()["presets"]) == {"scaffold", "lean", "self-test", "architecture"}
 
 
-def test_spec_api_execute_stub():
+def test_spec_api_execute_stub(owner_headers):
     """API 执行: stub 模式 (无 key) 也返回结构化报告。"""
     from fastapi.testclient import TestClient
 
     from server.app import app
 
-    r = TestClient(app).post(
+    r = TestClient(app, headers=owner_headers).post(
         "/api/v1/spec/execute", json={"spec": SAMPLE_SPEC, "async_impl": False}
     )
     assert r.status_code == 200
