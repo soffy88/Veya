@@ -20,6 +20,8 @@ Verifies:
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -111,6 +113,17 @@ def test_03_opencode_command_construction_and_proxy(tmp_path: Path, monkeypatch)
     fake_opencode.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     fake_opencode.chmod(0o755)
 
+    for key in (
+        "http_proxy",
+        "HTTP_PROXY",
+        "https_proxy",
+        "HTTPS_PROXY",
+        "all_proxy",
+        "ALL_PROXY",
+        "VEYA_RUNTIME_PROXY",
+        "VEYA_PROXY",
+    ):
+        monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("VEYA_OPENCODE_BIN", str(fake_opencode))
     monkeypatch.setenv("VEYA_OPENCODE_MODEL", "opencode/longcat-2.5-preview-free")
     monkeypatch.setenv("VEYA_RUNTIME_PROXY", "http://127.0.0.1:7890")
@@ -355,13 +368,19 @@ def test_09_worktree_isolation(tmp_path: Path) -> None:
 
 async def test_10_opencode_text_transport_smoke(tmp_path: Path) -> None:
     """10. Text transport smoke only; this is not coding qualification."""
-    import shutil
-    import subprocess
-
-    import pytest
-
     if not shutil.which("opencode"):
         pytest.skip("opencode binary not installed")
+    help_result = subprocess.run(
+        [shutil.which("opencode"), "run", "--help"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if "--dir" not in (help_result.stdout + help_result.stderr):
+        pytest.skip(
+            "installed OpenCode does not support `run --dir`; "
+            "the executor adapter requires it for isolated worktrees"
+        )
 
     repo_path = tmp_path / "repo"
     subprocess.run(["git", "init", "-q", "-b", "main", str(repo_path)], check=True)
