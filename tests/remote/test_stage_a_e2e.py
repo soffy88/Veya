@@ -78,7 +78,7 @@ async def test_finish_boundary_waits_for_owned_process(tmp_path: Path) -> None:
 
     async def runner(reporter):
         reporter.continuity(active_process_count=1)
-        proc = await asyncio.create_subprocess_exec("sleep", "1")
+        proc = await asyncio.create_subprocess_exec("sleep", "5")
 
         async def waiter():
             await proc.wait()
@@ -95,15 +95,20 @@ async def test_finish_boundary_waits_for_owned_process(tmp_path: Path) -> None:
         runner=runner,
         execution_type=str(ExecutionType.DIRECT),
     )
-    # While the owned process is alive the execution must NOT be COMPLETED.
-    await asyncio.sleep(0.2)
+    # Admission/final-claim is asynchronous.  Wait boundedly for the final
+    # claim while the owned process is still alive; the fixed short sleep was
+    # racing the GoalRun admission path under load.
+    deadline = asyncio.get_running_loop().time() + 4.0
     mid = record.to_public(heartbeat_timeout_s=5.0)
+    while not mid["worker_final_claim"] and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.02)
+        mid = record.to_public(heartbeat_timeout_s=5.0)
     assert mid["worker_final_claim"] is True
     assert mid["active_process_count"] >= 1
     assert mid["phase"] == "FINALIZING"
     assert mid["status"] != "COMPLETED"
     # After the process ends -> COMPLETED.
-    await manager.wait(record.execution_id, timeout_s=5)
+    await manager.wait(record.execution_id, timeout_s=10)
     final = record.to_public(heartbeat_timeout_s=5.0)
     assert final["phase"] == "COMPLETED"
     assert final["active_process_count"] == 0
