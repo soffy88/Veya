@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
+import httpx
 import pytest
 
 from server.stratum_memory import StratumConnector, get_stratum, wire_master_tools
@@ -52,9 +53,25 @@ async def connector():
     if not HAS_STRATUM:
         pytest.skip(f"stratum-api functional probe unavailable: {STRATUM_SKIP_REASON}")
     c = StratumConnector(endpoint="http://127.0.0.1:9309/mcp/mcp")  # 宿主映射端口
-    await c.start()
+    try:
+        await asyncio.wait_for(c.start(), timeout=15.0)
+    except (TimeoutError, httpx.HTTPError, OSError) as exc:
+        await c.close()
+        pytest.skip(f"stratum-api handshake unavailable during test: {type(exc).__name__}")
+    if not c.ready:
+        await c.close()
+        pytest.skip("stratum-api handshake did not become ready during test")
     yield c
     await c.close()
+
+
+async def _external_call(awaitable, operation: str):
+    """Bound an external MCP operation and skip only on transport failure."""
+
+    try:
+        return await asyncio.wait_for(awaitable, timeout=15.0)
+    except (TimeoutError, httpx.HTTPError, OSError) as exc:
+        pytest.skip(f"stratum-api {operation} unavailable: {type(exc).__name__}")
 
 
 @pytest.mark.asyncio
@@ -66,7 +83,7 @@ async def test_handshake_and_session(connector):
 
 @pytest.mark.asyncio
 async def test_tools_list(connector):
-    tools = await connector._client.list_tools()
+    tools = await _external_call(connector._client.list_tools(), "tool list")
     names = [t["name"] for t in tools]
     assert "search_knowledge" in names
     assert "list_recent_notes" in names
@@ -75,7 +92,7 @@ async def test_tools_list(connector):
 
 @pytest.mark.asyncio
 async def test_search_knowledge_call(connector):
-    res = await connector.search_knowledge("test", top_k=3)
+    res = await _external_call(connector.search_knowledge("test", top_k=3), "search")
     # MCP call_tool 返回信封 dict (content[].text = JSON 字符串)
     assert isinstance(res, dict) and "content" in res
     assert res.get("isError") is False
@@ -83,7 +100,9 @@ async def test_search_knowledge_call(connector):
 
 @pytest.mark.asyncio
 async def test_tool_adapters_namespace(connector):
-    adapters = await connector.tool_adapters()
+    if not connector.ready:
+        pytest.skip("stratum-api became unavailable before adapter listing")
+    adapters = await _external_call(connector.tool_adapters(), "tool adapters")
     names = [a["name"] for a in adapters]
     assert "mcp_stratum_search_knowledge" in names
     assert all(n.startswith("mcp_stratum_") for n in names)
@@ -93,7 +112,9 @@ async def test_tool_adapters_namespace(connector):
 async def test_wire_master_tools_idempotent(connector):
     from server.tool_registry import master_tools
 
-    added = await wire_master_tools(connector)
+    if not connector.ready:
+        pytest.skip("stratum-api became unavailable before tool wiring")
+    added = await _external_call(wire_master_tools(connector), "tool wiring")
     # ②-B 网关: 每服务 1 个 mcp_<server> 网关 (全量顺序下可能已 wire → added=0)
     assert added >= 0
     assert master_tools.has("mcp_stratum")
