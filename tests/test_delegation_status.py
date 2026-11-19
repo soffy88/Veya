@@ -70,7 +70,7 @@ async def test_status_lists_open_and_hides_others(status_env):
 
 @pytest.mark.asyncio
 async def test_status_done_item_leaves_open_list(status_env):
-    registry = _register("alpha", "beta")
+    _ = _register("alpha", "beta")
     store = DelegationStore()
     item = store.create(from_bot_id="alpha", to_bot_id="beta", text="x", depth=0)
     store.claim(limit=1)

@@ -61,7 +61,12 @@ async def test_qr_flow_and_send():
         [
             {"qrcode_img_content": "https://weixin.qq.com/q/abc", "qrcode": "QR1"},
             {"status": "wait"},
-            {"status": "confirmed", "bot_token": "tok", "ilink_bot_id": "b1", "ilink_user_id": "u1"},
+            {
+                "status": "confirmed",
+                "bot_token": "tok",
+                "ilink_bot_id": "b1",
+                "ilink_user_id": "u1",
+            },
             {"ok": True},
         ]
     )
@@ -98,9 +103,12 @@ def test_wechat_adapter_parse_and_send():
     assert msg.external_chat_id == "conv1"
     assert msg.external_user_id == "sender1"
     assert msg.text == "hello"
-    assert adapter.parse_inbound(
-        payload={"type": "image", "from": "s", "conversation": "c", "text": "x"}, headers={}
-    ) is None
+    assert (
+        adapter.parse_inbound(
+            payload={"type": "image", "from": "s", "conversation": "c", "text": "x"}, headers={}
+        )
+        is None
+    )
     assert adapter.parse_inbound(payload={"type": "text", "from": "s"}, headers={}) is None
 
 

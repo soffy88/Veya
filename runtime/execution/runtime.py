@@ -71,9 +71,7 @@ class DurableRuntimeConfig:
             abandoned_run_after_s=float(
                 os.environ.get("VEYA_EXECUTION_ABANDONED_RUN_AFTER_S", "300")
             ),
-            worker_ttl_s=float(
-                os.environ.get("VEYA_EXECUTION_WORKER_TTL_S", "300")
-            ),
+            worker_ttl_s=float(os.environ.get("VEYA_EXECUTION_WORKER_TTL_S", "300")),
             queue_read=_env_bool("VEYA_EXECUTION_DURABLE_QUEUE_READ", enabled),
             queue_claim=_env_bool("VEYA_EXECUTION_DURABLE_QUEUE_CLAIM", enabled),
             lease_fencing=_env_bool("VEYA_EXECUTION_LEASE_FENCING", True),

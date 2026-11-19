@@ -15,7 +15,7 @@ must sit next to the mention it controls (within 16 characters).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 #: Words that hold a member, longest first (Chinese substring match).

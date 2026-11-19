@@ -23,42 +23,112 @@ def test_run_history_empty_store_returns_no_samples(monkeypatch, tmp_path, owner
     response = client.get("/api/v1/tdx/runs", headers=owner_headers)
     assert response.status_code == 200
     assert response.json() == {"enabled": True, "runs": [], "count": 0}
-    assert client.get("/api/v1/tdx/runs/nonexistent/rounds", headers=owner_headers).status_code == 404
-    assert client.get("/api/v1/tdx/runs/nonexistent/compare?a=1&b=2", headers=owner_headers).status_code == 404
+    assert (
+        client.get("/api/v1/tdx/runs/nonexistent/rounds", headers=owner_headers).status_code == 404
+    )
+    assert (
+        client.get(
+            "/api/v1/tdx/runs/nonexistent/compare?a=1&b=2", headers=owner_headers
+        ).status_code
+        == 404
+    )
 
 
-def test_run_history_and_round_comparison_come_from_canonical_events(monkeypatch, tmp_path, owner_headers):
+def test_run_history_and_round_comparison_come_from_canonical_events(
+    monkeypatch, tmp_path, owner_headers
+):
     monkeypatch.setenv("VEYA_TDX_RUN_HISTORY", "true")
     store = EventStore(tmp_path / "events.jsonl")
     monkeypatch.setattr(events_mod, "event_store", store)
 
-    store.append({
-        "topic": "task.started", "task_id": "real-run-42", "session_id": "session-42",
-        "actor": "test", "ts": 100.0,
-        "payload": {"round": 1, "plan": "Inspect backend", "model": "model-real", "token_usage": {"total": 80, "prompt_tokens": 50, "completion_tokens": 30}},
-    })
-    store.append({
-        "topic": "task.completed", "task_id": "real-run-42", "session_id": "session-42",
-        "actor": "test", "ts": 110.0,
-        "payload": {"round": 1, "status": "completed", "duration_s": 10, "commit_sha": "sha-round-1", "evidence_tags": ["tdx-ci"], "diff_summary": {"files_changed": 2, "additions": 20, "deletions": 4}, "passed": 3, "failed": 1},
-    })
-    store.append({
-        "topic": "supervision.evidence_recorded", "task_id": "real-run-42", "session_id": "session-42",
-        "actor": "supervisor", "ts": 111.0,
-        "payload": {"round": 1, "evidence_chain": ["supervision-evidence-1"]},
-    })
-    store.append({
-        "topic": "task.started", "task_id": "real-run-42", "session_id": "session-42",
-        "actor": "test", "ts": 120.0,
-        "payload": {"round": 2, "plan": "Fix tests", "model": "model-real", "token_usage": {"total": 100, "prompt_tokens": 65, "completion_tokens": 35}},
-    })
-    store.append({
-        "topic": "task.completed", "task_id": "real-run-42", "session_id": "session-42",
-        "actor": "test", "ts": 126.0,
-        "payload": {"round": 2, "status": "completed", "duration_s": 6, "commit_sha": "sha-round-2", "evidence_tags": ["tdx-ci", "manual-review"], "diff_summary": {"files_changed": 1, "additions": 6, "deletions": 1}, "passed": 4, "failed": 0},
-    })
+    store.append(
+        {
+            "topic": "task.started",
+            "task_id": "real-run-42",
+            "session_id": "session-42",
+            "actor": "test",
+            "ts": 100.0,
+            "payload": {
+                "round": 1,
+                "plan": "Inspect backend",
+                "model": "model-real",
+                "token_usage": {"total": 80, "prompt_tokens": 50, "completion_tokens": 30},
+            },
+        }
+    )
+    store.append(
+        {
+            "topic": "task.completed",
+            "task_id": "real-run-42",
+            "session_id": "session-42",
+            "actor": "test",
+            "ts": 110.0,
+            "payload": {
+                "round": 1,
+                "status": "completed",
+                "duration_s": 10,
+                "commit_sha": "sha-round-1",
+                "evidence_tags": ["tdx-ci"],
+                "diff_summary": {"files_changed": 2, "additions": 20, "deletions": 4},
+                "passed": 3,
+                "failed": 1,
+            },
+        }
+    )
+    store.append(
+        {
+            "topic": "supervision.evidence_recorded",
+            "task_id": "real-run-42",
+            "session_id": "session-42",
+            "actor": "supervisor",
+            "ts": 111.0,
+            "payload": {"round": 1, "evidence_chain": ["supervision-evidence-1"]},
+        }
+    )
+    store.append(
+        {
+            "topic": "task.started",
+            "task_id": "real-run-42",
+            "session_id": "session-42",
+            "actor": "test",
+            "ts": 120.0,
+            "payload": {
+                "round": 2,
+                "plan": "Fix tests",
+                "model": "model-real",
+                "token_usage": {"total": 100, "prompt_tokens": 65, "completion_tokens": 35},
+            },
+        }
+    )
+    store.append(
+        {
+            "topic": "task.completed",
+            "task_id": "real-run-42",
+            "session_id": "session-42",
+            "actor": "test",
+            "ts": 126.0,
+            "payload": {
+                "round": 2,
+                "status": "completed",
+                "duration_s": 6,
+                "commit_sha": "sha-round-2",
+                "evidence_tags": ["tdx-ci", "manual-review"],
+                "diff_summary": {"files_changed": 1, "additions": 6, "deletions": 1},
+                "passed": 4,
+                "failed": 0,
+            },
+        }
+    )
     # Events without a durable task/run ID are deliberately not assigned a fake ID.
-    store.append({"topic": "task.completed", "session_id": "only-session", "actor": "test", "ts": 130.0, "payload": {"status": "completed"}})
+    store.append(
+        {
+            "topic": "task.completed",
+            "session_id": "only-session",
+            "actor": "test",
+            "ts": 130.0,
+            "payload": {"status": "completed"},
+        }
+    )
 
     response = client.get("/api/v1/tdx/runs", headers=owner_headers)
     assert response.status_code == 200
@@ -93,15 +163,39 @@ def test_run_history_and_round_comparison_come_from_canonical_events(monkeypatch
     assert "evidence_tags" in diff["changed_fields"]
 
 
-def test_run_history_infers_rounds_from_repeated_starts_when_no_round_metadata(monkeypatch, tmp_path):
+def test_run_history_infers_rounds_from_repeated_starts_when_no_round_metadata(
+    monkeypatch, tmp_path
+):
     from server.routes.tdx import _project_runs
 
-    projected = _project_runs([
-        {"topic": "task.started", "task_id": "repeat-task", "ts": 1.0, "payload": {"plan": "first"}},
-        {"topic": "task.completed", "task_id": "repeat-task", "ts": 2.0, "payload": {"status": "completed"}},
-        {"topic": "task.started", "task_id": "repeat-task", "ts": 3.0, "payload": {"plan": "second"}},
-        {"topic": "task.completed", "task_id": "repeat-task", "ts": 4.0, "payload": {"status": "failed"}},
-    ])
+    projected = _project_runs(
+        [
+            {
+                "topic": "task.started",
+                "task_id": "repeat-task",
+                "ts": 1.0,
+                "payload": {"plan": "first"},
+            },
+            {
+                "topic": "task.completed",
+                "task_id": "repeat-task",
+                "ts": 2.0,
+                "payload": {"status": "completed"},
+            },
+            {
+                "topic": "task.started",
+                "task_id": "repeat-task",
+                "ts": 3.0,
+                "payload": {"plan": "second"},
+            },
+            {
+                "topic": "task.completed",
+                "task_id": "repeat-task",
+                "ts": 4.0,
+                "payload": {"status": "failed"},
+            },
+        ]
+    )
     rounds = projected["repeat-task"]
     assert [item["round"] for item in rounds] == [1, 2]
     assert [item["plan"] for item in rounds] == ["first", "second"]

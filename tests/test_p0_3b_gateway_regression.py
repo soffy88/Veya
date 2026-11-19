@@ -10,14 +10,14 @@ Covers:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
+
 import pytest
 from starlette.testclient import TestClient
 
 from scripts.veya_llm_gateway import (
     _CATALOG,
     _LOCAL_UPSTREAMS,
-    _STATIC_CATALOG,
     _get_catalog_entry,
     app,
 )

@@ -35,8 +35,10 @@ class RepeatDetector:
 
         if not arguments:
             return 0
-        key = str(tool) + "\0" + json.dumps(
-            arguments, sort_keys=True, ensure_ascii=False, default=str
+        key = (
+            str(tool)
+            + "\0"
+            + json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)
         )
         count = self._counts.get(key, 0) + 1
         self._counts[key] = count
@@ -47,8 +49,10 @@ class RepeatDetector:
 
         if not arguments:
             return 0
-        key = str(tool) + "\0" + json.dumps(
-            arguments, sort_keys=True, ensure_ascii=False, default=str
+        key = (
+            str(tool)
+            + "\0"
+            + json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)
         )
         return self._counts.get(key, 0)
 

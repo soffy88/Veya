@@ -10,13 +10,13 @@ from __future__ import annotations
 from typing import Any
 
 from server import feature_flags
+from veya.gsk.envelope import sanitize_and_wrap
 from veya.obase.channel_probes import (
     fetch_github_readme,
     fetch_url_text,
     probe_channel,
 )
 from veya.oskill.pure.html_to_markdown import PROVENANCE_HEADER, read_html
-from veya.gsk.envelope import sanitize_and_wrap
 
 
 async def tool_read_channel(

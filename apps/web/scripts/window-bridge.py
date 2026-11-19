@@ -40,8 +40,8 @@ Turn flow (single-threaded: turns run one at a time):
   5. return the reply; identical (bot_id, text, context) turns within
      the cache window return the cached reply instead of re-sending
 """
+
 import hashlib
-from collections import Counter
 import hmac
 import json
 import os
@@ -50,18 +50,16 @@ import subprocess
 import sys
 import time
 import uuid
+from collections import Counter
+from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 MANAGER = os.environ.get(
     "BRIDGE_MANAGER",
     "/data/soffy/projects/veya/apps/web/scripts/muse-sessions.py",
 )
-CONFIG_PATH = os.environ.get(
-    "BRIDGE_CONFIG", "/data/soffy/muse-sessions/bridge.json"
-)
-SECRET_PATH = os.environ.get(
-    "BRIDGE_SECRET_FILE", "/data/soffy/muse-sessions/bridge-secret.txt"
-)
+CONFIG_PATH = os.environ.get("BRIDGE_CONFIG", "/data/soffy/muse-sessions/bridge.json")
+SECRET_PATH = os.environ.get("BRIDGE_SECRET_FILE", "/data/soffy/muse-sessions/bridge-secret.txt")
 PORT = int(os.environ.get("BRIDGE_PORT", "19450"))
 
 FIND_INPUT_JS = """(focus) => {
@@ -178,7 +176,10 @@ CACHE = {}  # (bot_id, text, ctx_hash) -> (reply, expires_at)
 def manager_list():
     out = subprocess.run(
         ["python3", MANAGER, "list"],
-        capture_output=True, text=True, timeout=30, check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
     )
     data = json.loads(out.stdout)
     if not isinstance(data, dict):
@@ -211,10 +212,7 @@ def is_noise(text):
     if all((not ch.isalnum()) for ch in stripped):
         return True
     # bare clock times (3:42 AM, 15:04) that ride along with a reply
-    if re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?\s*([AP]M)?", stripped, re.I):
-        return True
-    return False
-
+    return bool(re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?\s*([AP]M)?", stripped, re.I))
 
 
 GROUP_TRANSCRIPT_MARKERS = ("You are one of", "\nTranscript:")
@@ -241,7 +239,7 @@ def format_group_block(context, bot_name, bindings):
         start = lines.index("Transcript:") + 1
     except ValueError:
         return None
-    out = ["你是 %s。" % bot_name]
+    out = [f"你是 {bot_name}。"]
     out.extend(lines[:start])
     for line in lines[start:]:
         head, sep, rest = line.partition(": ")
@@ -275,9 +273,7 @@ def extract_reply(before, ordered, sent, band, anchor_last=False):
     sent_s = sent.strip()
     anchor = None
     for i, (t, _) in enumerate(ordered):
-        if t.strip() == sent_s or (
-            sent_s and sent_s in t and len(t) <= len(sent_s) + 20
-        ):
+        if t.strip() == sent_s or (sent_s and sent_s in t and len(t) <= len(sent_s) + 20):
             anchor = i
             if not anchor_last:
                 break
@@ -302,7 +298,7 @@ def extract_reply(before, ordered, sent, band, anchor_last=False):
     if lines and lines[0].strip() in ("You:", "Assistant:", "Assistant message:"):
         lines = lines[1:]
     if lines and lines[0].startswith("Assistant message: "):
-        lines[0] = lines[0][len("Assistant message: "):]
+        lines[0] = lines[0][len("Assistant message: ") :]
     return "\n".join(lines).strip()
 
 
@@ -346,13 +342,9 @@ def run_window_turn(window, text, cfg, typed=None, anchor=None, anchor_last=Fals
                     break
             if page is None:
                 raise RuntimeError(
-                    f"window {window!r} shows no chat input "
-                    "(is it logged in on a chat page?)"
+                    f"window {window!r} shows no chat input (is it logged in on a chat page?)"
                 )
-            before = [
-                (d["t"], d["x"])
-                for d in page.evaluate(f"({LEAF_TEXTS_JS})()")
-            ]
+            before = [(d["t"], d["x"]) for d in page.evaluate(f"({LEAF_TEXTS_JS})()")]
             info = page.evaluate(f"({FIND_INPUT_JS})(true)")
             if not info:
                 raise RuntimeError("chat input disappeared before send")
@@ -373,9 +365,11 @@ def run_window_turn(window, text, cfg, typed=None, anchor=None, anchor_last=Fals
             sent = False
             after = {d["t"] for d in page.evaluate(f"({LEAF_TEXTS_JS})()")}
             anchor_s = anchor.strip()
-            if (anchor_s in after
-                    or any(anchor_s in t for t in after)
-                    or page.evaluate(f"({INPUT_EMPTY_JS})()")):
+            if (
+                anchor_s in after
+                or any(anchor_s in t for t in after)
+                or page.evaluate(f"({INPUT_EMPTY_JS})()")
+            ):
                 sent = True
             if not sent:
                 try:
@@ -386,9 +380,11 @@ def run_window_turn(window, text, cfg, typed=None, anchor=None, anchor_last=Fals
                     time.sleep(2)
                     after = {d["t"] for d in page.evaluate(f"({LEAF_TEXTS_JS})()")}
                     anchor_s = anchor.strip()
-                    if (anchor_s in after
-                            or any(anchor_s in t for t in after)
-                            or page.evaluate(f"({INPUT_EMPTY_JS})()")):
+                    if (
+                        anchor_s in after
+                        or any(anchor_s in t for t in after)
+                        or page.evaluate(f"({INPUT_EMPTY_JS})()")
+                    ):
                         sent = True
             if not sent:
                 raise RuntimeError("message did not leave the chat input")
@@ -398,10 +394,7 @@ def run_window_turn(window, text, cfg, typed=None, anchor=None, anchor_last=Fals
             while time.time() < deadline:
                 time.sleep(poll_s)
                 try:
-                    ordered = [
-                        (d["t"], d["x"])
-                        for d in page.evaluate(f"({LEAF_TEXTS_JS})()")
-                    ]
+                    ordered = [(d["t"], d["x"]) for d in page.evaluate(f"({LEAF_TEXTS_JS})()")]
                 except Exception:
                     continue
                 candidate = extract_reply(before, ordered, anchor, band, anchor_last)
@@ -416,10 +409,8 @@ def run_window_turn(window, text, cfg, typed=None, anchor=None, anchor_last=Fals
                 return last_candidate
             raise RuntimeError("no reply appeared in the window in time")
         finally:
-            try:
+            with suppress(Exception):
                 browser.close()
-            except Exception:
-                pass
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -496,11 +487,11 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         started = time.time()
-        log(f"turn bot={bot_id} window={window} text_len={len(text)} "
-            f"typed_len={len(typed)}")
+        log(f"turn bot={bot_id} window={window} text_len={len(text)} typed_len={len(typed)}")
         try:
-            reply = run_window_turn(window, text, cfg, typed=typed,
-                                    anchor=anchor, anchor_last=anchor_last)
+            reply = run_window_turn(
+                window, text, cfg, typed=typed, anchor=anchor, anchor_last=anchor_last
+            )
         except Exception as exc:  # visible error turn, never a silent drop
             log(f"turn FAILED bot={bot_id} window={window} err={str(exc)[:200]}")
             self._send_json(200, {"ok": False, "error": str(exc)[:300]})
@@ -524,10 +515,8 @@ def main():
         raise SystemExit(1)
     server = HTTPServer(("0.0.0.0", PORT), Handler)
     log(f"window bridge listening on :{PORT} (config {CONFIG_PATH})")
-    try:
+    with suppress(KeyboardInterrupt):
         server.serve_forever()
-    except KeyboardInterrupt:
-        pass
 
 
 if __name__ == "__main__":

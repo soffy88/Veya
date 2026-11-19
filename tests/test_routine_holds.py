@@ -23,9 +23,7 @@ def holds_env(tmp_path, monkeypatch):
     monkeypatch.setenv("VEYA_BOT_REGISTRY_PATH", str(tmp_path / "bot_registry.json"))
     monkeypatch.setenv("VEYA_ROUTINE_REGISTRY_PATH", str(tmp_path / "routines.json"))
     monkeypatch.setenv("VEYA_ROUTINE_HISTORY_DIR", str(tmp_path / "history"))
-    BotRegistry().register(
-        BotSpec(bot_id="alpha", owner_id=USER["user_id"], name="Alpha")
-    )
+    BotRegistry().register(BotSpec(bot_id="alpha", owner_id=USER["user_id"], name="Alpha"))
     spec = build_template_spec("nightly-self-heal", "alpha")
     RoutineRegistry(bot_id="alpha").register(spec)
     return {"routine_id": spec.routine_id}
@@ -57,9 +55,7 @@ def test_hold_store_round_trip(tmp_path):
 
 def test_hold_linked_attention_resume(tmp_path):
     store = RoutineHoldStore(root=tmp_path)
-    hold = store.create(
-        bot_id="alpha", routine_id="rt1", reason="q", attention_id="att_1"
-    )
+    hold = store.create(bot_id="alpha", routine_id="rt1", reason="q", attention_id="att_1")
     done = store.resume_holds_for_attention("att_1", outcome="answered")
     assert [h["id"] for h in done] == [hold["id"]]
     assert store.get(hold["id"])["status"] == "resumed"
@@ -119,9 +115,7 @@ def test_resume_route_and_conflicts(client, holds_env):
     )
     assert resumed.status_code == 200, resumed.text
     assert resumed.json()["hold"]["resolution_note"] == "scan arrived"
-    again = client.post(
-        _holds_url(holds_env["routine_id"]) + f"/{hold_id}/resume", json={}
-    )
+    again = client.post(_holds_url(holds_env["routine_id"]) + f"/{hold_id}/resume", json={})
     assert again.status_code == 409
     assert client.get(_holds_url("no-such-routine")).status_code == 404
     empty = client.post(_holds_url(holds_env["routine_id"]), json={"reason": "  "})
@@ -138,12 +132,7 @@ def test_hold_written_to_routine_history(client, holds_env):
         _holds_url(holds_env["routine_id"]),
         json={"reason": "waiting on a scan"},
     )
-    history = client.get(
-        f"/api/v1/bots/alpha/routines/{holds_env['routine_id']}/history"
-    )
+    history = client.get(f"/api/v1/bots/alpha/routines/{holds_env['routine_id']}/history")
     assert history.status_code == 200, history.text
     records = history.json()["history"]
-    assert any(
-        r.get("status") == "held" and "hold" in str(r.get("trigger_id"))
-        for r in records
-    )
+    assert any(r.get("status") == "held" and "hold" in str(r.get("trigger_id")) for r in records)

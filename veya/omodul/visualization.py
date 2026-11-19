@@ -8,9 +8,11 @@ from __future__ import annotations
 import json
 
 import networkx as nx
+
 try:
     import matplotlib
-    
+    import matplotlib.pyplot as plt
+
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -22,8 +24,6 @@ import hashlib
 from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any
-
-
 
 
 @dataclass

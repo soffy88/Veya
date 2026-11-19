@@ -97,7 +97,9 @@ class FakeApprovals:
     def list_approvals(self, **_kwargs):
         return list(self.pending_rows)
 
-    async def request(self, *, tool, args, user_id, session_id="", actor="", reason="", delegate_policy=""):
+    async def request(
+        self, *, tool, args, user_id, session_id="", actor="", reason="", delegate_policy=""
+    ):
         self.requests.append({"tool": tool, "args": args, "user_id": user_id, "reason": reason})
         return {"status": "completed", "approval_id": "appr-1"}
 
@@ -170,11 +172,15 @@ def test_config_disabled_and_bad_shapes(tmp_path: Path):
         path.write_text(data if isinstance(data, str) else json.dumps(data), encoding="utf-8")
         return path
 
-    config, reason, _ = load_delivery_config(_write({"version": 1, "enabled": False, "repo": REPO, "checks": [["true"]]}))
+    config, reason, _ = load_delivery_config(
+        _write({"version": 1, "enabled": False, "repo": REPO, "checks": [["true"]]})
+    )
     assert config is None and "disabled" in reason
     config, reason, _ = load_delivery_config(_write("{not json"))
     assert config is None and "JSON" in reason
-    config, reason, _ = load_delivery_config(_write({"version": 2, "enabled": True, "repo": REPO, "checks": [["true"]]}))
+    config, reason, _ = load_delivery_config(
+        _write({"version": 2, "enabled": True, "repo": REPO, "checks": [["true"]]})
+    )
     assert config is None and "version" in reason
     config, reason, _ = load_delivery_config(
         _write({"version": 1, "enabled": True, "repo": REPO, "checks": [["true"]], "surprise": 1})
@@ -210,8 +216,12 @@ async def test_happy_path_creates_card(events, config_file, repo, head_sha):
     approvals = FakeApprovals()
     calls: dict = {}
     result, emitted = await _run_order(
-        _envelope(head_sha), events=events, config_file=config_file, repo=repo,
-        approvals=approvals, llm=_clean_llm(calls),
+        _envelope(head_sha),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=approvals,
+        llm=_clean_llm(calls),
     )
     assert result["status"] == "awaiting_approval", result
     assert result["approval_id"] == "appr-1"
@@ -231,8 +241,12 @@ async def test_happy_path_creates_card(events, config_file, repo, head_sha):
 async def test_deliver_review_reports_without_card(events, config_file, repo, head_sha):
     approvals = FakeApprovals()
     result, _ = await _run_order(
-        _envelope(head_sha, mode="deliver-review"), events=events, config_file=config_file,
-        repo=repo, approvals=approvals, llm=_clean_llm({}),
+        _envelope(head_sha, mode="deliver-review"),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=approvals,
+        llm=_clean_llm({}),
     )
     assert result["status"] == "reported" and result["mode"] == "deliver-review"
     assert approvals.requests == []
@@ -241,8 +255,13 @@ async def test_deliver_review_reports_without_card(events, config_file, repo, he
 async def test_flag_off_is_report_only(events, config_file, repo, head_sha):
     approvals = FakeApprovals()
     result, emitted = await _run_order(
-        _envelope(head_sha), events=events, config_file=config_file, repo=repo,
-        approvals=approvals, llm=_clean_llm({}), flag=False,
+        _envelope(head_sha),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=approvals,
+        llm=_clean_llm({}),
+        flag=False,
     )
     assert result["status"] == "reported" and result["report_only"] is True
     assert approvals.requests == []
@@ -253,10 +272,21 @@ async def test_second_run_reuses_review_round(events, config_file, repo, head_sh
     approvals = FakeApprovals()
     calls: dict = {}
     llm = _clean_llm(calls)
-    await _run_order(_envelope(head_sha), events=events, config_file=config_file, repo=repo, approvals=approvals, llm=llm)
+    await _run_order(
+        _envelope(head_sha),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=approvals,
+        llm=llm,
+    )
     result, _ = await _run_order(
-        _envelope(head_sha), events=events, config_file=config_file, repo=repo,
-        approvals=approvals, llm=llm,
+        _envelope(head_sha),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=approvals,
+        llm=llm,
     )
     assert result["status"] == "awaiting_approval"
     assert calls["n"] == 2  # unchanged diff: no second model round
@@ -265,20 +295,31 @@ async def test_second_run_reuses_review_round(events, config_file, repo, head_sh
 async def test_pending_card_is_not_duplicated(events, config_file, repo, head_sha):
     approvals = FakeApprovals()
     approvals.pending_rows.append(
-        {"request_id": "appr-0", "tool_args": {"subject": f"delivery:{REPO}#7@{head_sha}", "diff_hash": "x"}}
+        {
+            "request_id": "appr-0",
+            "tool_args": {"subject": f"delivery:{REPO}#7@{head_sha}", "diff_hash": "x"},
+        }
     )
     # The pending row must carry the CURRENT diff hash to dedupe: run
     # once to learn it, then seed it and run again.
     calls: dict = {}
     first, _ = await _run_order(
-        _envelope(head_sha), events=events, config_file=config_file, repo=repo,
-        approvals=FakeApprovals(), llm=_clean_llm(calls),
+        _envelope(head_sha),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=FakeApprovals(),
+        llm=_clean_llm(calls),
     )
     approvals.pending_rows[0]["tool_args"]["diff_hash"] = first["diff_hash"]
     approvals.requests.clear()
     result, emitted = await _run_order(
-        _envelope(head_sha), events=events, config_file=config_file, repo=repo,
-        approvals=approvals, llm=_clean_llm({}),
+        _envelope(head_sha),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=approvals,
+        llm=_clean_llm({}),
     )
     assert result["status"] == "awaiting_approval"
     assert approvals.requests == []
@@ -290,8 +331,12 @@ async def test_pending_card_is_not_duplicated(events, config_file, repo, head_sh
 
 async def test_refuses_when_head_absent(events, config_file, repo):
     result, emitted = await _run_order(
-        _envelope("0" * 40), events=events, config_file=config_file, repo=repo,
-        approvals=FakeApprovals(), llm=_clean_llm({}),
+        _envelope("0" * 40),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=FakeApprovals(),
+        llm=_clean_llm({}),
     )
     assert result["status"] == "refused" and "not present locally" in result["reason"]
     assert emitted[0][0] == "delivery.refused"
@@ -300,8 +345,11 @@ async def test_refuses_when_head_absent(events, config_file, repo):
 async def test_refuses_repo_mismatch(events, config_file, repo, head_sha):
     result, _ = await _run_order(
         _envelope(head_sha).copy() | {"subject": f"other/other#7@{head_sha}"},
-        events=events, config_file=config_file, repo=repo,
-        approvals=FakeApprovals(), llm=_clean_llm({}),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=FakeApprovals(),
+        llm=_clean_llm({}),
     )
     assert result["status"] == "refused" and "does not match" in result["reason"]
 
@@ -315,19 +363,37 @@ async def test_refuses_merge_conflict(events, config_file, repo):
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "main moves")
     result, _ = await _run_order(
-        _envelope(feature), events=events, config_file=config_file, repo=repo,
-        approvals=FakeApprovals(), llm=_clean_llm({}),
+        _envelope(feature),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=FakeApprovals(),
+        llm=_clean_llm({}),
     )
     assert result["status"] == "refused" and "does not merge cleanly" in result["reason"]
 
 
 async def test_refuses_blocker_review(events, config_file, repo, head_sha):
     async def _blocker(*args, **kwargs):
-        return {"choices": [{"message": {"content": json.dumps({"findings": [{"detail": "hardcoded secret", "severity": "blocker"}]})}}]}
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {"findings": [{"detail": "hardcoded secret", "severity": "blocker"}]}
+                        )
+                    }
+                }
+            ]
+        }
 
     result, _ = await _run_order(
-        _envelope(head_sha), events=events, config_file=config_file, repo=repo,
-        approvals=FakeApprovals(), llm=_blocker,
+        _envelope(head_sha),
+        events=events,
+        config_file=config_file,
+        repo=repo,
+        approvals=FakeApprovals(),
+        llm=_blocker,
     )
     assert result["status"] == "refused" and "review did not pass" in result["reason"]
     assert "checks.completed" not in _topics(events)  # checks never ran
@@ -340,8 +406,12 @@ async def test_refuses_failing_checks(events, tmp_path, repo, head_sha):
         encoding="utf-8",
     )
     result, _ = await _run_order(
-        _envelope(head_sha), events=events, config_file=bad_config, repo=repo,
-        approvals=FakeApprovals(), llm=_clean_llm({}),
+        _envelope(head_sha),
+        events=events,
+        config_file=bad_config,
+        repo=repo,
+        approvals=FakeApprovals(),
+        llm=_clean_llm({}),
     )
     assert result["status"] == "refused" and "checks did not pass" in result["reason"]
 
@@ -377,11 +447,18 @@ def test_on_delivery_approved_records_and_cards(tmp_path: Path):
     record = {
         "tool": "delivery.merge",
         "request_id": "appr-1",
-        "tool_args": {"subject": f"delivery:{REPO}#7@{'a' * 40}", "head": "a" * 40, "repo": REPO, "pr": 7},
+        "tool_args": {
+            "subject": f"delivery:{REPO}#7@{'a' * 40}",
+            "head": "a" * 40,
+            "repo": REPO,
+            "pr": 7,
+        },
     }
     out = on_delivery_approved(
-        record, decision="allow",
-        emit=lambda t, p: emitted.append((t, p)), attention_store=attention,
+        record,
+        decision="allow",
+        emit=lambda t, p: emitted.append((t, p)),
+        attention_store=attention,
     )
     assert out["status"] == "approved"
     assert emitted[0][0] == "delivery.approved"
@@ -391,8 +468,10 @@ def test_on_delivery_approved_records_and_cards(tmp_path: Path):
     assert "no push" in attention.items[0]["question"]
 
     out = on_delivery_approved(
-        record, decision="deny",
-        emit=lambda t, p: emitted.append((t, p)), attention_store=attention,
+        record,
+        decision="deny",
+        emit=lambda t, p: emitted.append((t, p)),
+        attention_store=attention,
     )
     assert out["status"] == "denied"
     assert emitted[-1][0] == "delivery.denied"
@@ -401,7 +480,8 @@ def test_on_delivery_approved_records_and_cards(tmp_path: Path):
     out = on_delivery_approved(
         {"tool": "bash", "request_id": "x", "tool_args": {}},
         decision="allow",
-        emit=lambda t, p: emitted.append((t, p)), attention_store=attention,
+        emit=lambda t, p: emitted.append((t, p)),
+        attention_store=attention,
     )
     assert out["status"] == "ignored"
 
@@ -430,7 +510,10 @@ async def test_verify_reaper_marks_deployed_once(events):
 
 async def test_verify_reaper_silent_when_not_deployed(events):
     events.append(
-        {"topic": "delivery.approved", "payload": {"subject": f"delivery:{REPO}#7@{'c' * 40}", "head": "c" * 40}}
+        {
+            "topic": "delivery.approved",
+            "payload": {"subject": f"delivery:{REPO}#7@{'c' * 40}", "head": "c" * 40},
+        }
     )
     emitted: list[tuple[str, dict]] = []
     count = await reap_delivery_verifications(
@@ -448,14 +531,32 @@ def test_hub_loader_accepts_pipeline_target(tmp_path: Path):
     skills = tmp_path / "skills"
     skills.mkdir()
     rules = parse_rules_file(
-        {"version": 1, "rules": [{"name": "deliver", "when": {"source": "github", "types": ["github.pr.labeled.deliver"]}, "to": "pipeline:delivery"}]},
+        {
+            "version": 1,
+            "rules": [
+                {
+                    "name": "deliver",
+                    "when": {"source": "github", "types": ["github.pr.labeled.deliver"]},
+                    "to": "pipeline:delivery",
+                }
+            ],
+        },
         skills_dir=skills,
         bot_exists=lambda _bot: False,
     )
     assert len(rules) == 1 and rules[0]["to"] == "pipeline:delivery" and rules[0]["ask"] == ""
     with pytest.raises(ValueError, match="unknown pipeline"):
         parse_rules_file(
-            {"version": 1, "rules": [{"name": "bad", "when": {"source": "github", "types": ["x"]}, "to": "pipeline:unknown"}]},
+            {
+                "version": 1,
+                "rules": [
+                    {
+                        "name": "bad",
+                        "when": {"source": "github", "types": ["x"]},
+                        "to": "pipeline:unknown",
+                    }
+                ],
+            },
             skills_dir=skills,
             bot_exists=lambda _bot: False,
         )

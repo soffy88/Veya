@@ -36,17 +36,22 @@ def test_gsk_routes_feature_flags_are_hidden_when_off(client_with_real_users, mo
     assert client.get("/api/v1/gsk/evidence", params={"label": "missing"}).status_code in (401, 404)
 
 
-def test_gsk_receipts_requires_real_session_and_owner(client_with_real_users, monkeypatch, tmp_path):
+def test_gsk_receipts_requires_real_session_and_owner(
+    client_with_real_users, monkeypatch, tmp_path
+):
     client, owner, member = client_with_real_users
     monkeypatch.setenv("VEYA_GSK_EGRESS_RECEIPTS", "1")
     monkeypatch.setenv("VEYA_GSK_EGRESS_RECEIPTS_PATH", str(tmp_path / "receipts.jsonl"))
     monkeypatch.setenv("VEYA_OWNER_USER_ID", owner["user_id"])
 
     assert client.get("/api/v1/gsk/receipts").status_code == 401
-    assert client.get(
-        "/api/v1/gsk/receipts",
-        headers={"Authorization": f"Bearer {member['token']}"},
-    ).status_code == 403
+    assert (
+        client.get(
+            "/api/v1/gsk/receipts",
+            headers={"Authorization": f"Bearer {member['token']}"},
+        ).status_code
+        == 403
+    )
     response = client.get(
         "/api/v1/gsk/receipts",
         headers={"Authorization": f"Bearer {owner['token']}"},
@@ -56,18 +61,23 @@ def test_gsk_receipts_requires_real_session_and_owner(client_with_real_users, mo
     assert "verification" in response.json()
 
 
-def test_gsk_evidence_requires_real_session_and_owner(client_with_real_users, monkeypatch, tmp_path):
+def test_gsk_evidence_requires_real_session_and_owner(
+    client_with_real_users, monkeypatch, tmp_path
+):
     client, owner, member = client_with_real_users
     monkeypatch.setenv("VEYA_GSK_EVIDENCE", "1")
     monkeypatch.setenv("VEYA_GSK_EVIDENCE_PATH", str(tmp_path / "evidence.jsonl"))
     monkeypatch.setenv("VEYA_OWNER_USER_ID", owner["user_id"])
 
     assert client.get("/api/v1/gsk/evidence", params={"label": "missing"}).status_code == 401
-    assert client.get(
-        "/api/v1/gsk/evidence",
-        params={"label": "missing"},
-        headers={"Authorization": f"Bearer {member['token']}"},
-    ).status_code == 403
+    assert (
+        client.get(
+            "/api/v1/gsk/evidence",
+            params={"label": "missing"},
+            headers={"Authorization": f"Bearer {member['token']}"},
+        ).status_code
+        == 403
+    )
     response = client.get(
         "/api/v1/gsk/evidence",
         params={"label": "missing"},

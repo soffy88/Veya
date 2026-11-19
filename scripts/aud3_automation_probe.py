@@ -17,7 +17,8 @@ import urllib.error
 import urllib.request
 
 BASE = "http://127.0.0.1:8799"
-TOKEN = open(".aud3data/token.txt").read().strip()
+with open(".aud3data/token.txt") as _token_file:
+    TOKEN = _token_file.read().strip()
 SECRET = os.environ.get("AUD3_WEBHOOK_SECRET", "aud3webhooksecret-aud3webhooksecret-0000")
 BOT = "aud3-auto-bot"
 
@@ -49,22 +50,34 @@ def call(method: str, path: str, body=None, *, auth=True, headers=None, timeout=
 
 def main() -> int:
     # ── 0. A bot to own the routines ────────────────────────────────────
-    status, raw = call("POST", "/api/v1/bots", {
-        "bot_id": BOT, "name": "AUD3 Automation", "description": "routine/event/approval probe",
-    })
+    status, raw = call(
+        "POST",
+        "/api/v1/bots",
+        {
+            "bot_id": BOT,
+            "name": "AUD3 Automation",
+            "description": "routine/event/approval probe",
+        },
+    )
     note(f"[setup] POST /api/v1/bots -> {status} {raw[:160]}")
 
     # ── 1. ROUTINE SCHEDULING ───────────────────────────────────────────
-    status, raw = call("POST", f"/api/v1/bots/{BOT}/routines", {
-        "objective": "AUD3 scheduled tick",
-        "trigger_topic": "schedule.trigger",
-        "schedule": "every 1m",
-        "enabled": True,
-    })
+    status, raw = call(
+        "POST",
+        f"/api/v1/bots/{BOT}/routines",
+        {
+            "objective": "AUD3 scheduled tick",
+            "trigger_topic": "schedule.trigger",
+            "schedule": "every 1m",
+            "enabled": True,
+        },
+    )
     note(f"[routine] create -> {status} {raw[:220]}")
     routine = json.loads(raw) if status == 200 else {}
     rid = routine.get("routine_id")
-    note(f"[routine] routine_id={rid} enabled={routine.get('enabled')} schedule={routine.get('schedule')!r}")
+    note(
+        f"[routine] routine_id={rid} enabled={routine.get('enabled')} schedule={routine.get('schedule')!r}"
+    )
 
     status, raw = call("POST", f"/api/v1/bots/{BOT}/routines/{rid}/run_now")
     note(f"[routine] run_now -> {status} {raw[:220]}")
@@ -84,14 +97,19 @@ def main() -> int:
         entries = json.loads(raw).get("history", []) if status == 200 else []
         # A clock tick records `${routine_id}:<iso>` and never mentions run_now.
         clock_hits = [
-            e for e in entries
+            e
+            for e in entries
             if str(e.get("trigger_id", "")).startswith(rid)
             and "run_now" not in str(e.get("trigger_id", ""))
         ]
         if clock_hits:
             clock_fired = True
-            note(f"[routine] clock fired independently (total entries {len(entries)}, baseline {baseline}):")
-            note(f"[routine]   trigger_id={clock_hits[-1]['trigger_id']} status={clock_hits[-1].get('status')}")
+            note(
+                f"[routine] clock fired independently (total entries {len(entries)}, baseline {baseline}):"
+            )
+            note(
+                f"[routine]   trigger_id={clock_hits[-1]['trigger_id']} status={clock_hits[-1].get('status')}"
+            )
             break
         else:
             note(f"[routine]   t+{int(150 - (deadline - time.time()))}s entries={len(entries)}")
@@ -102,12 +120,16 @@ def main() -> int:
     note(f"[routine] routines after wait -> {st} {rw[:300]}")
 
     # ── 2. EVENT TRIGGER → FOLLOW-THROUGH EXECUTION ─────────────────────
-    status, raw = call("POST", f"/api/v1/bots/{BOT}/routines", {
-        "objective": "AUD3 webhook deploy",
-        "trigger_topic": "event.arrive",
-        "enabled": True,
-        "triggers": [{"kind": "webhook", "event": "aud3.deploy"}],
-    })
+    status, raw = call(
+        "POST",
+        f"/api/v1/bots/{BOT}/routines",
+        {
+            "objective": "AUD3 webhook deploy",
+            "trigger_topic": "event.arrive",
+            "enabled": True,
+            "triggers": [{"kind": "webhook", "event": "aud3.deploy"}],
+        },
+    )
     hook_routine = json.loads(raw) if status == 200 else {}
     hid = hook_routine.get("routine_id")
     note(f"[event] webhook routine -> {status} routine_id={hid}")
@@ -115,7 +137,9 @@ def main() -> int:
     body = json.dumps({"event": "aud3.deploy", "id": "aud3_evt_1"}).encode()
     sig = hmac.new(SECRET.encode(), body, hashlib.sha256).hexdigest()
     req = urllib.request.Request(
-        f"{BASE}/api/v1/bots/{BOT}/routines/webhook", data=body, method="POST",
+        f"{BASE}/api/v1/bots/{BOT}/routines/webhook",
+        data=body,
+        method="POST",
         headers={"Content-Type": "application/json", "X-Veya-Signature": sig},
     )
     try:
@@ -133,20 +157,33 @@ def main() -> int:
 
     # Follow-through: the dispatched goal must exist and have really run.
     for gid in [g for g in goal_ids if g]:
-        for attempt in range(6):
+        for _attempt in range(6):
             status, raw = call("GET", f"/api/v1/bot-runtime/{BOT}/goals/{gid}", timeout=25)
             note(f"[event] goal {gid} -> {status} {raw[:160]}")
             if status == 200:
                 body_json = json.loads(raw)
                 st = str(body_json.get("status") or "")
-                if st not in ("", "queued", "pending", "running", "planning", "paused", "resumable", "completing", "recovering", "finalizing"):
+                if st not in (
+                    "",
+                    "queued",
+                    "pending",
+                    "running",
+                    "planning",
+                    "paused",
+                    "resumable",
+                    "completing",
+                    "recovering",
+                    "finalizing",
+                ):
                     note(f"[event] goal {gid} terminal status={st}")
                     break
             time.sleep(8)
 
     # Bad signature must be rejected.
     bad = urllib.request.Request(
-        f"{BASE}/api/v1/bots/{BOT}/routines/webhook", data=body, method="POST",
+        f"{BASE}/api/v1/bots/{BOT}/routines/webhook",
+        data=body,
+        method="POST",
         headers={"Content-Type": "application/json", "X-Veya-Signature": "0" * 64},
     )
     try:
@@ -156,12 +193,16 @@ def main() -> int:
         note(f"[event] bad signature -> {exc.code} {exc.read().decode()[:120]}")
 
     # ── 3. APPROVAL BLOCKING IS REAL ────────────────────────────────────
-    status, raw = call("POST", "/api/v1/skills/teach/draft", {
-        "name": f"aud3_block_probe_{int(time.time())}",
-        "description": "probe: must stay inactive until approved",
-        "trajectory": {"steps": ["a", "b"]},
-        "scope_type": "user",
-    })
+    status, raw = call(
+        "POST",
+        "/api/v1/skills/teach/draft",
+        {
+            "name": f"aud3_block_probe_{int(time.time())}",
+            "description": "probe: must stay inactive until approved",
+            "trajectory": {"steps": ["a", "b"]},
+            "scope_type": "user",
+        },
+    )
     draft = json.loads(raw) if status in (200, 201) else {}
     approval_id = draft.get("approval_id")
     skill_id = draft.get("skill_id")
@@ -190,8 +231,7 @@ def main() -> int:
 
     status, raw = call("GET", "/api/v1/approvals")
     pending_after = json.loads(raw).get("approvals", []) if status == 200 else []
-    still = [a for a in pending_after
-             if (a.get("request_id") or a.get("id")) == approval_id]
+    still = [a for a in pending_after if (a.get("request_id") or a.get("id")) == approval_id]
     note(f"[approval] approval still pending after deny: {bool(still)}")
 
     with open("evidence/07_automation.txt", "w") as fh:

@@ -213,7 +213,12 @@ def _assess_code(tool: str, kwargs: dict[str, Any], base: CallAssessment) -> Non
 
 def _assess_egress(tool: str, kwargs: dict[str, Any], base: CallAssessment) -> None:
     base.egress = True
-    url = kwargs.get("url") or kwargs.get("href") or kwargs.get("endpoint") or kwargs.get("webhook_url")
+    url = (
+        kwargs.get("url")
+        or kwargs.get("href")
+        or kwargs.get("endpoint")
+        or kwargs.get("webhook_url")
+    )
     host = _host_of(url)
     recipient = kwargs.get("to") or kwargs.get("recipient") or kwargs.get("address")
     if isinstance(recipient, (list, tuple)):
@@ -271,6 +276,7 @@ def assess_call(tool: str, kwargs: dict[str, Any] | None) -> CallAssessment:
 
 
 # ── configuration (file layer, read per call like the flag chain) ────────────
+
 
 @dataclass
 class SentinelRule:
@@ -360,6 +366,7 @@ def _read_file_layer() -> dict[str, Any]:
 
 
 # ── decision engine (pure) ───────────────────────────────────────────────────
+
 
 @dataclass
 class PolicyResult:
@@ -475,6 +482,7 @@ def evaluate(
 
 # ── grants: scoped capabilities (tool + target, with lifetimes) ─────────────
 
+
 def grant_key(tool: str, target: str | None) -> str:
     return f"{tool}:{target}" if target else tool
 
@@ -563,9 +571,7 @@ class GrantStore:
                         target=item.get("target"),
                         scope=str(item.get("scope", "always")),
                         granted_at=float(item.get("granted_at") or now),
-                        expires_at=(
-                            float(item["expires_at"]) if item.get("expires_at") else None
-                        ),
+                        expires_at=(float(item["expires_at"]) if item.get("expires_at") else None),
                         conversation_id=item.get("conversation_id"),
                         owner_scope=str(item.get("owner_scope") or ""),
                     )
@@ -645,9 +651,7 @@ class GrantStore:
             self._grants = [
                 g
                 for g in self._grants
-                if not (
-                    g.key == key and g.scope == scope and g.owner_scope == owner_scope
-                )
+                if not (g.key == key and g.scope == scope and g.owner_scope == owner_scope)
             ]
             self._grants.append(grant)
         if scope in PERSISTED_SCOPES:
@@ -671,9 +675,7 @@ class GrantStore:
         with self._lock:
             before = len(self._grants)
             self._grants = [
-                g
-                for g in self._grants
-                if g.owner_scope and g.owner_scope != owner_scope
+                g for g in self._grants if g.owner_scope and g.owner_scope != owner_scope
             ]
             removed = before - len(self._grants)
         if removed:
@@ -784,6 +786,7 @@ def note_execution(tool: str, kwargs: dict[str, Any] | None, *, ok: bool = True)
 
 # ── flag + owner scope ───────────────────────────────────────────────────────
 
+
 def sentinel_enabled() -> bool:
     try:
         from server.feature_flags import enabled as flag_enabled
@@ -805,6 +808,7 @@ def _owner_scope() -> str:
 
 
 # ── the guard policy ─────────────────────────────────────────────────────────
+
 
 def _grant_options(assessment: CallAssessment) -> list[str]:
     # Phase 1: only the verdicts the existing approval UI offers. The engine

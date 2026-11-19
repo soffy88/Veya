@@ -119,7 +119,7 @@ def test_sync_and_read_endpoints(rev_env, client):
 
     inbox = client.get("/api/v1/bots/inbox")
     assert inbox.status_code == 200
-    row = [g for g in inbox.json()["groups"] if g["group_id"] == group.id][0]
+    row = next(g for g in inbox.json()["groups"] if g["group_id"] == group.id)
     assert row["read_rev"] == 1
     assert row["unread"] == 0
     assert client.post(f"/api/v1/bots/groups/{group.id}/read", json={"rev": -1}).status_code == 422

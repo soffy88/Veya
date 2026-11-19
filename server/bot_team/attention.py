@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from server.bot_team.conversations import ConversationStore, atomic_write_json, default_bots_root
-from server.bot_team.groups import GroupChat, GroupStore
+from server.bot_team.groups import GroupStore
 from server.goal_run.bot_identity import BotRegistry, BotSpec
 
 ATTENTION_FILENAME = "attention.json"
@@ -108,7 +108,9 @@ class StandingRefusedError(ValueError):
 
     def __init__(self, standing: dict[str, Any]) -> None:
         self.standing = standing
-        super().__init__(f"refused by standing rule {standing.get('id')}: {standing.get('statement', '')[:80]}")
+        super().__init__(
+            f"refused by standing rule {standing.get('id')}: {standing.get('statement', '')[:80]}"
+        )
 
 
 def _record_tell_digest(item: dict[str, Any]) -> None:
@@ -145,6 +147,7 @@ def _record_standing_refusal(standing: dict[str, Any], question: str) -> None:
         )
     except Exception:
         pass
+
 
 OPEN = "open"
 
@@ -257,9 +260,7 @@ class AttentionStore:
         if kind == "question" and not bypass_standing:
             from server import decision_ledger as dl_mod
 
-            match = dl_mod.check_standing(
-                f"{question}\n{context or ''}", ledger=self._ledger
-            )
+            match = dl_mod.check_standing(f"{question}\n{context or ''}", ledger=self._ledger)
             if match is not None and match.get("verdict") == "declined":
                 _record_standing_refusal(match, question)
                 raise StandingRefusedError(match)
@@ -314,7 +315,9 @@ class AttentionStore:
                 return item
         return None
 
-    def _close(self, item_id: str, *, status: str, answer: str | None = None) -> dict[str, Any] | None:
+    def _close(
+        self, item_id: str, *, status: str, answer: str | None = None
+    ) -> dict[str, Any] | None:
         items = self._load()
         for item in items:
             if item.get("id") == item_id:
@@ -402,9 +405,12 @@ def build_board(
 
     entries = []
     for spec in registry.list():
-        if spec.bot_id not in (DEFAULT_BOT_ID, CHEF_BOT_ID):
-            if owner_id is not None and spec.owner_id != owner_id:
-                continue
+        if (
+            spec.bot_id not in (DEFAULT_BOT_ID, CHEF_BOT_ID)
+            and owner_id is not None
+            and spec.owner_id != owner_id
+        ):
+            continue
         entries.append(bot_board_entry(spec, conversations=conversations, store=store))
     return entries
 
@@ -450,9 +456,7 @@ def build_inbox(
     )
     return {
         "attention": open_items,
-        "board": build_board(
-            registry, conversations=conversations, store=store, owner_id=owner_id
-        ),
+        "board": build_board(registry, conversations=conversations, store=store, owner_id=owner_id),
         "groups": group_rows,
     }
 

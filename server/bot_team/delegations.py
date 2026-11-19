@@ -205,9 +205,7 @@ class DelegationStore:
         return reset
 
 
-def _report_incident(
-    store: DelegationStore, item: dict[str, Any], error: str
-) -> None:
+def _report_incident(store: DelegationStore, item: dict[str, Any], error: str) -> None:
     """Hand an exhausted delegation to a human; never fail the drain."""
 
     try:
@@ -297,9 +295,7 @@ async def _drain(
             )
         except BotMessageRefused as exc:
             store.fail(delegation_id, error=str(exc))
-            outcomes.append(
-                {"delegation_id": delegation_id, "status": FAILED, "error": str(exc)}
-            )
+            outcomes.append({"delegation_id": delegation_id, "status": FAILED, "error": str(exc)})
             continue
         except Exception as exc:  # one bad target turn never stops the drain
             error = f"{exc.__class__.__name__}: {exc}"
@@ -368,8 +364,8 @@ async def _drain(
 
 
 __all__ = [
-    "DRAIN_LIMIT",
     "DONE",
+    "DRAIN_LIMIT",
     "FAILED",
     "QUEUED",
     "RUNNING",

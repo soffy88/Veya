@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 from server.bot_team.conversations import ConversationStore, conversation_store
+
 if TYPE_CHECKING:
     from server.bot_team.mcp_runner import McpRunnerClient
 

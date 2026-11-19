@@ -3,8 +3,6 @@ asked; decided rules are injected verbatim; history is never rewritten."""
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -66,9 +64,7 @@ def _register(registry: BotRegistry, *bot_ids: str) -> BotRegistry:
 
 
 def test_record_find_declined(ledger):
-    sid = ledger.record_standing(
-        "declined", "不要删数据库", scope="删数据", source="test"
-    )
+    sid = ledger.record_standing("declined", "不要删数据库", scope="删数据", source="test")
     rows = ledger.find_standing("能不能删数据库？")
     assert [r["id"] for r in rows] == [sid]
     assert rows[0]["verdict"] == "declined"
@@ -182,9 +178,7 @@ def test_bypass_standing(att_env, ledger, monkeypatch):
     monkeypatch.setattr(dl_mod, "ledger", ledger)
     ledger.record_standing("declined", "不要删数据库", scope="删数据")
     store = AttentionStore(att_env["root"], ledger=ledger)
-    item = store.create(
-        question="能不能删数据库？", bot_id="alpha", bypass_standing=True
-    )
+    item = store.create(question="能不能删数据库？", bot_id="alpha", bypass_standing=True)
     assert item["status"] == "open"
 
 

@@ -37,20 +37,111 @@ _BUILTIN_PROFILES: dict[str, tuple[str, str]] = {
 # existing CLIWorkerExecutorAdapter. Login checks inspect presence or exit
 # status only; credential files are never opened or parsed.
 XRT_RUNTIME_PROFILES: dict[str, dict[str, Any]] = {
-    "devin": {"profile_name": "devin", "display_name": "Devin", "command": "devin", "headless_args": ["run", "--prompt"], "login_check_files": [".devin/credentials.json"], "env_allowlist": []},
-    "claude_code": {"profile_name": "claude-code", "display_name": "Claude Code", "command": "claude", "headless_args": ["-p", "--permission-mode", "acceptEdits"], "login_check_files": [".claude.json", ".config/claude/config.json"], "env_allowlist": ["CLAUDE_CONFIG_DIR"]},
-    "codex": {"profile_name": "codex", "display_name": "Codex CLI", "command": "codex", "headless_args": ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"], "login_check_files": [".codex/auth.json", ".config/codex/credentials.json"], "env_allowlist": ["CODEX_HOME"]},
-    "cursor_agent": {"profile_name": "cursor-agent", "display_name": "Cursor CLI", "command": "cursor-agent", "headless_args": ["-p"], "login_check_files": [".cursor/credentials.json"], "env_allowlist": []},
-    "gemini": {"profile_name": "gemini", "display_name": "Gemini CLI", "command": "gemini", "headless_args": ["-p"], "login_check_files": [".gemini/credentials.json", ".gemini/oauth_creds.json"], "env_allowlist": ["GEMINI_CLI_HOME"]},
-    "copilot": {"profile_name": "copilot", "display_name": "GitHub Copilot CLI", "command": "copilot", "headless_args": ["-p"], "login_check_cmd": ["copilot", "auth", "status"], "login_check_files": [".config/gh/hosts.yml"], "env_allowlist": []},
-    "qwen": {"profile_name": "qwen", "display_name": "Qwen Code", "command": "qwen", "headless_args": ["-p"], "login_check_files": [".qwen/credentials.json", ".qwen/oauth_creds.json"], "env_allowlist": ["QWEN_HOME"]},
-    "droid": {"profile_name": "droid", "display_name": "Droid", "command": "droid", "headless_args": ["run"], "login_check_files": [".factory/auth.json", ".droid/config.json"], "env_allowlist": []},
-    "cline": {"profile_name": "cline", "display_name": "Cline", "command": "cline", "headless_args": ["run"], "login_check_files": [".cline/data", ".cline/config.json"], "env_allowlist": []},
-    "opencode": {"profile_name": "opencode", "display_name": "OpenCode", "command": "opencode", "headless_args": ["run"], "login_check_files": [".local/share/opencode/auth.json", ".config/opencode/auth.json", ".opencode/auth.json"], "env_allowlist": ["OPENCODE_CONFIG_DIR", "OPENCODE_DATA_DIR"]},
-    "grok": {"profile_name": "grok", "display_name": "Grok", "command": "grok", "headless_args": ["-p"], "login_check_files": [".grok/sessions", ".config/grok/auth.json"], "env_allowlist": ["GROK_SESSION_DIR"]},
-    "hermes": {"profile_name": "hermes", "display_name": "Hermes", "command": "hermes", "headless_args": ["run"], "login_check_files": [".hermes/config.json"], "env_allowlist": ["HERMES_HOME"]},
+    "devin": {
+        "profile_name": "devin",
+        "display_name": "Devin",
+        "command": "devin",
+        "headless_args": ["run", "--prompt"],
+        "login_check_files": [".devin/credentials.json"],
+        "env_allowlist": [],
+    },
+    "claude_code": {
+        "profile_name": "claude-code",
+        "display_name": "Claude Code",
+        "command": "claude",
+        "headless_args": ["-p", "--permission-mode", "acceptEdits"],
+        "login_check_files": [".claude.json", ".config/claude/config.json"],
+        "env_allowlist": ["CLAUDE_CONFIG_DIR"],
+    },
+    "codex": {
+        "profile_name": "codex",
+        "display_name": "Codex CLI",
+        "command": "codex",
+        "headless_args": ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"],
+        "login_check_files": [".codex/auth.json", ".config/codex/credentials.json"],
+        "env_allowlist": ["CODEX_HOME"],
+    },
+    "cursor_agent": {
+        "profile_name": "cursor-agent",
+        "display_name": "Cursor CLI",
+        "command": "cursor-agent",
+        "headless_args": ["-p"],
+        "login_check_files": [".cursor/credentials.json"],
+        "env_allowlist": [],
+    },
+    "gemini": {
+        "profile_name": "gemini",
+        "display_name": "Gemini CLI",
+        "command": "gemini",
+        "headless_args": ["-p"],
+        "login_check_files": [".gemini/credentials.json", ".gemini/oauth_creds.json"],
+        "env_allowlist": ["GEMINI_CLI_HOME"],
+    },
+    "copilot": {
+        "profile_name": "copilot",
+        "display_name": "GitHub Copilot CLI",
+        "command": "copilot",
+        "headless_args": ["-p"],
+        "login_check_cmd": ["copilot", "auth", "status"],
+        "login_check_files": [".config/gh/hosts.yml"],
+        "env_allowlist": [],
+    },
+    "qwen": {
+        "profile_name": "qwen",
+        "display_name": "Qwen Code",
+        "command": "qwen",
+        "headless_args": ["-p"],
+        "login_check_files": [".qwen/credentials.json", ".qwen/oauth_creds.json"],
+        "env_allowlist": ["QWEN_HOME"],
+    },
+    "droid": {
+        "profile_name": "droid",
+        "display_name": "Droid",
+        "command": "droid",
+        "headless_args": ["run"],
+        "login_check_files": [".factory/auth.json", ".droid/config.json"],
+        "env_allowlist": [],
+    },
+    "cline": {
+        "profile_name": "cline",
+        "display_name": "Cline",
+        "command": "cline",
+        "headless_args": ["run"],
+        "login_check_files": [".cline/data", ".cline/config.json"],
+        "env_allowlist": [],
+    },
+    "opencode": {
+        "profile_name": "opencode",
+        "display_name": "OpenCode",
+        "command": "opencode",
+        "headless_args": ["run"],
+        "login_check_files": [
+            ".local/share/opencode/auth.json",
+            ".config/opencode/auth.json",
+            ".opencode/auth.json",
+        ],
+        "env_allowlist": ["OPENCODE_CONFIG_DIR", "OPENCODE_DATA_DIR"],
+    },
+    "grok": {
+        "profile_name": "grok",
+        "display_name": "Grok",
+        "command": "grok",
+        "headless_args": ["-p"],
+        "login_check_files": [".grok/sessions", ".config/grok/auth.json"],
+        "env_allowlist": ["GROK_SESSION_DIR"],
+    },
+    "hermes": {
+        "profile_name": "hermes",
+        "display_name": "Hermes",
+        "command": "hermes",
+        "headless_args": ["run"],
+        "login_check_files": [".hermes/config.json"],
+        "env_allowlist": ["HERMES_HOME"],
+    },
 }
-_XRT_BY_PROFILE = {item["profile_name"]: (runtime_id, item) for runtime_id, item in XRT_RUNTIME_PROFILES.items()}
+_XRT_BY_PROFILE = {
+    item["profile_name"]: (runtime_id, item) for runtime_id, item in XRT_RUNTIME_PROFILES.items()
+}
 
 
 @dataclass(frozen=True)
@@ -274,7 +365,9 @@ def probe_xrt_runtime(
                     logged_in = False
         if not logged_in:
             home = Path(os.environ.get("HOME") or Path.home()).expanduser()
-            logged_in = any((home / relative).exists() for relative in metadata.get("login_check_files", []))
+            logged_in = any(
+                (home / relative).exists() for relative in metadata.get("login_check_files", [])
+            )
         state = "ready" if logged_in else "installed_not_logged_in"
     return {
         "name": runtime_id,
@@ -428,15 +521,15 @@ def get_cli_agent_registry(repo_root: Path | str) -> CLIAgentRegistry:
 
 __all__ = [
     "CLI_AGENTS_REL_PATH",
+    "XRT_RUNTIME_PROFILES",
     "CLIAgentProfile",
     "CLIAgentRegistry",
-    "XRT_RUNTIME_PROFILES",
+    "_validate_command_template",
     "build_xrt_command",
+    "get_cli_agent_registry",
     "probe_xrt_runtime",
     "probe_xrt_runtimes",
     "safe_runtime_env",
     "xrt_feature_enabled",
     "xrt_runtime_enabled",
-    "_validate_command_template",
-    "get_cli_agent_registry",
 ]

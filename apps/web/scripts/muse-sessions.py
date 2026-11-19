@@ -117,7 +117,6 @@ def launch(name: str, url: str, proxy: str | None = None) -> dict:
     profile.mkdir(parents=True, exist_ok=True)
     os.chmod(profile, 0o700)
     LOGS.mkdir(parents=True, exist_ok=True)
-    logf = open(LOGS / f"{name}.log", "ab", buffering=0)
     env = dict(os.environ, DISPLAY=DISPLAY)
     chrome_args = [
         CHROME,
@@ -132,14 +131,15 @@ def launch(name: str, url: str, proxy: str | None = None) -> dict:
     if proxy:
         chrome_args.append(f"--proxy-server=http://{proxy}")
     chrome_args.append(url)
-    proc = subprocess.Popen(
-        chrome_args,
-        stdout=logf,
-        stderr=logf,
-        stdin=subprocess.DEVNULL,
-        env=env,
-        start_new_session=True,
-    )
+    with open(LOGS / f"{name}.log", "ab", buffering=0) as logf:
+        proc = subprocess.Popen(
+            chrome_args,
+            stdout=logf,
+            stderr=logf,
+            stdin=subprocess.DEVNULL,
+            env=env,
+            start_new_session=True,
+        )
     ok = wait_cdp(port)
     meta[name] = {
         "pid": proc.pid,
@@ -202,7 +202,13 @@ def list_sessions() -> dict:
         if e.get("status") != status and e.get("status") != "failed":
             e["status"] = status
             changed = True
-        out[name] = {"status": status, "port": e.get("port"), "url": e.get("url"), "pid": e.get("pid"), "proxy": e.get("proxy")}
+        out[name] = {
+            "status": status,
+            "port": e.get("port"),
+            "url": e.get("url"),
+            "pid": e.get("pid"),
+            "proxy": e.get("proxy"),
+        }
     if changed:
         save_meta(meta)
     return out
@@ -226,7 +232,11 @@ def main(argv: list[str]) -> int:
             url = argv[argv.index("--url") + 1]
         elif meta.get(name, {}).get("url"):
             url = meta[name]["url"]
-        proxy = argv[argv.index("--proxy") + 1] if "--proxy" in argv else meta.get(name, {}).get("proxy")
+        proxy = (
+            argv[argv.index("--proxy") + 1]
+            if "--proxy" in argv
+            else meta.get(name, {}).get("proxy")
+        )
         print(json.dumps(launch(name, url, proxy), ensure_ascii=False))
     elif cmd == "list":
         print(json.dumps(list_sessions(), indent=2, ensure_ascii=False))

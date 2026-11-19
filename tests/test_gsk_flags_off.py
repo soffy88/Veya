@@ -1,6 +1,7 @@
-from veya.gsk.envelope import sanitize_and_wrap
 from veya.gsk.careful import check_careful
 from veya.gsk.domain_skills import DomainSkillManager
+from veya.gsk.envelope import sanitize_and_wrap
+
 
 def test_flags_off_behavior(monkeypatch, tmp_path):
     for flag in [

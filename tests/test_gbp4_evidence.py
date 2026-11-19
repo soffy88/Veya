@@ -7,23 +7,24 @@ with automated URL/file extraction from evidence chains.
 from __future__ import annotations
 
 from pathlib import Path
-import pytest
 
 from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatus
-from server.supervisor.reporting import build_progress_report
 from server.supervisor.binding import SupervisorBinding
+from server.supervisor.reporting import build_progress_report
 
 
 def test_evidence_report_flag_off_behavior(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("VEYA_EVIDENCE_REPORT", "0")
-    
+
     # Check default bot instructions
     from server.routes.bot_team import _default_bot_spec
+
     spec = _default_bot_spec("alice")
     assert "说不清数字怎么来的就不写" not in spec.instructions
 
     # Check role preset instructions via render_role_block
     from server.role_skill_presets import load_roles, render_role_block
+
     roles = load_roles()
     if roles:
         block = render_role_block(roles[0], budget=2000)
@@ -39,9 +40,12 @@ def test_evidence_report_flag_off_behavior(monkeypatch, tmp_path: Path):
         depends_on=[],
         assignee="worker",
         status=TaskStatus.completed,
-        evidence=[{"content": "Fetched https://example.com/data and file server/supervisor/reporting.py"}]
+        evidence=[
+            {"content": "Fetched https://example.com/data and file server/supervisor/reporting.py"}
+        ],
     )
     from server.goal_run.store import save_goal_run
+
     save_goal_run(state, str(tmp_path))
 
     binding = SupervisorBinding(
@@ -65,11 +69,13 @@ def test_evidence_report_flag_on_behavior_and_structure(monkeypatch, tmp_path: P
 
     # 1. Check default bot instructions
     from server.routes.bot_team import _default_bot_spec
+
     spec = _default_bot_spec("alice")
     assert "说不清数字怎么来的就不写" in spec.instructions
 
     # 2. Check role preset instructions via render_role_block
     from server.role_skill_presets import load_roles, render_role_block
+
     roles = load_roles()
     if roles:
         block = render_role_block(roles[0], budget=2000)
@@ -86,10 +92,13 @@ def test_evidence_report_flag_on_behavior_and_structure(monkeypatch, tmp_path: P
         assignee="worker",
         status=TaskStatus.completed,
         evidence=[
-            {"content": "Successfully connected to https://api.veya.ai/v1/health and read server/supervisor/reporting.py"}
-        ]
+            {
+                "content": "Successfully connected to https://api.veya.ai/v1/health and read server/supervisor/reporting.py"
+            }
+        ],
     )
     from server.goal_run.store import save_goal_run
+
     save_goal_run(state, str(tmp_path))
 
     binding = SupervisorBinding(
@@ -103,7 +112,7 @@ def test_evidence_report_flag_on_behavior_and_structure(monkeypatch, tmp_path: P
         report_seq=1,
     )
     report = build_progress_report(goal_run_id="g2", project_root=str(tmp_path), binding=binding)
-    
+
     body = report["body"]
     assert "【来源】" in body
     assert "【猜测】" in body
@@ -123,7 +132,7 @@ def test_evidence_report_skipped_and_guesses(monkeypatch, tmp_path: Path):
         depends_on=[],
         assignee="worker",
         status=TaskStatus.completed,
-        execute_result="We assume metric is 100 based on file config/settings.yaml"
+        execute_result="We assume metric is 100 based on file config/settings.yaml",
     )
     state.tasks["t2"] = TaskNode(
         id="t2",
@@ -135,6 +144,7 @@ def test_evidence_report_skipped_and_guesses(monkeypatch, tmp_path: Path):
         status=TaskStatus.pending,
     )
     from server.goal_run.store import save_goal_run
+
     save_goal_run(state, str(tmp_path))
 
     binding = SupervisorBinding(
@@ -151,4 +161,3 @@ def test_evidence_report_skipped_and_guesses(monkeypatch, tmp_path: Path):
     body = report["body"]
     assert "config/settings.yaml" in body
     assert "pending task" in body
-

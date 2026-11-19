@@ -20,7 +20,11 @@ from server.routes.bot_team import router as bots_router
 
 USER = {"user_id": "usage-user", "username": "usage"}
 
-ECHO = [sys.executable, "-c", "import json; print(json.dumps({'used': 12, 'limit': 100, 'unit': 'credits'}))"]
+ECHO = [
+    sys.executable,
+    "-c",
+    "import json; print(json.dumps({'used': 12, 'limit': 100, 'unit': 'credits'}))",
+]
 
 
 @pytest.fixture

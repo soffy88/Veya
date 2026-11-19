@@ -1,4 +1,5 @@
 """XRT orchestration on the canonical CLI executor and worktree primitives."""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,8 +11,8 @@ from typing import Any
 
 from runtime.coding.cli_agents import (
     XRT_RUNTIME_PROFILES,
-    probe_xrt_runtimes,
     probe_xrt_runtime,
+    probe_xrt_runtimes,
     xrt_feature_enabled,
     xrt_runtime_enabled,
 )
@@ -33,6 +34,7 @@ def _limits() -> tuple[int, int]:
             return max(1, min(16, int(os.getenv(name, str(default)))))
         except ValueError:
             return default
+
     return positive("VEYA_XRT_MAX_CONCURRENT", 2), positive("VEYA_XRT_MAX_PER_RUNTIME", 1)
 
 
@@ -59,7 +61,11 @@ def get_status(execution_id: str) -> dict[str, Any] | None:
 
 
 async def dispatch(runtime_id: str, task: str, repo_root: str, timeout_s: float) -> dict[str, Any]:
-    if not xrt_feature_enabled() or runtime_id not in XRT_RUNTIME_PROFILES or not xrt_runtime_enabled(runtime_id):
+    if (
+        not xrt_feature_enabled()
+        or runtime_id not in XRT_RUNTIME_PROFILES
+        or not xrt_runtime_enabled(runtime_id)
+    ):
         raise LookupError("XRT runtime is disabled or unknown")
     if not task.strip():
         raise ValueError("task must not be empty")
@@ -83,12 +89,21 @@ async def dispatch(runtime_id: str, task: str, repo_root: str, timeout_s: float)
         adapter = _adapter(runtime_id, repo_root)
         _CANCEL.register(execution_id)
         job = {
-            "execution_id": execution_id, "runtime_name": runtime_id,
-            "status": "RUNNING", "exit_code": None, "stdout": "", "stderr": "",
-            "git_diff": "", "changed_files": [], "git_diff_stat": "",
-            "worktree_path": record.path, "duration_ms": None,
-            "_started": time.monotonic(), "_runtime_id": runtime_id,
-            "_repo_root": str(repo_root), "_manager": manager,
+            "execution_id": execution_id,
+            "runtime_name": runtime_id,
+            "status": "RUNNING",
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+            "git_diff": "",
+            "changed_files": [],
+            "git_diff_stat": "",
+            "worktree_path": record.path,
+            "duration_ms": None,
+            "_started": time.monotonic(),
+            "_runtime_id": runtime_id,
+            "_repo_root": str(repo_root),
+            "_manager": manager,
         }
         with _LOCK:
             _JOBS[execution_id] = job
@@ -102,23 +117,37 @@ async def dispatch(runtime_id: str, task: str, repo_root: str, timeout_s: float)
         raise
 
 
-async def _execute(job: dict[str, Any], adapter: CLIWorkerExecutorAdapter, task: str, timeout_s: float) -> None:
+async def _execute(
+    job: dict[str, Any], adapter: CLIWorkerExecutorAdapter, task: str, timeout_s: float
+) -> None:
     from server.events import append_canonical_event
 
     execution_id = job["execution_id"]
     runtime_id = job["_runtime_id"]
     reporter = ProgressReporter(execution_id, execution_id, runtime_id)
     request = AdapterStartRequest(
-        goal_run_id=execution_id, goal_task_id=execution_id, execution_id=execution_id,
-        task_text=task, worktree_path=job["worktree_path"], repo_root=job["_repo_root"],
+        goal_run_id=execution_id,
+        goal_task_id=execution_id,
+        execution_id=execution_id,
+        task_text=task,
+        worktree_path=job["worktree_path"],
+        repo_root=job["_repo_root"],
         task_contract={"task_kind": "WRITE", "xrt_runtime_id": runtime_id},
         timeout_s=timeout_s,
     )
     try:
-        append_canonical_event("xrt_execution_started", {"execution_id": execution_id, "runtime": runtime_id})
+        append_canonical_event(
+            "xrt_execution_started", {"execution_id": execution_id, "runtime": runtime_id}
+        )
         if _CANCEL.is_cancelled(execution_id):
             with _LOCK:
-                job.update({"status": "CANCELLED", "exit_code": 130, "duration_ms": (time.monotonic() - job["_started"]) * 1000})
+                job.update(
+                    {
+                        "status": "CANCELLED",
+                        "exit_code": 130,
+                        "duration_ms": (time.monotonic() - job["_started"]) * 1000,
+                    }
+                )
             return
         result = await adapter.start(request, reporter)
         diff = await asyncio.to_thread(job["_manager"].diff, path=job["worktree_path"])
@@ -143,28 +172,46 @@ async def _execute(job: dict[str, Any], adapter: CLIWorkerExecutorAdapter, task:
             },
         )
         result_ref = artifact_store.register(
-            "evidence/execution_result.json", kind="application/json", producer=runtime_id, status="draft"
+            "evidence/execution_result.json",
+            kind="application/json",
+            producer=runtime_id,
+            status="draft",
         )
         manifest_path = artifact_store.write_manifest()
         artifact_refs = [
             {"path": diff_ref.path, "sha256": diff_ref.sha256, "size_bytes": diff_ref.size_bytes},
-            {"path": result_ref.path, "sha256": result_ref.sha256, "size_bytes": result_ref.size_bytes},
+            {
+                "path": result_ref.path,
+                "sha256": result_ref.sha256,
+                "size_bytes": result_ref.size_bytes,
+            },
             {"manifest_path": str(manifest_path)},
         ]
         with _LOCK:
-            job.update({
-                "status": "CANCELLED" if _CANCEL.is_cancelled(execution_id) else (
-                    "COMPLETED" if result.exit_code == 0 else (
-                        "TIMEOUT" if result.exit_code == 124 or result.failure_class == "PROCESS_TIMEOUT" else "FAILED"
-                    )
-                ),
-                "exit_code": result.exit_code, "stdout": result.stdout[-4000:],
-                "stderr": result.stderr[-4000:], "git_diff": diff.get("patch", "")[:12000],
-                "git_diff_stat": diff.get("stat", ""),
-                "changed_files": diff.get("changed_files", []), "artifacts": artifact_refs,
-                "artifact_manifest": str(manifest_path),
-                "duration_ms": (time.monotonic() - job["_started"]) * 1000,
-            })
+            job.update(
+                {
+                    "status": "CANCELLED"
+                    if _CANCEL.is_cancelled(execution_id)
+                    else (
+                        "COMPLETED"
+                        if result.exit_code == 0
+                        else (
+                            "TIMEOUT"
+                            if result.exit_code == 124 or result.failure_class == "PROCESS_TIMEOUT"
+                            else "FAILED"
+                        )
+                    ),
+                    "exit_code": result.exit_code,
+                    "stdout": result.stdout[-4000:],
+                    "stderr": result.stderr[-4000:],
+                    "git_diff": diff.get("patch", "")[:12000],
+                    "git_diff_stat": diff.get("stat", ""),
+                    "changed_files": diff.get("changed_files", []),
+                    "artifacts": artifact_refs,
+                    "artifact_manifest": str(manifest_path),
+                    "duration_ms": (time.monotonic() - job["_started"]) * 1000,
+                }
+            )
         append_canonical_event("xrt_execution_finished", _public(job))
     except asyncio.CancelledError:
         with _LOCK:

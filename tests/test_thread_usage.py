@@ -9,7 +9,6 @@ from server.bot_team.thread_usage import (
     TurnUsage,
     bind_turn_usage,
     current_turn_usage,
-    note_tool_call,
     record_turn,
     reset_thread_usage,
     reset_turn_usage,
@@ -38,14 +37,18 @@ def test_accumulator_counts_tool_calls():
 
 def test_ledger_merges_turns_and_keeps_token_fields_null():
     row = record_turn(
-        "grp_1", bot_id="beta", status="completed",
+        "grp_1",
+        bot_id="beta",
+        status="completed",
         usage=TurnUsage(tool_calls=2, tool_result_chars=40, tool_duration_ms=9.0),
     )
     assert row["turns"] == 1
     assert row["input_tokens"] is None
     assert row["cost_usd"] is None
     row = record_turn(
-        "grp_1", bot_id="alpha", status="stalled",
+        "grp_1",
+        bot_id="alpha",
+        status="stalled",
         usage=TurnUsage(tool_calls=1, tool_result_chars=3, tool_duration_ms=1.0),
     )
     assert row["turns"] == 2
@@ -57,7 +60,9 @@ def test_ledger_merges_turns_and_keeps_token_fields_null():
 
 def test_metering_seam_fills_token_fields_when_a_source_exists():
     row = record_turn(
-        "grp_1", bot_id="beta", status="completed",
+        "grp_1",
+        bot_id="beta",
+        status="completed",
         metering={"input_tokens": 100, "output_tokens": 20, "cost_usd": 0.01},
     )
     assert row["input_tokens"] == 100
@@ -109,9 +114,7 @@ async def test_finish_bot_turn_records_its_thread(monkeypatch, tmp_path):
     store = ConversationStore(tmp_path / "bots-root")
     result = await finish_bot_turn(
         bot=BotSpec(bot_id="beta", name="Beta"),
-        start=BotTurnStart(
-            bot_id="beta", task_id="t1", session_id="s1", trace_id="tr1"
-        ),
+        start=BotTurnStart(bot_id="beta", task_id="t1", session_id="s1", trace_id="tr1"),
         text="hello",
         user={"user_id": "u1", "username": "u"},
         conversations=store,

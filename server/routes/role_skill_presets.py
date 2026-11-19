@@ -29,7 +29,7 @@ def _require_user(
     request: Request = None,
 ) -> dict[str, Any]:
     """Call-time lookup so tests can monkeypatch ``auth_mod.require_user``."""
-    fn = getattr(auth_mod, "require_user")
+    fn = auth_mod.require_user
     try:
         return fn(authorization, request)
     except TypeError:

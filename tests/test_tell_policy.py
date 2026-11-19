@@ -77,9 +77,7 @@ def test_tell_for_legacy_items():
 
 def test_create_stores_category_and_tell(att_env):
     store = AttentionStore(att_env["root"])
-    item = store.create(
-        question="删吗？", bot_id="alpha", category="delete-data"
-    )
+    item = store.create(question="删吗？", bot_id="alpha", category="delete-data")
     assert item["category"] == "delete-data"
     assert item["tell"] == "needed"
     plain = store.create(question="今晚吃什么？", bot_id="alpha")

@@ -48,9 +48,7 @@ def _register(registry: BotRegistry, *bot_ids: str) -> BotRegistry:
     return registry
 
 
-def _fake_master(
-    monkeypatch, replies: dict[str, str | list[str]], seen: list[str]
-):
+def _fake_master(monkeypatch, replies: dict[str, str | list[str]], seen: list[str]):
     async def fake_execute(request: Any) -> GoalRunResponse:
         bot_id = str(request.constraints.metadata.get("bot_id") or "")
         seen.append(bot_id)
@@ -90,15 +88,16 @@ def test_mentioned_bot_ids_bounded():
     assert mentioned_bot_ids(["@beta2 hello"], ["alpha", "beta"], registry) == []
     assert mentioned_bot_ids(["mail beta@example.com"], ["alpha", "beta"], registry) == []
     assert mentioned_bot_ids(["@Alpha, over to you"], ["alpha", "beta"], registry) == ["alpha"]
-    assert mentioned_bot_ids(["@beta then @alpha"], ["alpha", "beta"], registry) == ["beta", "alpha"]
+    assert mentioned_bot_ids(["@beta then @alpha"], ["alpha", "beta"], registry) == [
+        "beta",
+        "alpha",
+    ]
 
 
 async def test_chain_calls_only_mentioned(chain_env, monkeypatch):
     registry = _register(BotRegistry(), "alpha", "beta", "gamma")
     store = GroupStore(chain_env["root"])
-    group = store.create(
-        name="Chain", bot_ids=["alpha", "beta", "gamma"], rounds_per_message=3
-    )
+    group = store.create(name="Chain", bot_ids=["alpha", "beta", "gamma"], rounds_per_message=3)
     seen: list[str] = []
     _fake_master(
         monkeypatch,
@@ -120,9 +119,7 @@ async def test_chain_calls_only_mentioned(chain_env, monkeypatch):
 async def test_no_mentions_stops_after_round_one(chain_env, monkeypatch):
     registry = _register(BotRegistry(), "alpha", "beta", "gamma")
     store = GroupStore(chain_env["root"])
-    group = store.create(
-        name="Quiet", bot_ids=["alpha", "beta", "gamma"], rounds_per_message=3
-    )
+    group = store.create(name="Quiet", bot_ids=["alpha", "beta", "gamma"], rounds_per_message=3)
     seen: list[str] = []
     _fake_master(monkeypatch, {}, seen)
     result = await _run(chain_env, registry, group, "ideas?")
@@ -133,9 +130,7 @@ async def test_no_mentions_stops_after_round_one(chain_env, monkeypatch):
 async def test_round_two_opener_rotates(chain_env, monkeypatch):
     registry = _register(BotRegistry(), "alpha", "beta", "gamma")
     store = GroupStore(chain_env["root"])
-    group = store.create(
-        name="Rotate", bot_ids=["alpha", "beta", "gamma"], rounds_per_message=2
-    )
+    group = store.create(name="Rotate", bot_ids=["alpha", "beta", "gamma"], rounds_per_message=2)
     seen: list[str] = []
     _fake_master(
         monkeypatch,
@@ -158,9 +153,7 @@ async def test_passed_member_never_recalled_even_if_mentioned(chain_env, monkeyp
 
     registry = _register(BotRegistry(), "alpha", "beta", "gamma")
     store = GroupStore(chain_env["root"])
-    group = store.create(
-        name="Pass", bot_ids=["alpha", "beta", "gamma"], rounds_per_message=3
-    )
+    group = store.create(name="Pass", bot_ids=["alpha", "beta", "gamma"], rounds_per_message=3)
     seen: list[str] = []
     _fake_master(
         monkeypatch,

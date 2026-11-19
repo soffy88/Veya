@@ -139,8 +139,9 @@ veya/obase/llm.py                # 不改；channel.py 只调用其公开 llm_ca
 # server/harness/adapter.py
 class VeyaBenchmarkAdapter:
     """把 Veya 包装成 harness2 的执行器。"""
-    spec: BenchSpec            # Veya surface + prompts（c1–c8 的 Veya 路径表）
-    substrate: SubstrateLike   # VeyaSubstrate（新写，surface 指向 Veya base harness 目录）
+
+    spec: BenchSpec  # Veya surface + prompts（c1–c8 的 Veya 路径表）
+    substrate: SubstrateLike  # VeyaSubstrate（新写，surface 指向 Veya base harness 目录）
 
     def execute(self, task_id, harness_dir, run_id, *, timeout=None) -> Path:
         """用 agent_loop_run 后端在隔离 session 中执行任务。
@@ -156,11 +157,12 @@ class VeyaBenchmarkAdapter:
         """导出当前 Veya c1–c8 快照到 harness surface 目录（每次 Phase 1 启动时生成）。"""
         ...
 
+
 # server/tool_registry.py 新增注册（示意，不实际改代码）
 master_tools.register(
     name="recursive_harness_run",
     description="为当前任务改进 harness（Propose-Probe-Compose，无 ground truth）。"
-                "适合长任务、重复域任务、或主链连续失败时。",
+    "适合长任务、重复域任务、或主链连续失败时。",
     parameters={...},
     func=_recursive_harness_run,
     parallel_safe=False,

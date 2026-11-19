@@ -91,8 +91,7 @@ ROUTINE_TEMPLATES: tuple[dict[str, Any], ...] = (
         "schedule": "0 7 * * 0",
         "timezone": "Asia/Shanghai",
         "objective": (
-            "检查知识库条目：标出过期、矛盾或缺来源的条目，"
-            "列出建议更新清单，不直接改库。"
+            "检查知识库条目：标出过期、矛盾或缺来源的条目，列出建议更新清单，不直接改库。"
         ),
     },
 )

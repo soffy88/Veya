@@ -30,7 +30,6 @@ from server.routes.bot_memory import router as bot_memory_router
 from server.routes.bot_models import router as bot_models_router
 from server.routes.bot_runtime import router as bot_runtime_router
 from server.routes.bot_team import router as bots_router
-from server.routes.device_link import router as device_link_router
 from server.routes.cad_sales import router as cad_sales_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
@@ -39,6 +38,7 @@ from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
 from server.routes.design import router as design_router
+from server.routes.device_link import router as device_link_router
 from server.routes.events import router as events_router
 from server.routes.evolution import router as evolution_router
 from server.routes.execution_contract import router as execution_contract_router
@@ -222,8 +222,10 @@ async def lifespan(app: FastAPI):
         # Layer-4 startup contract fail fast and degrade explicitly.
         await _bounded_optional_start(stratum.start)
         await wire_stratum(stratum)  # mcp_stratum_* → 主脑工具面
-    except (TimeoutError, asyncio.TimeoutError):
-        _lg.warning("stratum wire skipped: startup timed out (service unreachable), degrading gracefully")
+    except TimeoutError:
+        _lg.warning(
+            "stratum wire skipped: startup timed out (service unreachable), degrading gracefully"
+        )
     except Exception as exc:
         _lg.warning("stratum wire skipped (%s: %s), degrading gracefully", type(exc).__name__, exc)
     # hevi 视频管线 MCP (同 docker 网络, 不可达/密钥缺失时优雅降级)
@@ -236,8 +238,10 @@ async def lifespan(app: FastAPI):
         # for its full network timeout.
         await _bounded_optional_start(hevi.start)
         await wire_hevi(hevi)  # mcp_hevi_* → 主脑工具面
-    except (TimeoutError, asyncio.TimeoutError):
-        _lg.warning("hevi wire skipped: startup timed out (service unreachable), degrading gracefully")
+    except TimeoutError:
+        _lg.warning(
+            "hevi wire skipped: startup timed out (service unreachable), degrading gracefully"
+        )
     except Exception as exc:
         _lg.warning("hevi wire skipped (%s: %s), degrading gracefully", type(exc).__name__, exc)
     # Open Design MCP (设计/渲染层; daemon 不可达/无 token 时优雅降级)
@@ -304,7 +308,9 @@ async def lifespan(app: FastAPI):
     try:
         await wire_w14()  # mcp_markitdown / mcp_mineru / … → 主脑工具面
     except Exception as exc:
-        _lg.warning("mcp-presets wire skipped (%s: %s), degrading gracefully", type(exc).__name__, exc)
+        _lg.warning(
+            "mcp-presets wire skipped (%s: %s), degrading gracefully", type(exc).__name__, exc
+        )
 
     # world-intel-mcp Phase 0: opt-in, lazy discovery only.  The gateway is
     # registered but never added to the resident tool surface.
@@ -582,7 +588,11 @@ _BUILD_SHA = os.environ.get("VEYA_BUILD_SHA", "").strip()
 _HEALTH_VERSION = f"{_APP_VERSION}-{_BUILD_SHA}" if _BUILD_SHA else _APP_VERSION
 
 # Check if production docs should be disabled or owner-only
-_is_prod = os.environ.get("VEYA_ENV") == "production" or os.environ.get("ENV") == "production" or os.environ.get("VEYA_LOCAL_SINGLE_USER") != "1"
+_is_prod = (
+    os.environ.get("VEYA_ENV") == "production"
+    or os.environ.get("ENV") == "production"
+    or os.environ.get("VEYA_LOCAL_SINGLE_USER") != "1"
+)
 app = FastAPI(
     title="veya",
     version=_APP_VERSION,

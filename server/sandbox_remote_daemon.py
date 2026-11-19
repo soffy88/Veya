@@ -51,7 +51,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from veya.obase.sandbox import ProcessSandbox, SandboxConfig  # noqa: E402
+from veya.obase.sandbox import ProcessSandbox, SandboxConfig
 
 MAX_REQUEST_BYTES = 8 * 1024 * 1024
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
@@ -111,9 +111,7 @@ def _run_request(payload: dict) -> dict:
     # Fail closed: the daemon exists to serve srt. If the local run did not
     # actually use srt (e.g. probe fallback engaged), do not relabel it.
     if result.get("sandbox_backend") != "srt":
-        raise RuntimeError(
-            f"daemon local backend is {result.get('sandbox_backend')!r}, not srt"
-        )
+        raise RuntimeError(f"daemon local backend is {result.get('sandbox_backend')!r}, not srt")
     result["sandbox_backend"] = "srt-remote"
     result["stdout"] = _truncate(result.get("stdout") or "")
     result["stderr"] = _truncate(result.get("stderr") or "")
@@ -139,7 +137,7 @@ class _Handler(socketserver.BaseRequestHandler):
                 result.get("exit_code"),
                 time.time() - start,
             )
-        except Exception as exc:  # noqa: BLE001 - short error only, no traceback leak
+        except Exception as exc:
             result = {"error": str(exc)[:500]}
             log.warning("request failed: %s", result["error"])
         raw = json.dumps(result).encode("utf-8")
@@ -184,17 +182,17 @@ def main() -> int:
 
     binary = _srt_binary()
     if binary is None or not _srt_probe(binary):
-        print("FATAL: srt probe failed; refusing to start (check VEYA_SRT_BIN and srt deps)",
-              file=sys.stderr)
+        print(
+            "FATAL: srt probe failed; refusing to start (check VEYA_SRT_BIN and srt deps)",
+            file=sys.stderr,
+        )
         return 1
 
     with contextlib.suppress(OSError):
         os.unlink(socket_path)
     server = _Server(socket_path, _Handler)
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(socket_path, 0o600)
-    except OSError:
-        pass
     log.info("listening on %s (srt binary: %s)", socket_path, binary)
     try:
         server.serve_forever()

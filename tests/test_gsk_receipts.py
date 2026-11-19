@@ -1,5 +1,5 @@
-import pytest
 from veya.gsk.receipts import EgressReceiptLedger
+
 
 def test_egress_receipts_chain_and_verify(tmp_path):
     receipts_file = tmp_path / "egress_receipts.jsonl"
@@ -16,6 +16,7 @@ def test_egress_receipts_chain_and_verify(tmp_path):
 
     lines = receipts_file.read_text(encoding="utf-8").splitlines()
     import json
+
     d1 = json.loads(lines[0])
     d1["payload_size"] = 999
     lines[0] = json.dumps(d1)
@@ -25,11 +26,10 @@ def test_egress_receipts_chain_and_verify(tmp_path):
     assert ver_tampered["valid"] is False
 
 
-
 def test_channel_delivery_records_metadata_only_when_enabled(monkeypatch, tmp_path):
     import asyncio
     import json
-    from types import SimpleNamespace
+
     from server.channels import clients, dispatch
 
     async def fake_client_for(_platform):
@@ -64,7 +64,7 @@ def test_channel_delivery_records_metadata_only_when_enabled(monkeypatch, tmp_pa
     item = json.loads(raw.splitlines()[0])
     assert item["destination"] == "channel:testchat"
     assert item["payload_type"] == "channel_reply_attempt"
-    assert item["payload_size"] == len("confidential reply body".encode("utf-8"))
+    assert item["payload_size"] == len(b"confidential reply body")
     assert len(path.read_text(encoding="utf-8").splitlines()) == 2
     assert EgressReceiptLedger(path=path, event_root=tmp_path).verify()["valid"] is True
     event_path = tmp_path / ".veya" / "execution-events" / "gsk-egress-receipts.jsonl"
@@ -76,16 +76,18 @@ def test_egress_receipts_detect_deleted_tail_against_event_anchor(tmp_path):
     ledger = EgressReceiptLedger(path=receipts_file, event_root=tmp_path)
     ledger.log_egress("channel:test", "attempt", 3, payload_hash="a" * 64)
     ledger.log_egress("channel:test", "delivered", 3, payload_hash="a" * 64)
-    receipts_file.write_text(receipts_file.read_text(encoding="utf-8").splitlines()[0] + "\n", encoding="utf-8")
+    receipts_file.write_text(
+        receipts_file.read_text(encoding="utf-8").splitlines()[0] + "\n", encoding="utf-8"
+    )
     verification = ledger.verify()
     assert verification["valid"] is False
     assert "anchors" in verification["error"]
 
 
-
 def test_failed_channel_delivery_records_failed_receipt(monkeypatch, tmp_path):
     import asyncio
     import json
+
     from server.channels import clients, dispatch
 
     async def fake_client_for(_platform):
@@ -105,7 +107,10 @@ def test_failed_channel_delivery_records_failed_receipt(monkeypatch, tmp_path):
 
     asyncio.run(dispatch._deliver(FailingAdapter(), "private-recipient", "private body"))
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
-    assert [row["payload_type"] for row in rows] == ["channel_reply_attempt", "channel_reply_failed"]
+    assert [row["payload_type"] for row in rows] == [
+        "channel_reply_attempt",
+        "channel_reply_failed",
+    ]
     assert all("private body" not in json.dumps(row) for row in rows)
     assert all("private-recipient" not in json.dumps(row) for row in rows)
     assert EgressReceiptLedger(path=path, event_root=tmp_path).verify()["valid"] is True

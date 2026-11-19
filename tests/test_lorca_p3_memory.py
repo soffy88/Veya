@@ -289,6 +289,7 @@ def client(tmp_path_factory):
     os.environ["VEYA_BOTS_ROOT"] = bots_root
     # Import the isolated app after patching the env so the store picks up the override.
     from fastapi import FastAPI
+
     from server import auth as auth_mod
     from server.auth import AuthGateMiddleware
     from server.routes.bot_memory import router as bot_memory_router

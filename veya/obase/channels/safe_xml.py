@@ -18,7 +18,7 @@ _MAX_XML_BYTES = 1024 * 1024
 _FORBIDDEN_DECLARATION = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 
 
-def fromstring(source: str | bytes, parser: Any = None):
+def fromstring(source: str | bytes, parser: Any = None) -> Any:
     raw = source.encode("utf-8") if isinstance(source, str) else bytes(source)
     if len(raw) > _MAX_XML_BYTES:
         raise ValueError("XML payload exceeds the 1 MiB safety limit")
@@ -32,7 +32,7 @@ def fromstring(source: str | bytes, parser: Any = None):
 class _SafeElementTree:
     fromstring = staticmethod(fromstring)
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         # Preserve ElementTree helpers such as Element/tostring used by adapters;
         # input parsing always goes through the guarded fromstring above.
         return getattr(_ET, name)

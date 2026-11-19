@@ -11,7 +11,7 @@ from server.bot_team.attention import AttentionStore
 from server.bot_team.conversations import ConversationStore
 from server.bot_team.delegations import DelegationStore, process_delegations
 from server.bot_team.messaging import BotMessenger
-from server.bot_team.tool import delegate_bot, message_bot
+from server.bot_team.tool import delegate_bot
 from server.events import EventStore
 from server.goal_run.bot_identity import BotRegistry, BotSpec, bind_current_bot, reset_current_bot
 from server.goal_run.models import GoalRunResponse, GoalStatus
@@ -75,7 +75,9 @@ async def test_reply_none_runs_target_but_no_follow_up(reply_env, monkeypatch):
     monkeypatch.setattr(master_coordinator, "execute_structured", fake_execute)
     store = ConversationStore(reply_env["root"])
     messenger = BotMessenger(registry, conversations=store)
-    receipt = await messenger.delegate("alpha", "beta", "tell beta only", depth=0, reply_mode="none")
+    receipt = await messenger.delegate(
+        "alpha", "beta", "tell beta only", depth=0, reply_mode="none"
+    )
     assert receipt["reply_mode"] == "none"
     outcomes = await process_delegations(conversations=store, user=dict(USER))
     assert outcomes[0]["status"] == "done"
@@ -174,7 +176,8 @@ async def test_crashing_target_retries_twice_then_incident(reply_env, monkeypatc
     item = DelegationStore(root=reply_env["root"]).list()[0]
     assert item["status"] == "failed" and item["retries"] == 2
     incidents = [
-        item for item in AttentionStore(reply_env["root"]).list(status="open")
+        item
+        for item in AttentionStore(reply_env["root"]).list(status="open")
         if item.get("kind") == "incident"
     ]
     assert len(incidents) == 1

@@ -249,7 +249,11 @@ class ACPClient:
                     continue  # session notifications / update events
                 if "error" in frame:
                     raise ACPError(str((frame["error"] or {}).get("message") or frame["error"]))
-                return (frame.get("result") or {}) if isinstance(frame.get("result"), dict) else frame.get("result")
+                return (
+                    (frame.get("result") or {})
+                    if isinstance(frame.get("result"), dict)
+                    else frame.get("result")
+                )
 
 
 def _extract_text(result: Mapping[str, Any]) -> str:

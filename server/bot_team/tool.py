@@ -65,11 +65,15 @@ _TOOL_PARAMETERS: dict[str, Any] = {
         },
         "consult": {
             "type": "boolean",
-            "description": ("Ask only: the target answers from what it already knows and changes nothing."),
+            "description": (
+                "Ask only: the target answers from what it already knows and changes nothing."
+            ),
         },
         "done_when": {
             "type": "string",
-            "description": ("One-sentence acceptance bar: the target is done only when this holds."),
+            "description": (
+                "One-sentence acceptance bar: the target is done only when this holds."
+            ),
         },
         "rework": {
             "type": "boolean",
@@ -103,11 +107,15 @@ _DELEGATE_TOOL_PARAMETERS: dict[str, Any] = {
         },
         "consult": {
             "type": "boolean",
-            "description": ("Ask only: the target answers from what it already knows and changes nothing."),
+            "description": (
+                "Ask only: the target answers from what it already knows and changes nothing."
+            ),
         },
         "done_when": {
             "type": "string",
-            "description": ("One-sentence acceptance bar: the target is done only when this holds."),
+            "description": (
+                "One-sentence acceptance bar: the target is done only when this holds."
+            ),
         },
         "rework": {
             "type": "boolean",
@@ -280,9 +288,7 @@ async def list_bots() -> str:
         store=AttentionStore(),
         owner_id=None,
     )
-    status_by_id = {
-        str(row.get("bot_id")): str(row.get("status")) for row in board
-    }
+    status_by_id = {str(row.get("bot_id")): str(row.get("status")) for row in board}
     bots = [
         {
             "bot_id": spec.bot_id,
@@ -331,6 +337,7 @@ async def delegate_bot(
         rework=rework,
     )
     return json.dumps(receipt, ensure_ascii=False)
+
 
 STATUS_TOOL_NAME = "delegation_status"
 
@@ -403,16 +410,16 @@ async def delegation_status(delegation_id: str | None = None) -> str:
 
 
 __all__ = [
+    "DELEGATE_TOOL_NAME",
+    "LIST_TOOL_NAME",
+    "STATUS_TOOL_NAME",
     "TOOL_NAME",
     "bind_hop_depth",
     "current_hop_depth",
-    "message_bot",
-    "LIST_TOOL_NAME",
-    "DELEGATE_TOOL_NAME",
-    "list_bots",
     "delegate_bot",
-    "STATUS_TOOL_NAME",
     "delegation_status",
+    "list_bots",
+    "message_bot",
     "register_tools",
     "reset_hop_depth",
 ]

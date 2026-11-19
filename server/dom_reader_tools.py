@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 from server import feature_flags
+from veya.gsk.envelope import sanitize_and_wrap
 from veya.obase.channel_probes import fetch_url_text
 from veya.oskill.pure.html_to_markdown import is_ssrf_safe_url, read_html
-from veya.gsk.envelope import sanitize_and_wrap
 
 
 async def tool_read_browser(

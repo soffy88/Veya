@@ -14,6 +14,7 @@ import pytest
 from server.agent_definition import AgentDefinitionStore
 from server.bot_runtime.manager import BotManager
 from server.goal_run.bot_identity import BotRegistry
+from veya.remote.executor_adapters import register_default_adapters
 
 
 @pytest.fixture
@@ -57,11 +58,10 @@ def manager(
     return BotManager(bot_registry, definition_store)
 
 
-from veya.remote.executor_adapters import register_default_adapters
-
 @pytest.fixture(autouse=True)
 def auto_register_adapters():
     register_default_adapters()
+
 
 class TestBotGoalRunBinding:
     """L0-5: Bot execution must produce a real GoalRun with all identity fields."""

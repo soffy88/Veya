@@ -83,9 +83,7 @@ def _normalize_severity(findings: list) -> list[dict[str, Any]]:
             normalized.append({"detail": str(finding), "severity": "major"})
             continue
         severity = finding.get("severity")
-        normalized.append(
-            {**finding, "severity": severity if severity in _SEVERITIES else "major"}
-        )
+        normalized.append({**finding, "severity": severity if severity in _SEVERITIES else "major"})
     return normalized
 
 

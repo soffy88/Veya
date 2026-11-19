@@ -11,16 +11,17 @@ from __future__ import annotations
 import asyncio
 import os
 import stat
+
 import pytest
 from fastapi.testclient import TestClient
 
-from server.app import app
-from veya.mab import mab_manager
-from server.mab_router import register_mab_tools, is_mab_enabled
-
 from server import auth as auth_mod
+from server.app import app
+from server.mab_router import is_mab_enabled, register_mab_tools
+from veya.mab import mab_manager
 
 client = TestClient(app)
+
 
 @pytest.fixture(autouse=True)
 def setup_auth_override():
@@ -36,6 +37,7 @@ def setup_auth_override():
     mab_manager._loop = None
     mab_manager._reaper_task = None
     app.dependency_overrides.pop(auth_mod.require_owner, None)
+
 
 @pytest.fixture
 def owner_token(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> str:
@@ -58,14 +60,17 @@ def owner_token(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.Mo
     user = auth_mod.create_user("owner_123", "very-long-secure-password-12345", is_owner=True)
     return auth_mod.issue_token(user["user_id"])
 
+
 @pytest.fixture
 def owner_headers(owner_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {owner_token}"}
+
 
 @pytest.fixture
 def nonowner_headers(owner_token: str) -> dict[str, str]:
     user = auth_mod.create_user("sec-test-nonowner", "another-long-password-99999", is_owner=False)
     return {"Authorization": f"Bearer {auth_mod.issue_token(user['user_id'])}"}
+
 
 def test_1_flag_off_and_non_owner(monkeypatch, owner_headers, nonowner_headers):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "OFF")
@@ -80,6 +85,7 @@ def test_1_flag_off_and_non_owner(monkeypatch, owner_headers, nonowner_headers):
     assert client.get("/api/v1/mab/profiles").status_code == 401
     assert client.get("/api/v1/mab/profiles", headers=nonowner_headers).status_code == 403
 
+
 def test_2_crud_0700_and_permissions(monkeypatch, tmp_path, owner_headers):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
     monkeypatch.setattr(mab_manager, "base_dir", tmp_path / "mab")
@@ -92,11 +98,11 @@ def test_2_crud_0700_and_permissions(monkeypatch, tmp_path, owner_headers):
     assert stat.S_IMODE(os.stat(base_p).st_mode) == 0o700
 
     # Create profile via API
-    res_create = client.post("/api/v1/mab/profiles", json={
-        "name": "Work Account",
-        "site": "https://example.com",
-        "account_label": "work_user"
-    }, headers=owner_headers)
+    res_create = client.post(
+        "/api/v1/mab/profiles",
+        json={"name": "Work Account", "site": "https://example.com", "account_label": "work_user"},
+        headers=owner_headers,
+    )
     assert res_create.status_code == 200
     data = res_create.json()
     assert data["ok"] is True
@@ -109,32 +115,41 @@ def test_2_crud_0700_and_permissions(monkeypatch, tmp_path, owner_headers):
     assert stat.S_IMODE(os.stat(pdir).st_mode) == 0o700
 
     # Rename / update profile
-    res_update = client.put(f"/api/v1/mab/profiles/{pid}", json={
-        "name": "Updated Work Account"
-    }, headers=owner_headers)
+    res_update = client.put(
+        f"/api/v1/mab/profiles/{pid}", json={"name": "Updated Work Account"}, headers=owner_headers
+    )
     assert res_update.status_code == 200
     assert res_update.json()["profile"]["name"] == "Updated Work Account"
 
     # Side-by-side second profile creation
-    res_create2 = client.post("/api/v1/mab/profiles", json={
-        "name": "Personal Account",
-        "site": "https://example.org",
-        "account_label": "personal_user"
-    }, headers=owner_headers)
+    res_create2 = client.post(
+        "/api/v1/mab/profiles",
+        json={
+            "name": "Personal Account",
+            "site": "https://example.org",
+            "account_label": "personal_user",
+        },
+        headers=owner_headers,
+    )
     assert res_create2.status_code == 200
-    pid2 = res_create2.json()["profile"]["id"]
+    _ = res_create2.json()["profile"]["id"]
 
     profiles_list = client.get("/api/v1/mab/profiles", headers=owner_headers).json()["profiles"]
     assert len(profiles_list) == 2
 
     # Delete without confirm fails
-    res_del_bad = client.delete(f"/api/v1/mab/profiles/{pid}", params={"confirm": False}, headers=owner_headers)
+    res_del_bad = client.delete(
+        f"/api/v1/mab/profiles/{pid}", params={"confirm": False}, headers=owner_headers
+    )
     assert res_del_bad.status_code in (400, 422)
 
     # Delete with confirm succeeds
-    res_del_ok = client.delete(f"/api/v1/mab/profiles/{pid}", params={"confirm": True}, headers=owner_headers)
+    res_del_ok = client.delete(
+        f"/api/v1/mab/profiles/{pid}", params={"confirm": True}, headers=owner_headers
+    )
     assert res_del_ok.status_code == 200
     assert len(client.get("/api/v1/mab/profiles", headers=owner_headers).json()["profiles"]) == 1
+
 
 def test_3_tool_revocation_and_audit(monkeypatch, tmp_path, owner_headers):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
@@ -145,19 +160,25 @@ def test_3_tool_revocation_and_audit(monkeypatch, tmp_path, owner_headers):
     class MockLocator:
         async def click(self, **kwargs):
             pass
+
         async def fill(self, text, **kwargs):
             pass
+
         async def inner_text(self, **kwargs):
             return "Mock Body Content"
 
     class MockPage:
         url = "https://example.com"
+
         async def title(self):
             return "Mock Title"
+
         async def goto(self, url, **kwargs):
             self.url = url
+
         def locator(self, sel):
             return MockLocator()
+
         async def inner_text(self, **kwargs):
             return "Mock Body Content"
 
@@ -194,6 +215,7 @@ def test_3_tool_revocation_and_audit(monkeypatch, tmp_path, owner_headers):
     res_ok2 = handler(profile=p.id, action="snapshot")
     assert res_ok2["success"] is True
 
+
 def test_4_security_no_credentials_in_audit(monkeypatch, tmp_path):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
     monkeypatch.setattr(mab_manager, "base_dir", tmp_path / "mab")
@@ -203,19 +225,25 @@ def test_4_security_no_credentials_in_audit(monkeypatch, tmp_path):
     class MockLocator:
         async def click(self, **kwargs):
             pass
+
         async def fill(self, text, **kwargs):
             pass
+
         async def inner_text(self, **kwargs):
             return "Mock Body Content"
 
     class MockPage:
         url = "https://example.com"
+
         async def title(self):
             return "Mock Title"
+
         async def goto(self, url, **kwargs):
             self.url = url
+
         def locator(self, sel):
             return MockLocator()
+
         async def inner_text(self, **kwargs):
             return "Mock Body Content"
 
@@ -228,7 +256,11 @@ def test_4_security_no_credentials_in_audit(monkeypatch, tmp_path):
     tools = register_mab_tools()
     handler = tools[0]["handler"]
 
-    res = handler(profile=p.id, action="navigate", url="https://example.com/auth?token=super_secret_cookie_xyz")
+    res = handler(
+        profile=p.id,
+        action="navigate",
+        url="https://example.com/auth?token=super_secret_cookie_xyz",
+    )
     assert res["success"] is True
 
     # Tool responses must never return cookies or storage raw contents
@@ -237,6 +269,7 @@ def test_4_security_no_credentials_in_audit(monkeypatch, tmp_path):
         assert "cookie" not in str(r).lower()
         assert "password" not in str(r).lower()
         assert "session" not in str(r).lower()
+
 
 def test_5_comprehensive_routes_and_auth(monkeypatch, tmp_path, owner_headers, nonowner_headers):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
@@ -262,7 +295,9 @@ def test_5_comprehensive_routes_and_auth(monkeypatch, tmp_path, owner_headers, n
         if method == "GET":
             res = client.get(path)
         elif method == "POST":
-            res = client.post(path, json={"name": "test", "site": "https://example.com", "account_label": "lbl"})
+            res = client.post(
+                path, json={"name": "test", "site": "https://example.com", "account_label": "lbl"}
+            )
         elif method == "PUT":
             res = client.put(path, json={"name": "test"})
         elif method == "DELETE":
@@ -273,7 +308,11 @@ def test_5_comprehensive_routes_and_auth(monkeypatch, tmp_path, owner_headers, n
         if method == "GET":
             res = client.get(path, headers=nonowner_headers)
         elif method == "POST":
-            res = client.post(path, json={"name": "test", "site": "https://example.com", "account_label": "lbl"}, headers=nonowner_headers)
+            res = client.post(
+                path,
+                json={"name": "test", "site": "https://example.com", "account_label": "lbl"},
+                headers=nonowner_headers,
+            )
         elif method == "PUT":
             res = client.put(path, json={"name": "test"}, headers=nonowner_headers)
         elif method == "DELETE":
@@ -285,13 +324,20 @@ def test_5_comprehensive_routes_and_auth(monkeypatch, tmp_path, owner_headers, n
         if method == "GET":
             res = client.get(path, headers=owner_headers)
         elif method == "POST":
-            res = client.post(path, json={"name": "test", "site": "https://example.com", "account_label": "lbl"}, headers=owner_headers)
+            res = client.post(
+                path,
+                json={"name": "test", "site": "https://example.com", "account_label": "lbl"},
+                headers=owner_headers,
+            )
         elif method == "PUT":
             res = client.put(path, json={"name": "test"}, headers=owner_headers)
         elif method == "DELETE":
             res = client.delete(path, params={"confirm": "true"}, headers=owner_headers)
-        assert res.status_code == 404, f"{method} {path} expected 404 when flag off got {res.status_code}"
+        assert res.status_code == 404, (
+            f"{method} {path} expected 404 when flag off got {res.status_code}"
+        )
         monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
+
 
 def test_6_stream_ticket_once_and_cross(monkeypatch, tmp_path, owner_headers):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
@@ -307,26 +353,28 @@ def test_6_stream_ticket_once_and_cross(monkeypatch, tmp_path, owner_headers):
     ticket = res.json()["ticket"]
 
     # Ticket is one-time use: second usage via websocket or internal take should fail
+
     from server.mab_router import _take_ws_ticket
-    from fastapi import WebSocket
+
     class MockWS:
         def __init__(self, subprotos):
             self.scope = {"subprotocols": subprotos}
-    
+
     ws1 = MockWS([f"ticket.{ticket}"])
-    uid, err = _take_ws_ticket(ws1, p1.id)
+    _, err = _take_ws_ticket(ws1, p1.id)
     assert err == 0
 
     ws2 = MockWS([f"ticket.{ticket}"])
-    uid2, err2 = _take_ws_ticket(ws2, p1.id)
-    assert err2 == 4401 # already used / expired
+    _, err2 = _take_ws_ticket(ws2, p1.id)
+    assert err2 == 4401  # already used / expired
 
     # Cross-profile ticket test
     res2 = client.post(f"/api/v1/mab/profiles/{p1.id}/stream-ticket", headers=owner_headers)
     t2 = res2.json()["ticket"]
     ws3 = MockWS([f"ticket.{t2}"])
-    uid3, err3 = _take_ws_ticket(ws3, p2.id) # requesting p2 with p1 ticket
+    _, err3 = _take_ws_ticket(ws3, p2.id)  # requesting p2 with p1 ticket
     assert err3 == 4403
+
 
 def test_7_tool_execution_integration(monkeypatch, tmp_path):
     monkeypatch.setenv("VEYA_MAB_BROWSER", "ON")
@@ -351,19 +399,25 @@ def test_7_tool_execution_integration(monkeypatch, tmp_path):
     class MockLocator:
         async def click(self, **kwargs):
             pass
+
         async def fill(self, text, **kwargs):
             pass
+
         async def inner_text(self, **kwargs):
             return "Mock Body Content"
 
     class MockPage:
         url = "https://example.com"
+
         async def title(self):
             return "Mock Title"
+
         async def goto(self, url, **kwargs):
             self.url = url
+
         def locator(self, sel):
             return MockLocator()
+
         async def inner_text(self, **kwargs):
             return "Mock Body Content"
 
@@ -374,13 +428,6 @@ def test_7_tool_execution_integration(monkeypatch, tmp_path):
     res_nav = handler(profile=p.id, action="navigate", url="https://example.com/test")
     assert res_nav["success"] is True
     assert res_nav["url"] == "https://example.com/test"
-
-
-
-
-
-
-
 
 
 def test_8_websocket_stream_relay_and_cdp_cleanup(monkeypatch, tmp_path, owner_headers):
@@ -447,8 +494,12 @@ def test_8_websocket_stream_relay_and_cdp_cleanup(monkeypatch, tmp_path, owner_h
         assert frame["data"] == "ZmFrZS1qcGVn"
         assert frame["metadata"] == {"width": 1280, "height": 800}
         websocket.send_json({"type": "text", "text": "hello"})
-        websocket.send_json({"type": "keyboard", "eventType": "keyDown", "key": "A", "code": "KeyA"})
-        websocket.send_json({"type": "mouse", "eventType": "mousePressed", "x": 20, "y": 30, "button": "left"})
+        websocket.send_json(
+            {"type": "keyboard", "eventType": "keyDown", "key": "A", "code": "KeyA"}
+        )
+        websocket.send_json(
+            {"type": "mouse", "eventType": "mousePressed", "x": 20, "y": 30, "button": "left"}
+        )
         websocket.send_json({"type": "ping"})
         assert websocket.receive_json() == {"type": "pong"}
 

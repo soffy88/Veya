@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextvars
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
 
 
@@ -31,10 +32,8 @@ class TurnUsage:
         """Count one executed tool call and its result size."""
 
         self.tool_calls += 1
-        try:
+        with suppress(TypeError):
             self.tool_result_chars += len(result)  # type: ignore[arg-type]
-        except TypeError:
-            pass
         self.tool_duration_ms += max(0.0, float(duration_ms))
 
 

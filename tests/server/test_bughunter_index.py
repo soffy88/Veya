@@ -60,4 +60,3 @@ def test_tool_registry_lazy_search_behavior() -> None:
         assert len(res_on["security_skills"]) > 0
     finally:
         del os.environ["VEYA_BUGHUNTER_INDEX"]
-

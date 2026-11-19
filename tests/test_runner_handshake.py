@@ -16,7 +16,8 @@ from server.bot_team.runner_client import (
     check_runner_protocol,
 )
 from server.goal_run.bot_identity import BotSpec
-from server.routes.runners import RunnerTurnRequest, router as runners_router
+from server.routes.runners import RunnerTurnRequest
+from server.routes.runners import router as runners_router
 
 BOT = {
     "bot_id": "chef",

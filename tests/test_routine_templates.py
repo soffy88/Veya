@@ -13,7 +13,6 @@ from server.goal_run.routine_templates import (
     ROUTINE_TEMPLATES,
     build_template_spec,
     get_template,
-    list_templates,
 )
 from server.routes.routines import router as routines_router
 

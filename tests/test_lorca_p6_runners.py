@@ -137,7 +137,6 @@ def fake_master(monkeypatch):
 def client(owner_headers):
     app = FastAPI()
     # W11-AUTH: bot routes now require a signed-in user (D2).
-    from server import auth as _w11_auth
     from server.auth import AuthGateMiddleware
 
     app.add_middleware(AuthGateMiddleware)
@@ -638,7 +637,9 @@ async def test_runner_turn_endpoint_executes_the_hubs_bot_locally(
     assert "Cite every claim." in request.objective
 
 
-def test_runner_turn_endpoint_fails_closed(product_env, fake_master, client, runner_client, monkeypatch):
+def test_runner_turn_endpoint_fails_closed(
+    product_env, fake_master, client, runner_client, monkeypatch
+):
     _write_token_auth(monkeypatch)
     payload = {
         "version": 1,
@@ -650,7 +651,9 @@ def test_runner_turn_endpoint_fails_closed(product_env, fake_master, client, run
 
     # An unauthenticated request may be stopped by the global auth gate (401)
     # or the runner boundary (403); both are fail-closed outcomes.
-    unauthenticated = client.post("/api/v1/runners/turn", json=payload, headers={"Authorization": ""})
+    unauthenticated = client.post(
+        "/api/v1/runners/turn", json=payload, headers={"Authorization": ""}
+    )
     assert unauthenticated.status_code in (401, 403)
 
     # A wrong token and an empty runner authority must still be denied.

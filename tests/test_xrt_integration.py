@@ -1,4 +1,5 @@
 """XRT profile registration and REST authentication regression tests."""
+
 from __future__ import annotations
 
 from fastapi import FastAPI
@@ -21,8 +22,18 @@ def make_client() -> tuple[TestClient, FastAPI]:
 
 def test_xrt_profiles_cover_all_twelve_cli_runtimes() -> None:
     assert set(XRT_RUNTIME_PROFILES) == {
-        "devin", "claude_code", "codex", "cursor_agent", "gemini", "copilot",
-        "qwen", "droid", "cline", "opencode", "grok", "hermes",
+        "devin",
+        "claude_code",
+        "codex",
+        "cursor_agent",
+        "gemini",
+        "copilot",
+        "qwen",
+        "droid",
+        "cline",
+        "opencode",
+        "grok",
+        "hermes",
     }
 
 
@@ -80,10 +91,7 @@ def test_safe_runtime_env_excludes_backend_secrets(monkeypatch) -> None:
     monkeypatch.setenv("VENDOR_ACCESS_TOKEN", "not-a-real-token")
     monkeypatch.setenv("INTERNAL_SERVICE_SECRET", "not-a-real-secret")
     child_env = safe_runtime_env("devin")
-    forbidden = {
-        name for name in child_env
-        if name.endswith(("_KEY", "_TOKEN", "_SECRET"))
-    }
+    forbidden = {name for name in child_env if name.endswith(("_KEY", "_TOKEN", "_SECRET"))}
     assert forbidden == set()
     assert {"PATH", "HOME"}.issubset(child_env)
 

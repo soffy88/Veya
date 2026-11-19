@@ -737,9 +737,7 @@ class MasterToolRegistry:
 
         _repeat_detector = current_repeat_detector()
         _repeat_count = (
-            _repeat_detector.observe(name, kwargs)
-            if _repeat_detector is not None
-            else 0
+            _repeat_detector.observe(name, kwargs) if _repeat_detector is not None else 0
         )
 
         def _event(topic: str, **payload: Any) -> None:
@@ -1141,7 +1139,7 @@ def _resolve_public_fetch_target(url: str) -> tuple[str, str, str]:
         addresses = []
         for answer in answers:
             try:
-                addresses.append(ipaddress.ip_address(answer[4][0].split("%", 1)[0]))
+                addresses.append(ipaddress.ip_address(cast("str", answer[4][0]).split("%", 1)[0]))
             except (ValueError, IndexError, TypeError) as exc:
                 raise ValueError("hostname returned an invalid address") from exc
     if not addresses or any(not address.is_global for address in addresses):
@@ -4023,7 +4021,15 @@ def _register_internalized_tools(mt: Any) -> None:
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["trace", "similar", "impact", "rules", "export", "summary", "standing"],
+                        "enum": [
+                            "trace",
+                            "similar",
+                            "impact",
+                            "rules",
+                            "export",
+                            "summary",
+                            "standing",
+                        ],
                     },
                     "decision_id": {"type": "string"},
                     "query": {"type": "string"},
@@ -4377,8 +4383,7 @@ def _lazy_search_tools(query: str, top_k: int = 8, offset: int = 0) -> str:
     names = [row[1] for row in page]
     loaded = lazy_tools.load_tools(session_id, names)
     note = (
-        "These full schemas are now available on the next round and remain "
-        "loaded for this session."
+        "These full schemas are now available on the next round and remain loaded for this session."
     )
     if page and total_matches > offset + len(page):
         note += (
@@ -4387,10 +4392,7 @@ def _lazy_search_tools(query: str, top_k: int = 8, offset: int = 0) -> str:
             "for the next page."
         )
     elif not page:
-        note = (
-            f"No further matches at offset {offset} "
-            f"({total_matches} total matches)."
-        )
+        note = f"No further matches at offset {offset} ({total_matches} total matches)."
     payload: dict[str, Any] = {
         "loaded": names,
         "session_loaded_count": len(loaded),

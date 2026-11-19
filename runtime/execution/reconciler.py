@@ -45,10 +45,12 @@ class Reconciler:
                 report.scanned += len(self.last_abandoned)
                 report.abandoned_closed += len(self.last_abandoned)
                 for run_id in self.last_abandoned:
-                    report.decisions.append({
-                        "goal_run_id": run_id,
-                        "decision": "ABANDONED_CLOSED",
-                    })
+                    report.decisions.append(
+                        {
+                            "goal_run_id": run_id,
+                            "decision": "ABANDONED_CLOSED",
+                        }
+                    )
         if self.worker_ttl_s > 0 and scope is None:
             self.last_pruned_workers = await self.repository.prune_stale_workers(
                 stale_after_s=self.worker_ttl_s, limit=self.batch_size
@@ -57,10 +59,12 @@ class Reconciler:
                 report.scanned += len(self.last_pruned_workers)
                 report.workers_pruned += len(self.last_pruned_workers)
                 for w_id in self.last_pruned_workers:
-                    report.decisions.append({
-                        "worker_id": w_id,
-                        "decision": "WORKER_PRUNED",
-                    })
+                    report.decisions.append(
+                        {
+                            "worker_id": w_id,
+                            "decision": "WORKER_PRUNED",
+                        }
+                    )
         if self.on_report is not None:
             result = self.on_report(report)
             if asyncio.iscoroutine(result):

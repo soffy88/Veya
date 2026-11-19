@@ -34,14 +34,12 @@ from pathlib import Path
 
 sys.path.insert(0, "/data/soffy/projects/veya")
 
-from veya.obase.channels.wechat_ilink import (  # noqa: E402
+from veya.obase.channels.wechat_ilink import (
     WechatIlinkClient,
     WechatIlinkError,
 )
 
-SESSION_PATH = Path(
-    os.environ.get("WECHAT_SESSION_PATH", "/data/soffy/wechat-ilink/session.json")
-)
+SESSION_PATH = Path(os.environ.get("WECHAT_SESSION_PATH", "/data/soffy/wechat-ilink/session.json"))
 BACKEND_URL = os.environ.get("WECHAT_BACKEND_URL", "http://127.0.0.1:8767").rstrip("/")
 EDGE_SECRET = os.environ.get("WECHAT_EDGE_SECRET", "")
 REPLY_PORT = int(os.environ.get("WECHAT_REPLY_PORT", "19451"))
@@ -84,7 +82,7 @@ class ReplyHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # keep the console clean
         pass
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         if self.path != "/reply":
             self._answer(404, {"ok": False, "error": "not found"})
             return
@@ -105,8 +103,10 @@ class ReplyHandler(BaseHTTPRequestHandler):
         fut = asyncio.run_coroutine_threadsafe(_client.send_text(chat_id, text), _loop)
         try:
             fut.result(timeout=60)
-        except Exception as exc:  # noqa: BLE001 - edge must answer, not crash
-            print(f"reply send failed: {type(exc).__name__} chat_len={len(chat_id)} text_len={len(text)}")
+        except Exception as exc:
+            print(
+                f"reply send failed: {type(exc).__name__} chat_len={len(chat_id)} text_len={len(text)}"
+            )
             self._answer(502, {"ok": False, "error": "send failed"})
             return
         print(f"reply sent chat_len={len(chat_id)} text_len={len(text)}")

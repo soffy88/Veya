@@ -54,7 +54,9 @@ async def test_permission_routes_through_risk_and_approval(tmp_path):
 
 @pytest.mark.asyncio
 async def test_diagnostics_on_stderr_do_not_break_stdout(tmp_path, capsys):
-    client = ACPClient([sys.executable, "-u", FAKE_AGENT], approvals=ApprovalStore(str(tmp_path / "a.db")))
+    client = ACPClient(
+        [sys.executable, "-u", FAKE_AGENT], approvals=ApprovalStore(str(tmp_path / "a.db"))
+    )
     try:
         assert (await client.prompt("probe")).text == "echo:probe"
     finally:

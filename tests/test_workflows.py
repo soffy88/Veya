@@ -99,7 +99,9 @@ async def test_approval_suspends_and_resumes(tmp_path):
     assert first.status == "suspended" and first.approval_id
     assert store.get_approval(first.approval_id)["status"] == STATUS_PENDING
     assert calls == []
-    resumed = await executor.run(workflow, {}, approval_id=first.approval_id, resume_decision="once")
+    resumed = await executor.run(
+        workflow, {}, approval_id=first.approval_id, resume_decision="once"
+    )
     assert resumed.status == "completed" and calls == ["local_tool"]
 
 

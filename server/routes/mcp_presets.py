@@ -40,7 +40,7 @@ def _require_user(
     ``auth_mod.require_user``. Accepts authorization and request so real
     bearer tokens are forwarded to auth_mod.require_user.
     """
-    fn = getattr(auth_mod, "require_user")
+    fn = auth_mod.require_user
     try:
         return fn(authorization, request)
     except TypeError:

@@ -94,10 +94,14 @@ class DeviceLinkStore:
             return
         for item in raw.get("devices", []):
             if isinstance(item, dict) and item.get("device_id"):
-                self._devices[str(item["device_id"])] = Device(**{k: v for k, v in item.items() if k in Device.__dataclass_fields__})
+                self._devices[str(item["device_id"])] = Device(
+                    **{k: v for k, v in item.items() if k in Device.__dataclass_fields__}
+                )
         for item in raw.get("scopes", []):
             if isinstance(item, dict) and item.get("scope_id"):
-                self._scopes[str(item["scope_id"])] = Scope(**{k: v for k, v in item.items() if k in Scope.__dataclass_fields__})
+                self._scopes[str(item["scope_id"])] = Scope(
+                    **{k: v for k, v in item.items() if k in Scope.__dataclass_fields__}
+                )
 
     def _save(self) -> None:
         atomic_write_json(

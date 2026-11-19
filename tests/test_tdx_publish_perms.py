@@ -35,7 +35,12 @@ def test_publish_perms_are_persisted_and_audited(monkeypatch, tmp_path, owner_he
 
     resp = client.get("/api/v1/tdx/publish-perms", headers=owner_headers)
     assert resp.status_code == 200
-    assert resp.json()["permissions"]["default"] == {"push": False, "merge": False, "tag": False, "deploy": False}
+    assert resp.json()["permissions"]["default"] == {
+        "push": False,
+        "merge": False,
+        "tag": False,
+        "deploy": False,
+    }
 
     resp_put = client.put(
         "/api/v1/tdx/publish-perms/agent-x",
@@ -51,9 +56,17 @@ def test_publish_perms_are_persisted_and_audited(monkeypatch, tmp_path, owner_he
     with pytest.raises(PermissionError):
         check_publish_permission("agent-x", "merge")
 
-    events = events_mod.event_store.read_all(topic_prefixes=("tdx.publish_perms_updated", "tdx.publish_allowed", "tdx.publish_denied"))
-    assert any(e.get("topic") == "tdx.publish_denied" and e.get("payload", {}).get("action") == "merge" for e in events)
-    assert any(e.get("topic") == "tdx.publish_allowed" and e.get("payload", {}).get("action") == "push" for e in events)
+    events = events_mod.event_store.read_all(
+        topic_prefixes=("tdx.publish_perms_updated", "tdx.publish_allowed", "tdx.publish_denied")
+    )
+    assert any(
+        e.get("topic") == "tdx.publish_denied" and e.get("payload", {}).get("action") == "merge"
+        for e in events
+    )
+    assert any(
+        e.get("topic") == "tdx.publish_allowed" and e.get("payload", {}).get("action") == "push"
+        for e in events
+    )
 
 
 def test_tool_guard_blocks_physical_git_push_and_writes_denial_event(monkeypatch, tmp_path):
@@ -73,11 +86,17 @@ def test_tool_guard_blocks_physical_git_push_and_writes_denial_event(monkeypatch
     registry.register(
         "git_push",
         "Push a branch to a remote.",
-        {"type": "object", "properties": {"agent_id": {"type": "string"}, "remote": {"type": "string"}}, "required": ["agent_id"]},
+        {
+            "type": "object",
+            "properties": {"agent_id": {"type": "string"}, "remote": {"type": "string"}},
+            "required": ["agent_id"],
+        },
         physical_push,
     )
     with pytest.raises(ToolExecutionError, match="TDX publication policy blocked"):
-        asyncio.run(registry.execute("git_push", {"agent_id": "agent-ungranted", "remote": "origin/main"}))
+        asyncio.run(
+            registry.execute("git_push", {"agent_id": "agent-ungranted", "remote": "origin/main"})
+        )
 
     assert called == []
     denied = events_mod.event_store.read_all(topic_prefixes=("tdx.publish_denied",))
@@ -103,7 +122,11 @@ def test_tool_guard_flag_off_preserves_original_execution(monkeypatch, tmp_path)
     registry.register(
         "git_push",
         "Push a branch to a remote.",
-        {"type": "object", "properties": {"agent_id": {"type": "string"}}, "required": ["agent_id"]},
+        {
+            "type": "object",
+            "properties": {"agent_id": {"type": "string"}},
+            "required": ["agent_id"],
+        },
         physical_push,
     )
     assert asyncio.run(registry.execute("git_push", {"agent_id": "agent-ungranted"})) == "pushed"
@@ -125,7 +148,11 @@ def test_terminal_gate_still_blocks_git_push_without_tdx(monkeypatch, tmp_path):
     registry.register(
         "git_push",
         "Push a branch to a remote.",
-        {"type": "object", "properties": {"agent_id": {"type": "string"}}, "required": ["agent_id"]},
+        {
+            "type": "object",
+            "properties": {"agent_id": {"type": "string"}},
+            "required": ["agent_id"],
+        },
         physical_push,
     )
     with pytest.raises(ToolExecutionError, match="terminal_action_gate"):

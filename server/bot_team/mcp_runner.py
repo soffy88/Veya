@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -87,9 +88,7 @@ def _parse_jsonrpc(body: Any, *, request_id: int) -> dict[str, Any]:
         raise McpError("MCP response id does not match the request")
     if "error" in candidate and isinstance(candidate.get("error"), dict):
         error = candidate["error"]
-        raise McpError(
-            f"MCP error {error.get('code')}: {error.get('message') or 'unknown'}"
-        )
+        raise McpError(f"MCP error {error.get('code')}: {error.get('message') or 'unknown'}")
     result = candidate.get("result")
     if not isinstance(result, dict):
         raise McpError("MCP response has no result object")
@@ -234,14 +233,12 @@ class McpRunnerClient:
 
         # Best-effort: a server that rejects notifications may still serve
         # tools/call; the call result is the authoritative check.
-        try:
+        with suppress(Exception):
             await self._post(
                 url,
                 {"jsonrpc": "2.0", "method": "notifications/initialized"},
                 headers,
             )
-        except Exception:
-            pass
 
         call = await self._post(
             url,

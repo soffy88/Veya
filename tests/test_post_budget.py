@@ -153,9 +153,7 @@ async def test_ring_stops_ping_pong_round(budget_env, monkeypatch):
     result = await _run(budget_env, registry, group, "go")
     assert [r["bot_id"] for r in result["replies"]] == ["alpha", "beta", "alpha"]
     assert result["blocked"] == ["beta"]
-    visible = [
-        m for m in store.messages(group.id) if m.get("role") == "bot"
-    ]
+    visible = [m for m in store.messages(group.id) if m.get("role") == "bot"]
     assert len(visible) == 3
 
 

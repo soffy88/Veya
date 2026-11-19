@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from server.bot_team.turns import build_objective
-from server.goal_run.bot_identity import BotSpec
 from server.feature_flags import enabled
+from server.goal_run.bot_identity import BotSpec
 
 
 def test_role_skills_runtime_flag_default_off(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,4 +61,3 @@ def test_build_objective_invalid_skill_id_filtered(monkeypatch: pytest.MonkeyPat
     assert "<available_skills>" in prompt
     assert "test-driven-development" in prompt
     assert "invalid" not in prompt
-

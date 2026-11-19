@@ -31,7 +31,9 @@ async def test_reconciler_scans_and_reports_abandoned_goal_runs(tmp_path):
     repo = await _make_repo(tmp_path)
     try:
         goal_id = "goal_abandoned_test"
-        await repo.create_goal_run(goal_run_id=goal_id, idempotency_key=f"k-{goal_id}", status="running")
+        await repo.create_goal_run(
+            goal_run_id=goal_id, idempotency_key=f"k-{goal_id}", status="running"
+        )
         await repo.enqueue_work_item(
             WorkItemSpec(goal_run_id=goal_id, logical_key="t1", kind="goal_leaf", max_attempts=3),
             idempotency_key=f"{goal_id}:leaf",
@@ -46,9 +48,11 @@ async def test_reconciler_scans_and_reports_abandoned_goal_runs(tmp_path):
 
         # Backdate goal_run and work_item updated_at so they exceed abandon_after_s
         past = time.time() - 10.0
+
         def backdate_goal(conn):
             conn.execute("UPDATE goal_runs SET updated_at=?", (past,))
             conn.execute("UPDATE work_items SET updated_at=?", (past,))
+
         await asyncio.to_thread(repo._sqlite_tx, backdate_goal)
 
         # Reconciler with abandon_after_s enabled runs sweep
@@ -80,7 +84,9 @@ async def test_reconciler_prunes_stale_workers_without_leases(tmp_path):
 
         # Worker 2: Stale heartbeat, but holds active lease -> must NOT be pruned
         goal_id = "goal_active_worker"
-        await repo.create_goal_run(goal_run_id=goal_id, idempotency_key=f"k-{goal_id}", status="running")
+        await repo.create_goal_run(
+            goal_run_id=goal_id, idempotency_key=f"k-{goal_id}", status="running"
+        )
         await repo.enqueue_work_item(
             WorkItemSpec(goal_run_id=goal_id, logical_key="t2", kind="goal_leaf", max_attempts=3),
             idempotency_key=f"{goal_id}:leaf",
@@ -94,7 +100,11 @@ async def test_reconciler_prunes_stale_workers_without_leases(tmp_path):
 
         # Manually backdate Worker 1 and Worker 2 last_seen_at in SQLite
         def backdate(conn):
-            conn.execute("UPDATE worker_registry SET last_seen_at = ? WHERE worker_id IN ('w_stale_orphan', 'w_stale_leased')", (now - 600,))
+            conn.execute(
+                "UPDATE worker_registry SET last_seen_at = ? WHERE worker_id IN ('w_stale_orphan', 'w_stale_leased')",
+                (now - 600,),
+            )
+
         await asyncio.to_thread(repo._sqlite_tx, backdate)
 
         reconciler = Reconciler(repo, worker_ttl_s=300.0)
@@ -108,7 +118,11 @@ async def test_reconciler_prunes_stale_workers_without_leases(tmp_path):
 
         # Verify directly in DB
         def check_workers(conn):
-            return {r["worker_id"] for r in conn.execute("SELECT worker_id FROM worker_registry").fetchall()}
+            return {
+                r["worker_id"]
+                for r in conn.execute("SELECT worker_id FROM worker_registry").fetchall()
+            }
+
         remaining = await asyncio.to_thread(repo._sqlite_tx, check_workers)
         assert "w_stale_orphan" not in remaining
         assert "w_stale_leased" in remaining
@@ -122,7 +136,9 @@ async def test_reconciler_exhausted_retry_wait_moves_to_failed(tmp_path):
     repo = await _make_repo(tmp_path)
     try:
         goal_id = "goal_exhausted_test"
-        await repo.create_goal_run(goal_run_id=goal_id, idempotency_key=f"k-{goal_id}", status="running")
+        await repo.create_goal_run(
+            goal_run_id=goal_id, idempotency_key=f"k-{goal_id}", status="running"
+        )
         await repo.enqueue_work_item(
             WorkItemSpec(goal_run_id=goal_id, logical_key="t_ex", kind="goal_leaf", max_attempts=1),
             idempotency_key=f"{goal_id}:leaf",

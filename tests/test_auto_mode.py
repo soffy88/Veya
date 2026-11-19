@@ -8,14 +8,13 @@ message recorded exactly once.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.bot_team.conversations import PASS_SENTINEL, ConversationStore
+from server.bot_team.conversations import ConversationStore
 from server.bot_team.groups import (
     AUTO_REPLY_MODE,
     GroupStore,
@@ -75,9 +74,7 @@ def client():
     return TestClient(app)
 
 
-def _register(
-    registry: BotRegistry, specs: list[tuple[str, str, str]]
-) -> BotRegistry:
+def _register(registry: BotRegistry, specs: list[tuple[str, str, str]]) -> BotRegistry:
     for bot_id, description, instructions in specs:
         registry.register(
             BotSpec(
@@ -160,10 +157,7 @@ def test_select_auto_responder_tie_is_ambiguous(auto_env):
         ],
     )
     assert (
-        select_auto_responder(
-            "plan a trip", available=["alpha", "beta"], registry=registry
-        )
-        is None
+        select_auto_responder("plan a trip", available=["alpha", "beta"], registry=registry) is None
     )
 
 

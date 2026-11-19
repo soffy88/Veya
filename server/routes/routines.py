@@ -4,18 +4,18 @@ import os
 import time
 import uuid
 from pathlib import Path
-
 from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from server import auth as auth_mod
+from server.bot_team.attention import AttentionStore
 from server.bot_team.routine_clock import _default_handoff_consumer
+from server.bot_team.routine_holds import RoutineHoldStore
 from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_history import RoutineHistoryStore
-from server.bot_team.attention import AttentionStore
-from server.bot_team.routine_holds import RoutineHoldStore
 from server.goal_run.routine_registry import RoutineRegistry
 from server.goal_run.routine_templates import build_template_spec, list_templates
 
@@ -356,7 +356,7 @@ def get_history(bot_id: str, routine_id: str, limit: int = 50):
     try:
         history = RoutineHistoryStore(bot_id=bot_id).get_history(routine_id)
         return {"status": "ok", "routine_id": routine_id, "history": history[-limit:]}
-    except Exception as exc:
+    except Exception:
         return {"status": "ok", "routine_id": routine_id, "history": []}
 
 
@@ -398,11 +398,7 @@ def _record_hold_history(bot_id: str, routine_id: str, hold: dict[str, Any], sta
 def list_holds(bot_id: str, routine_id: str, status: str = "held"):
     _require_routine(bot_id, routine_id)
     wanted = None if status == "all" else "held"
-    return {
-        "holds": RoutineHoldStore().list(
-            bot_id=bot_id, routine_id=routine_id, status=wanted
-        )
-    }
+    return {"holds": RoutineHoldStore().list(bot_id=bot_id, routine_id=routine_id, status=wanted)}
 
 
 @router.post("/{routine_id}/holds")
@@ -414,16 +410,12 @@ def create_hold(bot_id: str, routine_id: str, req: HoldCreateRequest):
     attention = None
     attention_id = req.attention_id
     if req.question and req.question.strip():
-        attention = AttentionStore().create(
-            question=req.question.strip(), bot_id=bot_id
-        )
+        attention = AttentionStore().create(question=req.question.strip(), bot_id=bot_id)
         attention_id = attention["id"]
     elif attention_id:
         attention = AttentionStore().get(attention_id)
         if attention is None:
-            raise HTTPException(
-                status_code=404, detail=f"attention {attention_id!r} not found"
-            )
+            raise HTTPException(status_code=404, detail=f"attention {attention_id!r} not found")
         if attention.get("status") != "open":
             raise HTTPException(
                 status_code=409, detail=f"attention {attention_id!r} is already closed"
@@ -446,9 +438,7 @@ def resume_hold(bot_id: str, routine_id: str, hold_id: str, req: HoldResumeReque
     hold = store.get(hold_id)
     if hold is None or hold.get("routine_id") != routine_id:
         raise HTTPException(status_code=404, detail=f"hold {hold_id!r} not found")
-    resolved = store.resolve(
-        hold_id, status="resumed", note=(req.note or "").strip() or None
-    )
+    resolved = store.resolve(hold_id, status="resumed", note=(req.note or "").strip() or None)
     if resolved is None:
         raise HTTPException(status_code=409, detail=f"hold {hold_id!r} is already closed")
     _record_hold_history(bot_id, routine_id, resolved, "resumed")
@@ -460,9 +450,12 @@ async def routine_webhook(
     request: Request,
     bot_id: str,
 ):
-    from server.nano_w9.flags import flag_enabled, FeatureDisabled
+    from server.nano_w9.flags import flag_enabled
+
     if not flag_enabled("VEYA_EVENT_TRIGGERS") and not flag_enabled("VEYA_ROUTINE_TRIGGERS"):
-        raise HTTPException(status_code=404, detail={"code": "FEATURE_DISABLED", "flag": "VEYA_EVENT_TRIGGERS"})
+        raise HTTPException(
+            status_code=404, detail={"code": "FEATURE_DISABLED", "flag": "VEYA_EVENT_TRIGGERS"}
+        )
 
     body = await request.body()
     secret = os.environ.get("VEYA_WEBHOOK_SECRET", "").strip()
@@ -474,7 +467,8 @@ async def routine_webhook(
     if not supplied:
         raise HTTPException(status_code=401, detail="Missing webhook signature")
 
-    from server.nano_w9.routine_triggers import verify_webhook_signature, RoutineSignalRouter
+    from server.nano_w9.routine_triggers import RoutineSignalRouter, verify_webhook_signature
+
     if not verify_webhook_signature(body, secret=secret, signature=supplied):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 

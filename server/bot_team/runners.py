@@ -174,7 +174,7 @@ class RunnerRecord:
             token_ref=str(value.get("token_ref") or ""),
             last_seen=(float(value["last_seen"]) if value.get("last_seen") else None),
             status=status if status in KNOWN_STATUSES else STATUS_UNKNOWN,
-        kind=str(value.get("kind") or RUNNER_KIND_VEYA),
+            kind=str(value.get("kind") or RUNNER_KIND_VEYA),
         )
 
     def to_view(self) -> dict[str, Any]:
@@ -303,9 +303,7 @@ class RunnerRegistry:
             )
         kind = str(kind or RUNNER_KIND_VEYA).strip().lower()
         if kind not in RUNNER_KINDS:
-            raise RunnerError(
-                f"unknown runner kind {kind!r}; expected one of {list(RUNNER_KINDS)}"
-            )
+            raise RunnerError(f"unknown runner kind {kind!r}; expected one of {list(RUNNER_KINDS)}")
         record = RunnerRecord(
             runner_id=value,
             name=str(name or "").strip() or value,

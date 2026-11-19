@@ -90,12 +90,15 @@ def verify_slack_signature(
         return False
     if abs(time.time() - ts) > 300:
         return False
-    base = f"v0:{timestamp}:".encode("utf-8") + raw_body
-    expected = "v0=" + hmac.new(
-        signing_secret.encode("utf-8"),
-        base,
-        hashlib.sha256,
-    ).hexdigest()
+    base = f"v0:{timestamp}:".encode() + raw_body
+    expected = (
+        "v0="
+        + hmac.new(
+            signing_secret.encode("utf-8"),
+            base,
+            hashlib.sha256,
+        ).hexdigest()
+    )
     return hmac.compare_digest(expected, provided)
 
 
@@ -231,8 +234,8 @@ __all__ = [
     "PLATFORM_DINGTALK",
     "PLATFORM_FEISHU",
     "PLATFORM_MAX_LEN",
-    "PLATFORM_TELEGRAM",
     "PLATFORM_SLACK",
+    "PLATFORM_TELEGRAM",
     "PLATFORM_WECOM",
     "SLACK_MAX_LEN",
     "TELEGRAM_MAX_LEN",

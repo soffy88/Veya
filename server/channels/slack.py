@@ -31,7 +31,9 @@ class SlackAdapter(ChannelAdapter):
         bot_token: str | None = None,
         signing_secret: str | None = None,
     ) -> None:
-        self.bot_token = bot_token if bot_token is not None else os.environ.get("SLACK_BOT_TOKEN", "")
+        self.bot_token = (
+            bot_token if bot_token is not None else os.environ.get("SLACK_BOT_TOKEN", "")
+        )
         self.signing_secret = (
             signing_secret
             if signing_secret is not None

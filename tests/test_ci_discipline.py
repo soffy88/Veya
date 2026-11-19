@@ -233,13 +233,34 @@ def test_merge_gate_variants(tmp_path):
     ]
     for i, (rp, cp, rh, ch, want) in enumerate(cases):
         events = EventStore(path=str(tmp_path / f"events-{i}.jsonl"))
-        _seed(events, "subj", review_passed_flag=rp, checks_passed_flag=cp, review_hash=rh, checks_hash=ch)
+        _seed(
+            events,
+            "subj",
+            review_passed_flag=rp,
+            checks_passed_flag=cp,
+            review_hash=rh,
+            checks_hash=ch,
+        )
         passed, _reason = merge_gate_passed("subj", events=events)
         assert passed is want, f"case {i}"
     # Latest record wins over an older pass.
     events = EventStore(path=str(tmp_path / "events-latest.jsonl"))
-    _seed(events, "subj", review_passed_flag=True, checks_passed_flag=True, review_hash=digest, checks_hash=digest)
-    _seed(events, "subj", review_passed_flag=False, checks_passed_flag=None, review_hash=digest, checks_hash=digest)
+    _seed(
+        events,
+        "subj",
+        review_passed_flag=True,
+        checks_passed_flag=True,
+        review_hash=digest,
+        checks_hash=digest,
+    )
+    _seed(
+        events,
+        "subj",
+        review_passed_flag=False,
+        checks_passed_flag=None,
+        review_hash=digest,
+        checks_hash=digest,
+    )
     assert merge_gate_passed("subj", events=events)[0] is False
 
 
@@ -303,9 +324,7 @@ async def test_run_checks_stops_at_first_failure(tmp_path):
         code = 0 if argv[0] == "ruff" else 1
         return CommandResult(argv=argv, exit_code=code, stdout="", stderr="boom", duration_s=0.01)
 
-    result = await run_checks(
-        tree=str(tree), commands=[["ruff"], ["pytest"]], executor=fake
-    )
+    result = await run_checks(tree=str(tree), commands=[["ruff"], ["pytest"]], executor=fake)
     assert result.passed is False
     assert len(result.commands) == 2
     assert "pytest" in result.reason
@@ -315,9 +334,7 @@ async def test_run_checks_real_subprocess(tmp_path):
     tree = tmp_path / "tree"
     tree.mkdir()
     (tree / "hello.txt").write_text("hi\n")
-    result = await run_checks(
-        tree=str(tree), commands=[["ls", "hello.txt"]], timeout_s=30
-    )
+    result = await run_checks(tree=str(tree), commands=[["ls", "hello.txt"]], timeout_s=30)
     assert result.passed is True
     assert "hello.txt" in result.commands[0].stdout
 

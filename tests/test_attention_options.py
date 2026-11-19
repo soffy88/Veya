@@ -50,9 +50,7 @@ def client():
 
 def test_options_round_trip(opt_env):
     store = AttentionStore(opt_env["root"])
-    item = store.create(
-        question="Which one?", bot_id="alpha", options=["Lake hotel", "City hotel"]
-    )
+    item = store.create(question="Which one?", bot_id="alpha", options=["Lake hotel", "City hotel"])
     assert item["options"] == ["Lake hotel", "City hotel"]
     assert store.get(item["id"])["options"] == ["Lake hotel", "City hotel"]
 
@@ -70,9 +68,7 @@ def test_options_default_none_and_legacy_items(opt_env):
 
 def test_options_deduped_and_stripped(opt_env):
     store = AttentionStore(opt_env["root"])
-    item = store.create(
-        question="Pick?", bot_id="alpha", options=["  A  ", "A", "B"]
-    )
+    item = store.create(question="Pick?", bot_id="alpha", options=["  A  ", "A", "B"])
     assert item["options"] == ["A", "B"]
 
 

@@ -114,9 +114,7 @@ def _kill_group(popen: subprocess.Popen[bytes]) -> None:
             popen.kill()
 
 
-async def _attach_reader(
-    loop: asyncio.AbstractEventLoop, pipe: Any
-) -> asyncio.StreamReader:
+async def _attach_reader(loop: asyncio.AbstractEventLoop, pipe: Any) -> asyncio.StreamReader:
     reader = asyncio.StreamReader(limit=2**16, loop=loop)
     protocol = asyncio.StreamReaderProtocol(reader, loop=loop)
     await loop.connect_read_pipe(lambda: protocol, pipe)

@@ -197,6 +197,7 @@ class MontySandboxAdapter:
 ```python
 # server/tool_registry.py 修改（伪代码）
 
+
 async def _tool_run_in_sandbox(
     code: str | None = None,
     command: str | None = None,
@@ -206,16 +207,17 @@ async def _tool_run_in_sandbox(
     use_monty: bool = False,  # 新参数
 ) -> str:
     # ... 现有 host 远程路径不变 ...
-    
+
     if use_monty and code and not command:
         # Monty 路径：纯 Python 代码片段
         from veya.obase.monty_sandbox import MontySandboxAdapter
+
         adapter = MontySandboxAdapter()
         result = adapter.execute_python(code)
         if result["ok"]:
             return f"monty_exit=0\n{result['stdout']}"
         raise ToolExecutionError(f"monty_error: {result['error']}")
-    
+
     # 现有 ProcessSandbox 路径（不变）
     # ...
 ```
@@ -370,17 +372,17 @@ with Monty() as pool:
     with pool.checkout() as session:
         # 基本代码执行
         result = session.feed_run("1 + 2")
-        
+
         # 带 host 函数
         result = session.feed_run(
             "get_price('A1') * 2",
-            external_lookup={'get_price': lambda sku: 3.5},
+            external_lookup={"get_price": lambda sku: 3.5},
         )
-        
+
         # 带内存文件
-        os_access = OSAccess([MemoryFile('/config.json', content='{"x": 1}')])
+        os_access = OSAccess([MemoryFile("/config.json", content='{"x": 1}')])
         result = session.feed_run("import json; json.load(open('/config.json'))", os=os_access)
-        
+
         # 带快照
         snap = session.snapshot()
         # ... 后续恢复 ...

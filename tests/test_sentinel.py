@@ -70,6 +70,7 @@ def _cfg(**overrides: Any) -> SentinelConfig:
 
 # ── config ────────────────────────────────────────────────────────────────
 
+
 def test_config_defaults():
     cfg = load_sentinel_config({})
     assert cfg.mode == "ask"
@@ -87,7 +88,12 @@ def test_config_parses_rules_and_mode():
                 "shadow": True,
                 "deny_tools": ["rm"],
                 "rules": [
-                    {"tool": "shell", "match": {"command": "*rm -rf*"}, "action": "deny", "reason": "no"}
+                    {
+                        "tool": "shell",
+                        "match": {"command": "*rm -rf*"},
+                        "action": "deny",
+                        "reason": "no",
+                    }
                 ],
                 "always_allow_tools": ["read_file"],
                 "egress_allowlist": ["example.com"],
@@ -111,6 +117,7 @@ def test_config_malformed_input_falls_back_to_defaults():
 
 
 # ── assessors ─────────────────────────────────────────────────────────────
+
 
 def test_assess_shell_plain_command():
     result = assess_call("bash", {"command": "ls -la"})
@@ -174,6 +181,7 @@ def test_assess_never_raises_on_weird_kwargs():
 
 # ── decision order ────────────────────────────────────────────────────────
 
+
 def test_deny_tools_win():
     cfg = _cfg(deny_tools=("bash",))
     result = evaluate("bash", {}, assess_call("bash", {"command": "ls"}), config=cfg)
@@ -194,13 +202,14 @@ def test_explicit_rules_first_match_and_arg_globs():
         == "deny"
     )
     assert (
-        evaluate("bash", {"command": "ls"}, assess_call("bash", {}), config=cfg).decision
-        == "allow"
+        evaluate("bash", {"command": "ls"}, assess_call("bash", {}), config=cfg).decision == "allow"
     )
     # Non-matching rule falls through to the risk x mode default.
     cfg2 = _cfg(rules=(SentinelRule(tool="bash", match={"command": "*zzz*"}, action="deny"),))
     assert (
-        evaluate("bash", {"command": "ls"}, assess_call("bash", {"command": "ls"}), config=cfg2).decision
+        evaluate(
+            "bash", {"command": "ls"}, assess_call("bash", {"command": "ls"}), config=cfg2
+        ).decision
         == "allow"
     )
 
@@ -212,8 +221,7 @@ def test_always_lists():
         == "allow"
     )
     assert (
-        evaluate("delete_file", {}, CallAssessment(risk=Risk3.SAFE), config=cfg).decision
-        == "ask"
+        evaluate("delete_file", {}, CallAssessment(risk=Risk3.SAFE), config=cfg).decision == "ask"
     )
 
 
@@ -282,11 +290,16 @@ def test_host_allowed():
 
 # ── grants ────────────────────────────────────────────────────────────────
 
+
 def test_grant_once_is_not_stored(grants):
     assert (
         grants.record(
-            key="bash:git", tool="bash", target="git", scope="once",
-            conversation_id=None, owner_scope="owner",
+            key="bash:git",
+            tool="bash",
+            target="git",
+            scope="once",
+            conversation_id=None,
+            owner_scope="owner",
         )
         is None
     )
@@ -297,22 +310,31 @@ def test_grant_always_persists_and_reloads(tmp_path):
     path = tmp_path / "g.json"
     store = GrantStore(path)
     store.record(
-        key="fetch_url:example.com", tool="fetch_url", target="example.com",
-        scope="always", conversation_id=None, owner_scope="owner",
+        key="fetch_url:example.com",
+        tool="fetch_url",
+        target="example.com",
+        scope="always",
+        conversation_id=None,
+        owner_scope="owner",
     )
     assert path.exists()
     reloaded = GrantStore(path)
-    assert reloaded.match(
-        "fetch_url:example.com", conversation_id=None, owner_scope="owner"
-    ) is not None
+    assert (
+        reloaded.match("fetch_url:example.com", conversation_id=None, owner_scope="owner")
+        is not None
+    )
 
 
 def test_grant_session_does_not_persist(tmp_path):
     path = tmp_path / "g.json"
     store = GrantStore(path)
     store.record(
-        key="bash", tool="bash", target=None, scope="session",
-        conversation_id=None, owner_scope="owner",
+        key="bash",
+        tool="bash",
+        target=None,
+        scope="session",
+        conversation_id=None,
+        owner_scope="owner",
     )
     assert store.match("bash", conversation_id=None, owner_scope="owner") is not None
     assert GrantStore(path).match("bash", conversation_id=None, owner_scope="owner") is None
@@ -320,17 +342,29 @@ def test_grant_session_does_not_persist(tmp_path):
 
 def test_grant_24h_expiry(grants):
     grants.record(
-        key="bash", tool="bash", target=None, scope="24h",
-        conversation_id=None, owner_scope="owner", now=1000.0,
+        key="bash",
+        tool="bash",
+        target=None,
+        scope="24h",
+        conversation_id=None,
+        owner_scope="owner",
+        now=1000.0,
     )
     assert grants.match("bash", conversation_id=None, owner_scope="owner", now=2000.0) is not None
-    assert grants.match("bash", conversation_id=None, owner_scope="owner", now=1000.0 + 24 * 3600 + 1) is None
+    assert (
+        grants.match("bash", conversation_id=None, owner_scope="owner", now=1000.0 + 24 * 3600 + 1)
+        is None
+    )
 
 
 def test_grant_conversation_binding(grants):
     grants.record(
-        key="bash", tool="bash", target=None, scope="conversation",
-        conversation_id="conv-1", owner_scope="owner",
+        key="bash",
+        tool="bash",
+        target=None,
+        scope="conversation",
+        conversation_id="conv-1",
+        owner_scope="owner",
     )
     assert grants.match("bash", conversation_id="conv-1", owner_scope="owner") is not None
     assert grants.match("bash", conversation_id="conv-2", owner_scope="owner") is None
@@ -338,22 +372,36 @@ def test_grant_conversation_binding(grants):
 
 def test_grant_bare_tool_covers_target_but_not_reverse(grants, tmp_path):
     grants.record(
-        key="fetch_url", tool="fetch_url", target=None, scope="always",
-        conversation_id=None, owner_scope="owner",
+        key="fetch_url",
+        tool="fetch_url",
+        target=None,
+        scope="always",
+        conversation_id=None,
+        owner_scope="owner",
     )
-    assert grants.match("fetch_url:example.com", conversation_id=None, owner_scope="owner") is not None
+    assert (
+        grants.match("fetch_url:example.com", conversation_id=None, owner_scope="owner") is not None
+    )
     targeted = GrantStore(tmp_path / "targeted.json")
     targeted.record(
-        key="fetch_url:example.com", tool="fetch_url", target="example.com",
-        scope="always", conversation_id=None, owner_scope="owner",
+        key="fetch_url:example.com",
+        tool="fetch_url",
+        target="example.com",
+        scope="always",
+        conversation_id=None,
+        owner_scope="owner",
     )
     assert targeted.match("fetch_url:other.com", conversation_id=None, owner_scope="owner") is None
 
 
 def test_grant_owner_isolation_and_revoke(grants):
     grants.record(
-        key="bash", tool="bash", target=None, scope="always",
-        conversation_id=None, owner_scope="owner-a",
+        key="bash",
+        tool="bash",
+        target=None,
+        scope="always",
+        conversation_id=None,
+        owner_scope="owner-a",
     )
     assert grants.match("bash", conversation_id=None, owner_scope="owner-b") is None
     assert grants.revoke("bash", owner_scope="owner-a") is True
@@ -374,6 +422,7 @@ def test_grant_key():
 
 
 # ── taint ─────────────────────────────────────────────────────────────────
+
 
 def test_taint_note_execution_marks_only_private_reads(taint_key):
     note_execution("bash", {"command": "ls"}, ok=True)
@@ -398,6 +447,7 @@ def test_mark_tainted_direct(taint_key):
 
 # ── guard integration ─────────────────────────────────────────────────────
 
+
 def _fresh_guard() -> ToolGuard:
     guard = ToolGuard()
     sn.install_sentinel_policy(guard)
@@ -406,9 +456,7 @@ def _fresh_guard() -> ToolGuard:
 
 
 async def test_guard_allows_plain_call(flag_on, grants, monkeypatch):
-    monkeypatch.setattr(
-        "server.bot_team.sentinel.load_sentinel_config", lambda: SentinelConfig()
-    )
+    monkeypatch.setattr("server.bot_team.sentinel.load_sentinel_config", lambda: SentinelConfig())
     guard = _fresh_guard()
     await guard.acheck("bash", {"command": "ls"}, source="master_tool")
 
@@ -493,15 +541,20 @@ async def test_guard_grant_covers_and_always_persists(flag_on, grants, monkeypat
     stored = [g for g in grants._grants if g.key == "delete_file"]
     assert len(stored) == 1 and stored[0].scope == "always"
     reloaded = GrantStore(grants.path)
-    assert reloaded.match(
-        "delete_file", conversation_id=None, owner_scope=stored[0].owner_scope
-    ) is not None
+    assert (
+        reloaded.match("delete_file", conversation_id=None, owner_scope=stored[0].owner_scope)
+        is not None
+    )
 
 
 async def test_guard_warnings_skip_grants(flag_on, grants, monkeypatch):
     grants.record(
-        key="bash", tool="bash", target=None, scope="always",
-        conversation_id=None, owner_scope="",
+        key="bash",
+        tool="bash",
+        target=None,
+        scope="always",
+        conversation_id=None,
+        owner_scope="",
     )
     calls: list[str] = []
 
@@ -554,9 +607,7 @@ async def test_d1_user_control_defers_after_sentinel(flag_on, grants, monkeypatc
     monkeypatch.setattr(uc, "current_mode", lambda: "agent")
     monkeypatch.setattr(uc, "_is_gated_tool", lambda name: True)
     monkeypatch.setenv("VEYA_APPROVAL_GATES", "1")
-    monkeypatch.setattr(
-        "server.bot_team.sentinel.load_sentinel_config", lambda: SentinelConfig()
-    )
+    monkeypatch.setattr("server.bot_team.sentinel.load_sentinel_config", lambda: SentinelConfig())
     # Without sentinel evaluation, the gated tool reaches the wait.
     result = await uc.user_control_policy("delete_file", {"path": "/tmp/x"}, "master")
     assert result is None

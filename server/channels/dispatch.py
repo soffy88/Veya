@@ -208,9 +208,7 @@ async def _deliver(adapter: ChannelAdapter, external_chat_id: str, reply: str) -
     try:
         client = await clients.client_for(adapter.platform)
     except Exception:
-        _log.warning(
-            "No client configured for platform %s", adapter.platform, exc_info=True
-        )
+        _log.warning("No client configured for platform %s", adapter.platform, exc_info=True)
         return
     from veya.gsk import is_enabled
 

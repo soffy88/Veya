@@ -347,9 +347,7 @@ def _standing_match_for(
     try:
         from server import decision_ledger as dl_mod
 
-        return dl_mod.check_standing(
-            request + "\n" + "\n".join(questions or []), ledger=ledger
-        )
+        return dl_mod.check_standing(request + "\n" + "\n".join(questions or []), ledger=ledger)
     except Exception:
         return None
 
@@ -542,9 +540,7 @@ async def project_ask(
             task_id=task_id,
             status="blocked",
             phase="rejected",
-            block_reason=(
-                f"standing_declined: {str(standing_match.get('statement') or '')[:200]}"
-            ),
+            block_reason=(f"standing_declined: {str(standing_match.get('statement') or '')[:200]}"),
             interpretation=f"[定规] {standing_match.get('statement', '')}",
             confidence=u.confidence,
             parent_task_id=parent_task_id,

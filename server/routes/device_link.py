@@ -96,9 +96,7 @@ async def create_shared_task(
     return _create_scope("shared-task", req, user)
 
 
-def _create_scope(
-    kind: str, req: ScopeCreateRequest, user: dict[str, Any]
-) -> dict[str, Any]:
+def _create_scope(kind: str, req: ScopeCreateRequest, user: dict[str, Any]) -> dict[str, Any]:
     try:
         scope = _store().create_scope(
             kind,

@@ -3947,7 +3947,11 @@ class DurableExecutionRepository:
             for ex in exhausted:
                 conn.execute(
                     "UPDATE work_items SET state='failed',recovery_state='classified',error_json=?,revision=revision+1,updated_at=? WHERE id=?",
-                    (canonical_json({"message": "max attempts exceeded in retry_wait"}), scan_time, ex["id"]),
+                    (
+                        canonical_json({"message": "max attempts exceeded in retry_wait"}),
+                        scan_time,
+                        ex["id"],
+                    ),
                 )
                 self._sqlite_event(
                     conn,
@@ -3959,10 +3963,12 @@ class DurableExecutionRepository:
                     idempotency_key=f"failed:exhausted:{ex['id']}",
                 )
                 report.scanned += 1
-                report.decisions.append({
-                    "work_item_id": ex["id"],
-                    "decision": "MAX_ATTEMPTS_EXCEEDED",
-                })
+                report.decisions.append(
+                    {
+                        "work_item_id": ex["id"],
+                        "decision": "MAX_ATTEMPTS_EXCEEDED",
+                    }
+                )
             self._sqlite_event(
                 conn,
                 aggregate_type="recovery",
@@ -4224,10 +4230,12 @@ class DurableExecutionRepository:
                     idempotency_key=f"failed:exhausted:{ex['id']}",
                 )
                 report.scanned += 1
-                report.decisions.append({
-                    "work_item_id": ex["id"],
-                    "decision": "MAX_ATTEMPTS_EXCEEDED",
-                })
+                report.decisions.append(
+                    {
+                        "work_item_id": ex["id"],
+                        "decision": "MAX_ATTEMPTS_EXCEEDED",
+                    }
+                )
             await self._pg_event(
                 conn,
                 aggregate_type="recovery",

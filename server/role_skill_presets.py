@@ -182,6 +182,7 @@ def strip_role_block(instructions: str) -> str:
 
 def _evidence_report_enabled() -> bool:
     from server.feature_flags import enabled
+
     try:
         return bool(enabled("VEYA_EVIDENCE_REPORT"))
     except Exception:

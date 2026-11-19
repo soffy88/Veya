@@ -36,7 +36,9 @@ def test_needs_you_requires_signed_in_owner(monkeypatch, nonowner_headers):
     assert client.get("/api/v1/tdx/needs-you", headers=nonowner_headers).status_code == 403
 
 
-def test_needs_you_reads_actual_approval_and_blocked_events(monkeypatch, tmp_path, owner_token, owner_headers):
+def test_needs_you_reads_actual_approval_and_blocked_events(
+    monkeypatch, tmp_path, owner_token, owner_headers
+):
     monkeypatch.setenv("VEYA_TDX_NEEDS_YOU", "true")
     events = EventStore(tmp_path / "events.jsonl")
     monkeypatch.setattr(events_mod, "event_store", events)
@@ -44,25 +46,56 @@ def test_needs_you_reads_actual_approval_and_blocked_events(monkeypatch, tmp_pat
     service = approval_mod.ApprovalService(store=store)
     monkeypatch.setattr(approval_mod, "_service", service)
     scope = service.scope_for(auth_mod.resolve_token(owner_token)["user_id"])
-    store.create_approval({
-        "request_id": "real-approval-7", "scope": scope,
-        "tool": "shell.exec", "tool_args": {"command": "pytest"},
-        "created_at": 1000, "expires_at": time.time() + 60, "session_id": "session-a",
-    })
-    events.append({
-        "topic": "task.blocked", "task_id": "real-task-7", "session_id": "session-a",
-        "actor": "test", "ts": 2000,
-        "payload": {"status": "blocked", "block_reason": "Waiting for review"},
-    })
-    events.append({
-        "topic": "task.blocked", "task_id": "resolved-task", "session_id": "session-a",
-        "actor": "test", "ts": 2001, "payload": {"status": "blocked"},
-    })
-    events.append({
-        "topic": "task.completed", "task_id": "resolved-task", "session_id": "session-a",
-        "actor": "test", "ts": 2002, "payload": {"status": "completed"},
-    })
-    events.append({"topic": "task.blocked", "session_id": "no-task-id", "actor": "test", "ts": 2003, "payload": {"status": "blocked"}})
+    store.create_approval(
+        {
+            "request_id": "real-approval-7",
+            "scope": scope,
+            "tool": "shell.exec",
+            "tool_args": {"command": "pytest"},
+            "created_at": 1000,
+            "expires_at": time.time() + 60,
+            "session_id": "session-a",
+        }
+    )
+    events.append(
+        {
+            "topic": "task.blocked",
+            "task_id": "real-task-7",
+            "session_id": "session-a",
+            "actor": "test",
+            "ts": 2000,
+            "payload": {"status": "blocked", "block_reason": "Waiting for review"},
+        }
+    )
+    events.append(
+        {
+            "topic": "task.blocked",
+            "task_id": "resolved-task",
+            "session_id": "session-a",
+            "actor": "test",
+            "ts": 2001,
+            "payload": {"status": "blocked"},
+        }
+    )
+    events.append(
+        {
+            "topic": "task.completed",
+            "task_id": "resolved-task",
+            "session_id": "session-a",
+            "actor": "test",
+            "ts": 2002,
+            "payload": {"status": "completed"},
+        }
+    )
+    events.append(
+        {
+            "topic": "task.blocked",
+            "session_id": "no-task-id",
+            "actor": "test",
+            "ts": 2003,
+            "payload": {"status": "blocked"},
+        }
+    )
 
     response = client.get("/api/v1/tdx/needs-you", headers=owner_headers)
     assert response.status_code == 200

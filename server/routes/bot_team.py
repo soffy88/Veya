@@ -22,6 +22,12 @@ from pydantic import BaseModel, Field
 from server import auth as auth_mod
 from server import feature_flags
 from server.bot_team.async_turns import start_bot_turn_async, start_group_turn_async
+from server.bot_team.attention import (
+    AttentionStore,
+    StandingRefusedError,
+    build_board,
+    build_inbox,
+)
 from server.bot_team.chef import (
     CHEF_BOT_ID,
     ProposalStore,
@@ -29,19 +35,12 @@ from server.bot_team.chef import (
     proposal_store,
     record_team_proposal,
 )
-from server.bot_team.conversations import ConversationStore, default_bots_root, safe_bot_id
-from server.bot_team.attention import (
-    AttentionStore,
-    StandingRefusedError,
-    build_board,
-    build_inbox,
-)
-from server.bot_team.routine_holds import RoutineHoldStore
 from server.bot_team.companions import create_companion, list_presets
+from server.bot_team.conversations import ConversationStore, default_bots_root, safe_bot_id
 from server.bot_team.groups import (
-    LEAD_REPLY_MODE,
     AUTO_REPLY_MODE,
     DEFAULT_ROUNDS_PER_MESSAGE,
+    LEAD_REPLY_MODE,
     MAX_GROUP_MEMBERS,
     MAX_ROUNDS_PER_MESSAGE,
     GroupStore,
@@ -49,10 +48,11 @@ from server.bot_team.groups import (
 )
 from server.bot_team.messaging import MAX_HOP_DEPTH, BotMessageRefused, BotMessenger
 from server.bot_team.push import announce_bot_reply, announce_group_round
+from server.bot_team.routine_holds import RoutineHoldStore
 from server.bot_team.runners import RunnerRegistry
 from server.bot_team.turns import run_bot_turn
-from server.goal_run.routine_registry import RoutineRegistry
 from server.goal_run.bot_identity import DEFAULT_BOT_ID, BotRegistry, BotSpec
+from server.goal_run.routine_registry import RoutineRegistry
 
 router = APIRouter(prefix="/api/v1/bots", tags=["bots"])
 
@@ -91,6 +91,7 @@ def _default_bot_spec(owner_id: str) -> BotSpec:
     surface drive it without writing a record nobody asked for.
     """
     from server.feature_flags import enabled
+
     instr = ""
     try:
         if enabled("VEYA_EVIDENCE_REPORT"):
@@ -381,15 +382,15 @@ async def post_group_message(
         try:
             from server.bot_team.quote import build_quote
 
-            reply_to = build_quote(
-                groups().messages(group_id, include_hidden=True), req.reply_to
-            )
+            reply_to = build_quote(groups().messages(group_id, include_hidden=True), req.reply_to)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     from server.nano_w9.flags import flag_enabled
+
     if flag_enabled("VEYA_EVENT_TRIGGERS") or flag_enabled("VEYA_ROUTINE_TRIGGERS"):
         try:
             from server.routes.nano_w9 import _routine_router
+
             signal = {
                 "kind": "message",
                 "text": req.text,
@@ -460,9 +461,7 @@ async def update_group(
             if value and value not in members:
                 members.append(value)
         if not members:
-            raise HTTPException(
-                status_code=422, detail="a group needs at least one member bot"
-            )
+            raise HTTPException(status_code=422, detail="a group needs at least one member bot")
         if len(members) > MAX_GROUP_MEMBERS:
             raise HTTPException(
                 status_code=422,
@@ -474,9 +473,7 @@ async def update_group(
             if _resolve_bot(registry, bot_id, owner_id=user["user_id"]) is None
         ]
         if unknown:
-            raise HTTPException(
-                status_code=422, detail=f"unknown member bots: {unknown}"
-            )
+            raise HTTPException(status_code=422, detail=f"unknown member bots: {unknown}")
         if group.admin_bot_id not in members:
             new_admin = members[0]
     try:
@@ -840,10 +837,7 @@ async def create_bot(
         )
 
     requested_runner = str(req.runner_id or "local").strip() or "local"
-    if (
-        requested_runner != "local"
-        and RunnerRegistry().get(requested_runner) is None
-    ):
+    if requested_runner != "local" and RunnerRegistry().get(requested_runner) is None:
         raise HTTPException(
             status_code=422,
             detail=f"runner {requested_runner!r} is not registered; register it before pointing a bot at it",
@@ -1378,16 +1372,16 @@ async def post_bot_message(
         try:
             from server.bot_team.quote import build_quote
 
-            _quote = build_quote(
-                conversations().list(bot_id, include_hidden=True), req.reply_to
-            )
+            _quote = build_quote(conversations().list(bot_id, include_hidden=True), req.reply_to)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         user_meta = {"reply_to": _quote}
     from server.nano_w9.flags import flag_enabled
+
     if flag_enabled("VEYA_EVENT_TRIGGERS") or flag_enabled("VEYA_ROUTINE_TRIGGERS"):
         try:
             from server.routes.nano_w9 import _routine_router
+
             signal = {
                 "kind": "message",
                 "text": req.text,

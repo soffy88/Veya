@@ -2,13 +2,12 @@
 """Test all routes called by frontend against http://127.0.0.1:8799."""
 
 import json
-import os
 import re
-import urllib.request
 import urllib.error
-from pathlib import Path
+import urllib.request
 
-TOKEN = open(".aud3data/token.txt").read().strip()
+with open(".aud3data/token.txt") as _token_file:
+    TOKEN = _token_file.read().strip()
 BASE = "http://127.0.0.1:8799"
 
 with open("evidence/frontend_calls.json") as f:
@@ -22,6 +21,7 @@ openapi_paths = openapi.get("paths", {})
 
 results = []
 
+
 def make_request(method, path, body=None, token=TOKEN):
     url = f"{BASE}{path}"
     headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -29,7 +29,7 @@ def make_request(method, path, body=None, token=TOKEN):
     if body is not None:
         data = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
-    
+
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -49,6 +49,7 @@ def make_request(method, path, body=None, token=TOKEN):
     except Exception as e:
         return 0, str(e)
 
+
 print(f"Loaded {len(calls)} frontend calls to verify.")
 
 seen = set()
@@ -57,12 +58,12 @@ for c in calls:
     if key in seen:
         continue
     seen.add(key)
-    
+
     # Resolve any placeholder in path
     path = c["raw_path"]
     if not path.startswith("/"):
         path = "/" + path
-    
+
     # Check if raw_path has template variables like ${...} or encodeURIComponent
     clean_path = path
     clean_path = re.sub(r"\$\{[^}]*id[^}]*\}", "test-id", clean_path, flags=re.I)
@@ -107,7 +108,7 @@ for c in calls:
             break
 
     status, resp_data = make_request(method, clean_path, body)
-    
+
     # Analyze problem
     problem = None
     if matched_openapi is None:
@@ -119,15 +120,17 @@ for c in calls:
     elif status == 500:
         problem = f"500 Internal Server Error: {resp_data}"
 
-    results.append({
-        "frontend_call": c,
-        "test_url": clean_path,
-        "method": method,
-        "openapi_path": matched_openapi,
-        "status": status,
-        "response": resp_data,
-        "problem": problem
-    })
+    results.append(
+        {
+            "frontend_call": c,
+            "test_url": clean_path,
+            "method": method,
+            "openapi_path": matched_openapi,
+            "status": status,
+            "response": resp_data,
+            "problem": problem,
+        }
+    )
     print(f"[{status}] {method:<6} {clean_path:<45} -> {problem or 'OK'}")
 
 with open("evidence/frontend_route_verification.json", "w") as f:

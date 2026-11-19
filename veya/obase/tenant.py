@@ -93,7 +93,7 @@ def _host_from_scope(scope: Mapping[str, Any]) -> str:
 
     for key, value in scope.get("headers") or ():
         if key.lower() == b"host":
-            return value.decode("latin-1").split(":", 1)[0].strip().lower()
+            return str(value.decode("latin-1").split(":", 1)[0].strip().lower())
     server = scope.get("server") or ()
     return str(server[0]).strip().lower() if server else ""
 

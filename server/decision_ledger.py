@@ -324,9 +324,7 @@ class DecisionLedger:
                 # "周报" can only ever score a couple of hits). A lone generic
                 # 2-char token ("数据") with a low score never matches alone.
                 scope_hit = bool(set(words) & scope_tokens)
-                ok = scope_hit and (
-                    hits >= STANDING_MATCH_MIN_HITS or scope_text in query
-                )
+                ok = scope_hit and (hits >= STANDING_MATCH_MIN_HITS or scope_text in query)
             else:
                 ok = hits >= STANDING_MATCH_MIN_HITS
             if ok:
@@ -369,9 +367,7 @@ class DecisionLedger:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def supersede_standing(
-        self, standing_id: str, *, replacement_id: str | None = None
-    ) -> bool:
+    def supersede_standing(self, standing_id: str, *, replacement_id: str | None = None) -> bool:
         """Retire a standing row without deleting it (audit preserved)."""
         cur = self._conn.execute(
             "UPDATE standing SET superseded_by = ? WHERE id = ? AND superseded_by IS NULL",
@@ -442,9 +438,7 @@ def check_standing(
     if not standing_gate_enabled():
         return None
     try:
-        rows = (ledger or globals()["ledger"]).find_standing(
-            query, category=category, limit=1
-        )
+        rows = (ledger or globals()["ledger"]).find_standing(query, category=category, limit=1)
         return rows[0] if rows else None
     except Exception:
         return None
@@ -458,9 +452,7 @@ def record_standing_decision(
     category: str = "",
     source: str = "",
 ) -> str:
-    return ledger.record_standing(
-        verdict, statement, scope=scope, category=category, source=source
-    )
+    return ledger.record_standing(verdict, statement, scope=scope, category=category, source=source)
 
 
 def find_standing_decisions(
@@ -473,9 +465,7 @@ def standing_summary(*, limit: int = 8, category: str | None = None) -> str:
     return ledger.standing_summary(limit=limit, category=category)
 
 
-def supersede_standing_decision(
-    standing_id: str, *, replacement_id: str | None = None
-) -> bool:
+def supersede_standing_decision(standing_id: str, *, replacement_id: str | None = None) -> bool:
     return ledger.supersede_standing(standing_id, replacement_id=replacement_id)
 
 
@@ -487,11 +477,11 @@ __all__ = [
     "DecisionLedger",
     "analyze_decision_impact",
     "check_decision_rules",
+    "check_standing",
     "export_ledger",
     "find_similar_decisions",
-    "ledger",
-    "check_standing",
     "find_standing_decisions",
+    "ledger",
     "record_decision",
     "record_standing_decision",
     "standing_gate_enabled",

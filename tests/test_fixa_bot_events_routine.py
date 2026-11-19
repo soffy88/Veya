@@ -58,9 +58,11 @@ def test_app(fixa_env):
     app.include_router(routines_router)
     app.include_router(nano_w9_router)
     from server.routes.nano_w9 import signals_compat_router
+
     app.include_router(signals_compat_router)
 
     from server.routes import routines as _routines_mod
+
     app.dependency_overrides[_routines_mod._require_owned_bot] = lambda: None
 
     return app
@@ -193,9 +195,13 @@ def test_group_and_bot_messages_match_rules_and_dispatch_routine(client, fixa_en
     # Fake master execution to avoid LLM network calls
     async def fake_execute(*args, **kwargs):
         from server.goal_run.models import GoalRunResponse, GoalStatus
-        return GoalRunResponse(goal_id="g1", status=GoalStatus.completed, phase="finalized", summary="ack")
+
+        return GoalRunResponse(
+            goal_id="g1", status=GoalStatus.completed, phase="finalized", summary="ack"
+        )
 
     from server.coordinator_master import master_coordinator
+
     monkeypatch.setattr(master_coordinator, "execute_structured", fake_execute)
 
     # Post group message containing INCIDENT-99

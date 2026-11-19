@@ -46,9 +46,13 @@ def main() -> None:
         # Test tool_registry integration when enabled
         res_enabled_str = tool_registry._lazy_search_tools("ssrf", top_k=5)
         res_enabled = json.loads(res_enabled_str)
-        assert "security_skills" in res_enabled, "Enabled state must include security_skills in tool search payload"
+        assert "security_skills" in res_enabled, (
+            "Enabled state must include security_skills in tool search payload"
+        )
         assert len(res_enabled["security_skills"]) > 0
-        print(" [PASS] tool_registry._lazy_search_tools successfully surfaces security_skills when enabled.")
+        print(
+            " [PASS] tool_registry._lazy_search_tools successfully surfaces security_skills when enabled."
+        )
 
     finally:
         del os.environ["VEYA_BUGHUNTER_INDEX"]
@@ -58,4 +62,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

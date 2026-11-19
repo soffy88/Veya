@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import sys
 import threading
 from http.server import ThreadingHTTPServer
@@ -18,7 +17,6 @@ from server.bot_team.mcp_runner import (
     McpError,
     McpRunnerClient,
     McpTurnResult,
-    forward_mcp_turn,
 )
 from server.bot_team.runner_client import TransportResponse
 from server.bot_team.runners import RunnerError, RunnerRecord, RunnerRegistry
@@ -56,9 +54,7 @@ class FakeMcpTransport:
         self._inits = 0
 
     async def post(self, url, *, payload, timeout, headers):
-        self.calls.append(
-            {"url": url, "payload": payload, "timeout": timeout, "headers": headers}
-        )
+        self.calls.append({"url": url, "payload": payload, "timeout": timeout, "headers": headers})
         method = payload.get("method")
         if method == "initialize":
             self._inits += 1
@@ -125,9 +121,7 @@ async def test_mcp_call_turn_json():
         "notifications/initialized",
         "tools/call",
     ]
-    assert all(
-        c["headers"]["Authorization"] == f"Bearer {SECRET}" for c in transport.calls
-    )
+    assert all(c["headers"]["Authorization"] == f"Bearer {SECRET}" for c in transport.calls)
     call_args = transport.calls[2]["payload"]["params"]["arguments"]
     assert call_args["text"] == "do the thing"
     assert call_args["bot_id"] == "cli-bot"

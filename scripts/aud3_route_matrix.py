@@ -8,10 +8,10 @@ container to record what is actually exposed.
 
 from __future__ import annotations
 
-import inspect
 import json
 import os
 import urllib.request
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -20,18 +20,41 @@ OUT = Path("evidence/route_matrix.json")
 
 # All feature flags the audit turns on (mirrors .aud3data/stage.env extras).
 for name in (
-    "VEYA_ROLE_SKILLS_RUNTIME", "VEYA_TEACH_SKILL", "VEYA_EVENT_TRIGGERS",
-    "VEYA_ROUTINE_TRIGGERS", "VEYA_ROUTINE_CLOCK", "VEYA_APPROVAL_GATES",
-    "VEYA_TURN_QUEUE", "VEYA_EVIDENCE_REPORT", "VEYA_PUBLIC_SIGNUP",
-    "VEYA_MCP_PRESETS", "VEYA_EVO_ONTOLOGY", "VEYA_SKILL_TEACHING",
-    "VEYA_SKILL_V2", "VEYA_MEMORY_V2", "VEYA_MEMORY_CANDIDATES",
-    "VEYA_CONTINUITY_V1", "VEYA_PERSONAL_CONTEXT_UI", "VEYA_LONG_TERM_LEARNING",
-    "VEYA_CHANNELS", "VEYA_MORNING_FEED", "VEYA_PROVIDER_REGISTRY",
-    "VEYA_BOT_SECRETS", "VEYA_GROUP_ROLES", "VEYA_BOT_MEMORY_MD",
-    "VEYA_REMOTE_CONTROL", "VEYA_ROLE_SKILL_PRESETS", "VEYA_SSH_HOSTS",
-    "VEYA_PROJECT_BRAIN", "VEYA_TDX_NEEDS_YOU", "VEYA_TDX_AGENT_PUBLISH_PERMS",
-    "VEYA_TDX_RUN_HISTORY", "VEYA_MAB_BROWSER", "VEYA_XRT_ENABLED",
-    "VEYA_DEVICE_PAIRING", "VEYA_SKILL_EVAL_GATE",
+    "VEYA_ROLE_SKILLS_RUNTIME",
+    "VEYA_TEACH_SKILL",
+    "VEYA_EVENT_TRIGGERS",
+    "VEYA_ROUTINE_TRIGGERS",
+    "VEYA_ROUTINE_CLOCK",
+    "VEYA_APPROVAL_GATES",
+    "VEYA_TURN_QUEUE",
+    "VEYA_EVIDENCE_REPORT",
+    "VEYA_PUBLIC_SIGNUP",
+    "VEYA_MCP_PRESETS",
+    "VEYA_EVO_ONTOLOGY",
+    "VEYA_SKILL_TEACHING",
+    "VEYA_SKILL_V2",
+    "VEYA_MEMORY_V2",
+    "VEYA_MEMORY_CANDIDATES",
+    "VEYA_CONTINUITY_V1",
+    "VEYA_PERSONAL_CONTEXT_UI",
+    "VEYA_LONG_TERM_LEARNING",
+    "VEYA_CHANNELS",
+    "VEYA_MORNING_FEED",
+    "VEYA_PROVIDER_REGISTRY",
+    "VEYA_BOT_SECRETS",
+    "VEYA_GROUP_ROLES",
+    "VEYA_BOT_MEMORY_MD",
+    "VEYA_REMOTE_CONTROL",
+    "VEYA_ROLE_SKILL_PRESETS",
+    "VEYA_SSH_HOSTS",
+    "VEYA_PROJECT_BRAIN",
+    "VEYA_TDX_NEEDS_YOU",
+    "VEYA_TDX_AGENT_PUBLISH_PERMS",
+    "VEYA_TDX_RUN_HISTORY",
+    "VEYA_MAB_BROWSER",
+    "VEYA_XRT_ENABLED",
+    "VEYA_DEVICE_PAIRING",
+    "VEYA_SKILL_EVAL_GATE",
 ):
     os.environ.setdefault(name, "1")
 
@@ -123,8 +146,6 @@ OUT.write_text(json.dumps(flat, indent=2) + "\n")
 print(f"routes enumerated: {len(flat)}")
 print(f"unique paths: {len({r['path'] for r in flat})}")
 print(f"in openapi: {sum(1 for r in flat if r['in_openapi'])}")
-
-from collections import Counter
 
 for label, count in Counter(r["auth"] for r in flat).most_common():
     print(f"  auth={label}: {count}")

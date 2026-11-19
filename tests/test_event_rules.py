@@ -44,7 +44,10 @@ def test_wrapper_and_single_rule_shapes(tmp_path):
     assert len(wrapped) == 1 and wrapped[0]["name"] == "r1"
     single = parse_rules_file(_rule(), bot_exists=_bot_exists, skills_dir=skills)
     assert len(single) == 1
-    assert parse_rules_file({"version": 1, "rules": []}, bot_exists=_bot_exists, skills_dir=skills) == []
+    assert (
+        parse_rules_file({"version": 1, "rules": []}, bot_exists=_bot_exists, skills_dir=skills)
+        == []
+    )
 
 
 def test_rejects_unknown_bot_skill_tell_parallel(tmp_path):
@@ -71,9 +74,7 @@ def test_rejects_unknown_bot_skill_tell_parallel(tmp_path):
 def test_rejects_duplicate_names_and_bad_shapes(tmp_path):
     skills = _skills(tmp_path)
     with pytest.raises(ValueError):
-        parse_rules_file(
-            {"rules": [_rule(), _rule()]}, bot_exists=_bot_exists, skills_dir=skills
-        )
+        parse_rules_file({"rules": [_rule(), _rule()]}, bot_exists=_bot_exists, skills_dir=skills)
     with pytest.raises(ValueError):
         parse_rules_file([_rule()], bot_exists=_bot_exists, skills_dir=skills)
     with pytest.raises(ValueError):

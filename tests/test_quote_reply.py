@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -106,9 +105,7 @@ def test_append_message_stores_reply_to(quote_env):
     first = store.append_message(group.id, role="user", text="first")
     assert "reply_to" not in first
     quote = build_quote(store.messages(group.id, include_hidden=True), first["id"])
-    second = store.append_message(
-        group.id, role="user", text="second", reply_to=quote
-    )
+    second = store.append_message(group.id, role="user", text="second", reply_to=quote)
     assert second["reply_to"] == quote
 
 
@@ -118,9 +115,7 @@ async def test_group_turn_records_quote(quote_env, fake_master):
         [("chef", "Cooks dinner.", "You cook dinner.")],
     )
     store = GroupStore(quote_env["root"])
-    group = store.create(
-        name="room", bot_ids=["chef"], admin_bot_id="chef", reply_mode="everyone"
-    )
+    group = store.create(name="room", bot_ids=["chef"], admin_bot_id="chef", reply_mode="everyone")
     first = store.append_message(group.id, role="user", text="what is for dinner?")
     quote = build_quote(store.messages(group.id, include_hidden=True), first["id"])
     await run_group_turn(
@@ -139,9 +134,7 @@ async def test_group_turn_records_quote(quote_env, fake_master):
 def test_group_message_api_quote_and_422(quote_env, fake_master, client):
     _register(BotRegistry(), [("chef", "Cooks dinner.", "You cook dinner.")])
     store = GroupStore(quote_env["root"])
-    group = store.create(
-        name="room", bot_ids=["chef"], admin_bot_id="chef", reply_mode="everyone"
-    )
+    group = store.create(name="room", bot_ids=["chef"], admin_bot_id="chef", reply_mode="everyone")
     first = store.append_message(group.id, role="user", text="first question")
     resp = client.post(
         f"/api/v1/bots/groups/{group.id}/messages",

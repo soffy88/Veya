@@ -99,9 +99,7 @@ class ReadMarkStore:
         return stored
 
 
-def unread_for_group(
-    messages: list[dict[str, Any]], open_attention: int, read_rev: int
-) -> int:
+def unread_for_group(messages: list[dict[str, Any]], open_attention: int, read_rev: int) -> int:
     """Unread count: final answers newer than the mark, plus pending cards."""
 
     fresh = sum(

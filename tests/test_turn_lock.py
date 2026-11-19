@@ -25,10 +25,8 @@ async def test_same_bot_turns_serialize():
 
 @pytest.mark.asyncio
 async def test_same_task_reenters_without_deadlock():
-    async with bot_turn_lock("beta"):
-        async with bot_turn_lock("beta"):
-            async with bot_turn_lock("beta"):
-                pass
+    async with bot_turn_lock("beta"), bot_turn_lock("beta"), bot_turn_lock("beta"):
+        pass
     # The lock is free again afterwards.
     async with asyncio.timeout(1):
         async with bot_turn_lock("beta"):

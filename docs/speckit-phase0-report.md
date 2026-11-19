@@ -99,7 +99,7 @@ flag 关闭时 `enabled()` 为 False，这段不进 payload，`search_tools` 输
 
 ```python
 # Spec Kit (SDD) Phase 0 (default OFF; appended, never reordered)
-FeatureFlag("VEYA_SPECKIT", False, "runtime", "2027-01-01"),
+(FeatureFlag("VEYA_SPECKIT", False, "runtime", "2027-01-01"),)
 ```
 
 ### 3.6 `templates/speckit/`（新增，上游资产副本）

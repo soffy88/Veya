@@ -280,8 +280,13 @@ class LayeredMemoryStore:
         # kind/until are validated inside normalize_entry; a bad value
         # refuses the whole write, like a cap failure.
         entry = normalize_entry(
-            text, source=anchor, added=when, bot_id=self.bot_id, max_chars=None,
-            kind=kind, until=until,
+            text,
+            source=anchor,
+            added=when,
+            bot_id=self.bot_id,
+            max_chars=None,
+            kind=kind,
+            until=until,
         )
         existing = store.read(CORE_FILE)
         prospective = len(existing) + (2 if existing else 0) + len(entry) + 1

@@ -68,15 +68,11 @@ def event_hub_enabled() -> bool:
 
 
 def default_rules_path() -> str:
-    return os.environ.get(
-        "VEYA_EVENT_RULES_PATH", str(Path.home() / ".veya" / "event_rules.json")
-    )
+    return os.environ.get("VEYA_EVENT_RULES_PATH", str(Path.home() / ".veya" / "event_rules.json"))
 
 
 def default_seen_path() -> str:
-    return os.environ.get(
-        "VEYA_EVENT_HUB_DB", str(Path.home() / ".veya" / "event_hub.db")
-    )
+    return os.environ.get("VEYA_EVENT_HUB_DB", str(Path.home() / ".veya" / "event_hub.db"))
 
 
 def default_skills_dir() -> Path:
@@ -170,8 +166,10 @@ def validate_rule(
     if not source or not _SOURCE_RE.match(source):
         raise ValueError(f"rule {name!r}: when.source must be a token")
     types = when.get("types")
-    if not isinstance(types, list) or not types or not all(
-        isinstance(t, str) and t.strip() and _TYPE_RE.match(t.strip()) for t in types
+    if (
+        not isinstance(types, list)
+        or not types
+        or not all(isinstance(t, str) and t.strip() and _TYPE_RE.match(t.strip()) for t in types)
     ):
         raise ValueError(f"rule {name!r}: when.types must be a non-empty list of dotted tokens")
     to = str(raw.get("to") or "").strip()
@@ -240,7 +238,7 @@ def parse_rules_file(
     elif isinstance(data, dict):
         raws = [data]
     else:
-        raise ValueError("rules file must be an object: {\"rules\": [...]} or one rule")
+        raise ValueError('rules file must be an object: {"rules": [...]} or one rule')
     seen_names: set[str] = set()
     return [
         validate_rule(raw, bot_exists=bot_exists, skills_dir=skills_dir, seen_names=seen_names)
@@ -248,9 +246,7 @@ def parse_rules_file(
     ]
 
 
-def render_ask(
-    ask: str, envelope: dict[str, Any]
-) -> tuple[str, str]:
+def render_ask(ask: str, envelope: dict[str, Any]) -> tuple[str, str]:
     """Split an ask template into instruction text and materials text.
 
     The template's fixed words stay in the instruction part; every
@@ -425,7 +421,9 @@ class EventHub:
             return
         rules, error = self._load_rules()
         if error is not None:
-            _log.error("event rules rejected, keeping previous %d rules: %s", len(self._rules), error)
+            _log.error(
+                "event rules rejected, keeping previous %d rules: %s", len(self._rules), error
+            )
             self._rules_error = error
             self._rules_mtime = mtime
             self._record_event(
@@ -500,7 +498,10 @@ class EventHub:
             self._seen.prune(now=now)
         except Exception as exc:
             _log.error("event-hub seen store failed: %s", exc)
-            return {"status": "unavailable", "reason": f"seen store unavailable: {type(exc).__name__}"}
+            return {
+                "status": "unavailable",
+                "reason": f"seen store unavailable: {type(exc).__name__}",
+            }
         run_id = f"ev_{uuid.uuid4().hex[:12]}"
         if is_dup:
             self._record_event(
@@ -682,8 +683,7 @@ class EventHub:
             user=dict(user),
             context=(
                 f"事件 {envelope['event_id']}（{envelope['source']}/{envelope['type']}），"
-                f"规则 {rule['name']}。"
-                + (f" 技能：{rule['skill']}。" if rule["skill"] else "")
+                f"规则 {rule['name']}。" + (f" 技能：{rule['skill']}。" if rule["skill"] else "")
             ),
         )
         return {

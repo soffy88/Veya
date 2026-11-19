@@ -10,6 +10,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -20,8 +22,6 @@ from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_registry import RoutineRegistry
 from server.routes.session import _sessions
 
-
-import uuid
 
 @pytest.fixture
 def auth_client(tmp_path, monkeypatch):
@@ -35,7 +35,7 @@ def auth_client(tmp_path, monkeypatch):
 
 def test_session_search_route_path_not_duplicated(auth_client):
     """GET /api/v1/sessions/search must not 404 due to duplicated /api/v1/sessions prefix."""
-    client, user, token = auth_client
+    client, _, _ = auth_client
     resp = client.get("/api/v1/sessions/search?q=test")
     assert resp.status_code != 404, f"Unexpected 404: {resp.text}"
     assert resp.status_code == 200
@@ -45,7 +45,7 @@ def test_session_search_route_path_not_duplicated(auth_client):
 
 def test_session_handoff_preview_route_path_not_duplicated(auth_client):
     """GET /api/v1/sessions/{id}/handoff/preview must not 404 due to duplicated prefix."""
-    client, user, token = auth_client
+    client, user, _ = auth_client
     sid = "sess_aud3_test_1"
     _sessions[sid] = {
         "id": sid,
@@ -71,14 +71,16 @@ def test_session_handoff_preview_route_path_not_duplicated(auth_client):
 def test_role_skill_presets_auth_dependency(auth_client, monkeypatch):
     """POST /api/v1/bots/{bot_id}/presets/apply must accept valid Bearer token, not 401."""
     monkeypatch.setenv("VEYA_ROLE_SKILL_PRESETS", "1")
-    client, user, token = auth_client
+    client, user, _ = auth_client
     bot_id = "bot_presets_auth_test"
-    BotRegistry().register(BotSpec(
-        bot_id=bot_id,
-        name="Preset Test Bot",
-        owner_id=user["user_id"],
-        runner_id="local",
-    ))
+    BotRegistry().register(
+        BotSpec(
+            bot_id=bot_id,
+            name="Preset Test Bot",
+            owner_id=user["user_id"],
+            runner_id="local",
+        )
+    )
 
     resp = client.post(
         f"/api/v1/bots/{bot_id}/presets/apply",
@@ -92,14 +94,16 @@ def test_role_skill_presets_auth_dependency(auth_client, monkeypatch):
 def test_mcp_presets_auth_dependency(auth_client, monkeypatch):
     """POST /api/v1/mcp-presets/{name}/attach must accept valid Bearer token, not 401."""
     monkeypatch.setenv("VEYA_MCP_PRESETS", "1")
-    client, user, token = auth_client
+    client, user, _ = auth_client
     bot_id = "bot_mcp_auth_test"
-    BotRegistry().register(BotSpec(
-        bot_id=bot_id,
-        name="MCP Test Bot",
-        owner_id=user["user_id"],
-        runner_id="local",
-    ))
+    BotRegistry().register(
+        BotSpec(
+            bot_id=bot_id,
+            name="MCP Test Bot",
+            owner_id=user["user_id"],
+            runner_id="local",
+        )
+    )
 
     resp = client.post(
         "/api/v1/mcp-presets/markitdown/attach",
@@ -116,21 +120,25 @@ def test_routine_webhook_signature_auth_without_user_token(monkeypatch):
     monkeypatch.setenv("VEYA_WEBHOOK_SECRET", secret)
 
     bot_id = f"bot_webhook_{uuid.uuid4().hex[:6]}"
-    BotRegistry().register(BotSpec(
-        bot_id=bot_id,
-        name="Webhook Bot",
-        owner_id="webhook_user",
-        runner_id="local",
-    ))
-    RoutineRegistry(bot_id=bot_id).register(RoutineSpec(
-        routine_id="r-wh-1",
-        trigger_topic="event.arrive",
-        objective="Webhook trigger",
-        goal_template="Webhook trigger",
-        enabled=True,
-        bot_id=bot_id,
-        triggers=[{"kind": "webhook", "event": "release"}],
-    ))
+    BotRegistry().register(
+        BotSpec(
+            bot_id=bot_id,
+            name="Webhook Bot",
+            owner_id="webhook_user",
+            runner_id="local",
+        )
+    )
+    RoutineRegistry(bot_id=bot_id).register(
+        RoutineSpec(
+            routine_id="r-wh-1",
+            trigger_topic="event.arrive",
+            objective="Webhook trigger",
+            goal_template="Webhook trigger",
+            enabled=True,
+            bot_id=bot_id,
+            triggers=[{"kind": "webhook", "event": "release"}],
+        )
+    )
 
     body = json.dumps({"event": "release", "id": "rel_999"}).encode("utf-8")
     sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
@@ -147,13 +155,12 @@ def test_routine_webhook_signature_auth_without_user_token(monkeypatch):
     assert resp.json()["status"] == "ok"
 
 
-
 def test_handoff_preview_works_for_durable_session(auth_client):
     """A session created through the unified (durable) API must be usable by
     handoff/fork.  Before the fix, ``_owned_session`` only consulted the
     in-memory ``_sessions`` dict, so every durable session answered 404 even
     though the frontend created it moments earlier."""
-    client, user, token = auth_client
+    client, _, _ = auth_client
 
     created = client.post("/api/v1/sessions", json={})
     assert created.status_code == 200, created.text
@@ -169,7 +176,7 @@ def test_handoff_preview_works_for_durable_session(auth_client):
 
 def test_handoff_still_hides_other_users_durable_session(auth_client):
     """Ownership must not regress: another user's durable session stays 404."""
-    client, user, token = auth_client
+    client, _, _ = auth_client
 
     other = auth_mod.create_user(f"aud3_other_{uuid.uuid4().hex[:8]}", "Password123!")
     other_token = auth_mod.issue_token(other["user_id"])
@@ -192,16 +199,20 @@ def test_goal_status_route_reads_the_durable_goal_run(auth_client, tmp_path, mon
     ``<root>/.veya-project/goal-runs/<goal_id>/taskgraph.json``; the route simply
     never read it, so callers could not observe follow-through execution.
     """
-    import json as _json
 
     from server.goal_run.models import GoalRunState, GoalStatus
     from server.goal_run.store import save_goal_run
 
-    client, user, token = auth_client
+    client, user, _ = auth_client
     bot_id = f"goal_probe_{uuid.uuid4().hex[:6]}"
-    BotRegistry().register(BotSpec(
-        bot_id=bot_id, name="Goal Probe", owner_id=user["user_id"], runner_id="local",
-    ))
+    BotRegistry().register(
+        BotSpec(
+            bot_id=bot_id,
+            name="Goal Probe",
+            owner_id=user["user_id"],
+            runner_id="local",
+        )
+    )
 
     monkeypatch.setenv("VEYA_WRITE_ROOT", str(tmp_path))
     monkeypatch.chdir(tmp_path)
@@ -220,9 +231,7 @@ def test_goal_status_route_reads_the_durable_goal_run(auth_client, tmp_path, mon
     assert missing.status_code == 404, "unknown goal must 404, not fake a status"
 
 
-def test_webhook_dispatch_runs_a_real_goal_and_reports_its_id(
-    tmp_path, monkeypatch
-):
+def test_webhook_dispatch_runs_a_real_goal_and_reports_its_id(tmp_path, monkeypatch):
     """A triggered webhook must run real work, not only emit a throwaway id.
 
     ``POST /api/v1/bots/{bot}/routines/webhook`` used to build an in-memory
@@ -233,9 +242,9 @@ def test_webhook_dispatch_runs_a_real_goal_and_reports_its_id(
     """
     from unittest.mock import AsyncMock
 
-    import server.routes.routines as routines_mod
     from fastapi import FastAPI
 
+    import server.routes.routines as routines_mod
     from server.auth import AuthGateMiddleware
     from server.routes.nano_w9 import router as nano_w9_router
     from server.routes.routines import router as routines_router
@@ -254,15 +263,17 @@ def test_webhook_dispatch_runs_a_real_goal_and_reports_its_id(
 
     bot_id = "bot-webhook-real"
     registry = RoutineRegistry(bot_id=bot_id)
-    registry.register(RoutineSpec(
-        routine_id="r-wh-real",
-        trigger_topic="event.arrive",
-        objective="real webhook work",
-        goal_template="real webhook work",
-        enabled=True,
-        bot_id=bot_id,
-        triggers=[{"kind": "webhook", "event": "aud3.real"}],
-    ))
+    registry.register(
+        RoutineSpec(
+            routine_id="r-wh-real",
+            trigger_topic="event.arrive",
+            objective="real webhook work",
+            goal_template="real webhook work",
+            enabled=True,
+            bot_id=bot_id,
+            triggers=[{"kind": "webhook", "event": "aud3.real"}],
+        )
+    )
 
     consumer = AsyncMock(return_value=None)
     # The route binds the consumer with ``from ... import``, so the live lookup
@@ -272,7 +283,8 @@ def test_webhook_dispatch_runs_a_real_goal_and_reports_its_id(
     body = json.dumps({"event": "aud3.real", "id": "evt_real_1"}).encode()
     sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     resp = client.post(
-        f"/api/v1/bots/{bot_id}/routines/webhook", data=body,
+        f"/api/v1/bots/{bot_id}/routines/webhook",
+        data=body,
         headers={"X-Veya-Signature": sig, "Content-Type": "application/json"},
     )
     assert resp.status_code == 200, resp.text

@@ -1,4 +1,5 @@
 """Owner-only REST surface for opt-in external CLI runtimes."""
+
 from __future__ import annotations
 
 import os
@@ -71,4 +72,4 @@ async def get_xrt_status(execution_id: str) -> dict[str, Any]:
     return status
 
 
-__all__ = ["router", "require_xrt_enabled"]
+__all__ = ["require_xrt_enabled", "router"]

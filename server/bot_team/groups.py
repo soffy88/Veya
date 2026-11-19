@@ -25,13 +25,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from server.bot_team.post_budget import room_budget
 from server.bot_team.conversations import (
     PASS_SENTINEL,
     ConversationStore,
     atomic_write_json,
     default_bots_root,
 )
+from server.bot_team.post_budget import room_budget
 from server.bot_team.turns import GROUP_MATERIALS_TEXT, run_bot_turn
 from server.goal_run.bot_identity import BotRegistry, BotSpec
 
@@ -115,8 +115,7 @@ class GroupChat:
             "notice": self.notice,
             "held_bot_ids": list(self.held_bot_ids),
             "held_messages": {
-                key: list(value)
-                for key, value in (self.held_messages or {}).items()
+                key: list(value) for key, value in (self.held_messages or {}).items()
             },
         }
 
@@ -137,9 +136,7 @@ class GroupChat:
             admin_bot_id=str(value.get("admin_bot_id") or ""),
             reply_mode=str(value.get("reply_mode") or "everyone"),
             notice=str(value.get("notice") or ""),
-            held_bot_ids=tuple(
-                str(bot_id) for bot_id in (value.get("held_bot_ids") or [])
-            ),
+            held_bot_ids=tuple(str(bot_id) for bot_id in (value.get("held_bot_ids") or [])),
             held_messages={
                 str(key): tuple(str(item) for item in (value or []))
                 for key, value in (value.get("held_messages") or {}).items()
@@ -308,7 +305,7 @@ class GroupStore:
         if bot_id not in group.held_bot_ids:
             return
         stashed = dict(group.held_messages or {})
-        queue = list(stashed.get(bot_id, ())) + [body]
+        queue = [*stashed.get(bot_id, ()), body]
         stashed[bot_id] = tuple(queue[-STASH_CAP:])
         items[group.id] = replace(group, held_messages=stashed).to_dict()
         self._save(items)
@@ -495,13 +492,9 @@ async def run_group_turn(
     # and ends the round with no member turns.
     from server.bot_team.hold_directives import classify_hold_directive
 
-    directive = classify_hold_directive(
-        str(text or ""), list(group.bot_ids), registry
-    )
+    directive = classify_hold_directive(str(text or ""), list(group.bot_ids), registry)
     if directive is not None:
-        groups.append_message(
-            group.id, role="user", text=str(text or ""), reply_to=reply_to
-        )
+        groups.append_message(group.id, role="user", text=str(text or ""), reply_to=reply_to)
         held, resumed = _apply_hold_directive(groups, group, directive)
         return {
             "group_id": group.id,
@@ -706,9 +699,7 @@ def _apply_hold_directive(
     return held, resumed
 
 
-def _escalate_attention(
-    groups: GroupStore, group: GroupChat, bot_id: str, reason: str
-) -> None:
+def _escalate_attention(groups: GroupStore, group: GroupChat, bot_id: str, reason: str) -> None:
     """Hand an unanswered round to a human; never fail the round itself."""
 
     try:
@@ -800,7 +791,7 @@ def select_lead_owner(
                 spans.append((match.start(), match.end(), bot_id))
     if not spans:
         return None
-    spans.sort(key=lambda item: (item[1] - item[0]), reverse=True)
+    spans.sort(key=lambda item: item[1] - item[0], reverse=True)
     kept: list[tuple[int, int, str]] = []
     for start, end, bot_id in spans:
         if all(end <= kept_start or start >= kept_end for kept_start, kept_end, _ in kept):
@@ -977,12 +968,55 @@ async def run_lead_turn(
 #: particles). Everything else in the message is a routing keyword.
 _AUTO_STOPWORDS = frozenset(
     {
-        "the", "and", "for", "with", "that", "this", "from", "into", "about",
-        "please", "help", "want", "need", "what", "when", "where", "which",
-        "there", "here", "your", "yours", "have", "has", "been", "will",
-        "would", "could", "should", "does", "doing", "done", "make", "take",
-        "帮我", "请帮", "一下", "怎么", "什么", "我的", "我们", "你们",
-        "这个", "那个", "这里", "那里", "然后", "还有", "以及", "或者",
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "from",
+        "into",
+        "about",
+        "please",
+        "help",
+        "want",
+        "need",
+        "what",
+        "when",
+        "where",
+        "which",
+        "there",
+        "here",
+        "your",
+        "yours",
+        "have",
+        "has",
+        "been",
+        "will",
+        "would",
+        "could",
+        "should",
+        "does",
+        "doing",
+        "done",
+        "make",
+        "take",
+        "帮我",
+        "请帮",
+        "一下",
+        "怎么",
+        "什么",
+        "我的",
+        "我们",
+        "你们",
+        "这个",
+        "那个",
+        "这里",
+        "那里",
+        "然后",
+        "还有",
+        "以及",
+        "或者",
     }
 )
 
@@ -1005,9 +1039,7 @@ def _auto_keywords(text: str) -> set[str]:
     return words
 
 
-def select_auto_responder(
-    text: str, *, available: list[str], registry: BotRegistry
-) -> str | None:
+def select_auto_responder(text: str, *, available: list[str], registry: BotRegistry) -> str | None:
     """Pick the one member whose job clearly matches the message, or None.
 
     A keyword scores 3 in the bot id/name, 2 in its description, 1 in its
@@ -1085,9 +1117,7 @@ async def run_auto_turn(
     target_id = select_lead_owner(text=str(text or ""), available=available, registry=registry)
     phase = "direct"
     if target_id is None:
-        target_id = select_auto_responder(
-            str(text or ""), available=available, registry=registry
-        )
+        target_id = select_auto_responder(str(text or ""), available=available, registry=registry)
         phase = "auto"
     if target_id is not None:
         bot = registry.get(target_id)
@@ -1156,19 +1186,19 @@ async def run_auto_turn(
 
 
 __all__ = [
+    "AUTO_REPLY_MODE",
     "DEFAULT_ROUNDS_PER_MESSAGE",
     "LEAD_REPLY_MODE",
-    "AUTO_REPLY_MODE",
-    "mentioned_bot_ids",
-    "run_auto_turn",
-    "select_auto_responder",
-    "select_lead_owner",
     "MAX_GROUP_MEMBERS",
     "MAX_ROUNDS_PER_MESSAGE",
     "PASS_SENTINEL",
     "GroupChat",
     "GroupStore",
+    "mentioned_bot_ids",
+    "run_auto_turn",
     "run_group_turn",
     "run_lead_turn",
+    "select_auto_responder",
+    "select_lead_owner",
     "transcript",
 ]

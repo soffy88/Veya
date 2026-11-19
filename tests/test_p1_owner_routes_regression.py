@@ -94,12 +94,18 @@ def test_managed_endpoint_requires_owner(auth_setup, method, path, body):
 
     # 1. 匿名访问 -> 401
     resp_anon = client.request(method, path, json=body)
-    assert resp_anon.status_code == 401, f"{method} {path} anon expected 401, got {resp_anon.status_code}: {resp_anon.text}"
+    assert resp_anon.status_code == 401, (
+        f"{method} {path} anon expected 401, got {resp_anon.status_code}: {resp_anon.text}"
+    )
 
     # 2. 普通登录用户 (非 owner) -> 403
     resp_member = client.request(method, path, json=body, headers=auth_setup["member"]["headers"])
-    assert resp_member.status_code == 403, f"{method} {path} member expected 403, got {resp_member.status_code}: {resp_member.text}"
+    assert resp_member.status_code == 403, (
+        f"{method} {path} member expected 403, got {resp_member.status_code}: {resp_member.text}"
+    )
 
     # 3. Owner 用户 -> 通过权限门禁 (状态码不能是 401 或 403)
     resp_owner = client.request(method, path, json=body, headers=auth_setup["owner"]["headers"])
-    assert resp_owner.status_code not in (401, 403), f"{method} {path} owner failed auth with {resp_owner.status_code}: {resp_owner.text}"
+    assert resp_owner.status_code not in (401, 403), (
+        f"{method} {path} owner failed auth with {resp_owner.status_code}: {resp_owner.text}"
+    )

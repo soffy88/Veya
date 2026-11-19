@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from server import auth as auth_mod
-from server.routes.tailnet import require_tailnet_owner as require_owner
 from server.feature_flags import enabled as flag_enabled
+from server.routes.tailnet import require_tailnet_owner as require_owner
 
 router = APIRouter(prefix="/api/v1/tdx", tags=["tdx"])
 logger = logging.getLogger(__name__)
@@ -87,14 +85,31 @@ def get_needs_you(user: dict[str, Any] = Depends(require_owner)):
         task_id = str(task_id)
         topic = str(event.get("topic") or event.get("type") or "").lower()
         status_value = str(payload.get("status") or payload.get("state") or "").lower()
-        for terminal in ("blocked", "needs_input", "needs_owner", "waiting_for_input", "review_rejected", "reviewer_rejected", "needs_review", "running", "completed", "complete", "failed", "cancelled", "canceled"):
+        for terminal in (
+            "blocked",
+            "needs_input",
+            "needs_owner",
+            "waiting_for_input",
+            "review_rejected",
+            "reviewer_rejected",
+            "needs_review",
+            "running",
+            "completed",
+            "complete",
+            "failed",
+            "cancelled",
+            "canceled",
+        ):
             if topic.endswith("." + terminal):
                 status_value = terminal
                 break
         ts = event.get("ts")
         previous = latest_by_task.get(task_id)
         previous_ts = previous.get("ts") if previous else None
-        if previous is None or (isinstance(ts, (int, float)) and (not isinstance(previous_ts, (int, float)) or ts >= previous_ts)):
+        if previous is None or (
+            isinstance(ts, (int, float))
+            and (not isinstance(previous_ts, (int, float)) or ts >= previous_ts)
+        ):
             latest_by_task[task_id] = {
                 "task_id": task_id,
                 "topic": topic,
@@ -103,7 +118,15 @@ def get_needs_you(user: dict[str, Any] = Depends(require_owner)):
                 "ts": ts,
             }
 
-    attention_statuses = {"blocked", "needs_input", "needs_owner", "waiting_for_input", "review_rejected", "reviewer_rejected", "needs_review"}
+    attention_statuses = {
+        "blocked",
+        "needs_input",
+        "needs_owner",
+        "waiting_for_input",
+        "review_rejected",
+        "reviewer_rejected",
+        "needs_review",
+    }
     for task in latest_by_task.values():
         payload = task["payload"]
         if task["status"] not in attention_statuses and payload.get("needs_input") is not True:
@@ -113,7 +136,12 @@ def get_needs_you(user: dict[str, Any] = Depends(require_owner)):
             "id": f"task:{task['task_id']}",
             "task_id": task["task_id"],
             "kind": "review_rejected" if is_rejected else "blocked",
-            "title": str(payload.get("block_reason") or payload.get("message") or payload.get("summary") or "Task is blocked"),
+            "title": str(
+                payload.get("block_reason")
+                or payload.get("message")
+                or payload.get("summary")
+                or "Task is blocked"
+            ),
             "source": task["topic"] or "canonical_events",
             "created_at": task["ts"],
             "link": "/team",
@@ -123,18 +151,22 @@ def get_needs_you(user: dict[str, Any] = Depends(require_owner)):
             item["age_s"] = max(0, int(time.time() - float(task["ts"])))
         items.append(item)
 
-    items.sort(key=lambda item: item.get("created_at") if isinstance(item.get("created_at"), (int, float)) else 0, reverse=True)
+    items.sort(
+        key=lambda item: (
+            item.get("created_at") if isinstance(item.get("created_at"), (int, float)) else 0
+        ),
+        reverse=True,
+    )
     return {"enabled": True, "count": len(items), "items": items}
 
 
 # Feature 2: Publication permissions are persisted and enforced by the existing ToolGuard.
-from veya.tdx.publish_permissions import (
-    check_publish_permission,
+from server.tool_guard import global_tool_guard  # noqa: E402
+from veya.tdx.publish_permissions import (  # noqa: E402
     load_permissions,
     save_permissions,
     tool_guard_policy,
 )
-from server.tool_guard import global_tool_guard
 
 
 class PublishPermUpdate(BaseModel):
@@ -156,7 +188,9 @@ def get_publish_perms(user: dict[str, Any] = Depends(require_owner)):
 
 
 @router.put("/publish-perms/{agent_id}")
-def update_publish_perms(agent_id: str, body: PublishPermUpdate, user: dict[str, Any] = Depends(require_owner)):
+def update_publish_perms(
+    agent_id: str, body: PublishPermUpdate, user: dict[str, Any] = Depends(require_owner)
+):
     if not flag_enabled("VEYA_TDX_AGENT_PUBLISH_PERMS"):
         raise HTTPException(status_code=404, detail="VEYA_TDX_AGENT_PUBLISH_PERMS disabled")
     try:
@@ -171,7 +205,9 @@ def update_publish_perms(agent_id: str, body: PublishPermUpdate, user: dict[str,
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="Could not persist publish permission update and audit") from exc
+        raise HTTPException(
+            status_code=503, detail="Could not persist publish permission update and audit"
+        ) from exc
     return {"status": "ok", "agent_id": agent_id, "permissions": permissions}
 
 
@@ -204,20 +240,35 @@ def _run_events(task_id: str | None = None) -> list[dict[str, Any]]:
     try:
         events = event_mod.event_store.read_all(
             task_id=task_id,
-            topic_prefixes=("task.", "goal_run.", "execution.", "work_item.", "supervision.", "verification.", "usage."),
+            topic_prefixes=(
+                "task.",
+                "goal_run.",
+                "execution.",
+                "work_item.",
+                "supervision.",
+                "verification.",
+                "usage.",
+            ),
         )
     except Exception as exc:
         logger.exception("TDX Run History could not read the canonical event store")
         raise HTTPException(status_code=503, detail="Execution event store unavailable") from exc
     return sorted(
         events,
-        key=lambda event: float(event.get("ts") or 0) if isinstance(event.get("ts"), (int, float)) else 0,
+        key=lambda event: (
+            float(event.get("ts") or 0) if isinstance(event.get("ts"), (int, float)) else 0
+        ),
     )
 
 
 def _task_key(event: dict[str, Any]) -> str | None:
     payload = _event_payload(event)
-    value = event.get("task_id") or payload.get("task_id") or payload.get("goal_run_id") or payload.get("run_id")
+    value = (
+        event.get("task_id")
+        or payload.get("task_id")
+        or payload.get("goal_run_id")
+        or payload.get("run_id")
+    )
     return str(value) if value is not None and str(value).strip() else None
 
 
@@ -227,9 +278,23 @@ def _event_status(event: dict[str, Any]) -> str | None:
     if value is not None:
         return str(value)
     topic = str(event.get("topic") or event.get("type") or "").lower()
-    for suffix in ("completed", "complete", "blocked", "failed", "cancelled", "canceled", "running", "started", "pending"):
+    for suffix in (
+        "completed",
+        "complete",
+        "blocked",
+        "failed",
+        "cancelled",
+        "canceled",
+        "running",
+        "started",
+        "pending",
+    ):
         if topic.endswith("." + suffix):
-            return "completed" if suffix == "complete" else ("running" if suffix == "started" else suffix)
+            return (
+                "completed"
+                if suffix == "complete"
+                else ("running" if suffix == "started" else suffix)
+            )
     return None
 
 
@@ -321,9 +386,11 @@ def _read_run_evidence(task_id: str, records: list[dict[str, Any]]) -> Any:
 
 
 def _project_round(task_id: str, round_no: int, records: list[dict[str, Any]]) -> dict[str, Any]:
-    latest = records[-1] if records else {}
+    _ = records[-1] if records else {}
     round_data: dict[str, Any] = {"task_id": task_id, "round": round_no}
-    status_value = next((_event_status(event) for event in reversed(records) if _event_status(event)), None)
+    status_value = next(
+        (_event_status(event) for event in reversed(records) if _event_status(event)), None
+    )
     if status_value is not None:
         round_data["status"] = status_value
     for output, keys in (
@@ -345,7 +412,11 @@ def _project_round(task_id: str, round_no: int, records: list[dict[str, Any]]) -
     passed = _first_present(records, "passed", "tests_passed")
     failed = _first_present(records, "failed", "tests_failed")
     if passed is not None or failed is not None:
-        round_data["test_counts"] = {key: value for key, value in (("passed", passed), ("failed", failed)) if value is not None}
+        round_data["test_counts"] = {
+            key: value
+            for key, value in (("passed", passed), ("failed", failed))
+            if value is not None
+        }
     diff_value = round_data.get("diff_summary")
     if not isinstance(diff_value, dict):
         diff_value = {}
@@ -357,7 +428,9 @@ def _project_round(task_id: str, round_no: int, records: list[dict[str, Any]]) -
             ("files_changed", ("files_changed_count", "changed_file_count")),
         )
     }
-    stat_values = {key: value for key, value in stat_values.items() if isinstance(value, (int, float))}
+    stat_values = {
+        key: value for key, value in stat_values.items() if isinstance(value, (int, float))
+    }
     if stat_values:
         round_data["diff_summary"] = {**diff_value, **stat_values}
     token_usage = round_data.get("token_usage")
@@ -379,7 +452,9 @@ def _project_round(task_id: str, round_no: int, records: list[dict[str, Any]]) -
     return round_data
 
 
-def _project_runs(events: list[dict[str, Any]], selected_task_id: str | None = None) -> dict[str, list[dict[str, Any]]]:
+def _project_runs(
+    events: list[dict[str, Any]], selected_task_id: str | None = None
+) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for event in events:
         task_id = _task_key(event)
@@ -397,7 +472,9 @@ def _project_runs(events: list[dict[str, Any]], selected_task_id: str | None = N
 
 
 @router.get("/runs")
-def get_runs(task_id: str | None = None, limit: int = 50, user: dict[str, Any] = Depends(require_owner)):
+def get_runs(
+    task_id: str | None = None, limit: int = 50, user: dict[str, Any] = Depends(require_owner)
+):
     if not flag_enabled("VEYA_TDX_RUN_HISTORY"):
         raise HTTPException(status_code=404, detail="VEYA_TDX_RUN_HISTORY disabled")
     limit = max(1, min(int(limit), 200))
@@ -408,13 +485,27 @@ def get_runs(task_id: str | None = None, limit: int = 50, user: dict[str, Any] =
             continue
         latest = rounds[-1]
         run: dict[str, Any] = {"task_id": run_id, "rounds": rounds}
-        for key in ("plan", "diff_summary", "evidence", "model", "token_usage", "duration_s", "status", "updated_at"):
+        for key in (
+            "plan",
+            "diff_summary",
+            "evidence",
+            "model",
+            "token_usage",
+            "duration_s",
+            "status",
+            "updated_at",
+        ):
             if key in latest:
                 run[key] = latest[key]
         if len(rounds) > 1:
             run["round_count"] = len(rounds)
         runs.append(run)
-    runs.sort(key=lambda run: run.get("updated_at", 0) if isinstance(run.get("updated_at"), (int, float)) else 0, reverse=True)
+    runs.sort(
+        key=lambda run: (
+            run.get("updated_at", 0) if isinstance(run.get("updated_at"), (int, float)) else 0
+        ),
+        reverse=True,
+    )
     return {"enabled": True, "runs": runs[:limit], "count": min(len(runs), limit)}
 
 
@@ -424,21 +515,29 @@ def get_run_rounds(task_id: str, user: dict[str, Any] = Depends(require_owner)):
         raise HTTPException(status_code=404, detail="VEYA_TDX_RUN_HISTORY disabled")
     rounds = _project_runs(_run_events(task_id), task_id).get(task_id, [])
     if not rounds:
-        raise HTTPException(status_code=404, detail="No canonical task/execution events found for this task")
+        raise HTTPException(
+            status_code=404, detail="No canonical task/execution events found for this task"
+        )
     return {"enabled": True, "task_id": task_id, "rounds": rounds}
 
 
 @router.get("/runs/{task_id}/compare")
-def compare_run_rounds(task_id: str, a: int = 1, b: int = 2, user: dict[str, Any] = Depends(require_owner)):
+def compare_run_rounds(
+    task_id: str, a: int = 1, b: int = 2, user: dict[str, Any] = Depends(require_owner)
+):
     if not flag_enabled("VEYA_TDX_RUN_HISTORY"):
         raise HTTPException(status_code=404, detail="VEYA_TDX_RUN_HISTORY disabled")
     rounds = _project_runs(_run_events(task_id), task_id).get(task_id, [])
     left = next((item for item in rounds if item.get("round") == a), None)
     right = next((item for item in rounds if item.get("round") == b), None)
     if left is None or right is None:
-        raise HTTPException(status_code=404, detail="Both requested rounds must exist in canonical events")
+        raise HTTPException(
+            status_code=404, detail="Both requested rounds must exist in canonical events"
+        )
 
-    comparison: dict[str, Any] = {"status_change": {"from": left.get("status"), "to": right.get("status")}}
+    comparison: dict[str, Any] = {
+        "status_change": {"from": left.get("status"), "to": right.get("status")}
+    }
     for field, output_name in (("duration_s", "duration_delta_s"),):
         if isinstance(left.get(field), (int, float)) and isinstance(right.get(field), (int, float)):
             comparison[output_name] = float(right[field]) - float(left[field])
@@ -446,13 +545,19 @@ def compare_run_rounds(task_id: str, a: int = 1, b: int = 2, user: dict[str, Any
     diff_b = right.get("diff_summary") if isinstance(right.get("diff_summary"), dict) else {}
     line_deltas = {}
     for field in ("additions", "deletions", "files_changed"):
-        if isinstance(diff_a.get(field), (int, float)) and isinstance(diff_b.get(field), (int, float)):
+        if isinstance(diff_a.get(field), (int, float)) and isinstance(
+            diff_b.get(field), (int, float)
+        ):
             line_deltas[field] = diff_b[field] - diff_a[field]
     if line_deltas:
         comparison["diff_delta"] = line_deltas
     tests_a = left.get("test_counts") if isinstance(left.get("test_counts"), dict) else {}
     tests_b = right.get("test_counts") if isinstance(right.get("test_counts"), dict) else {}
-    tests_delta = {key: tests_b[key] - tests_a[key] for key in ("passed", "failed") if isinstance(tests_a.get(key), (int, float)) and isinstance(tests_b.get(key), (int, float))}
+    tests_delta = {
+        key: tests_b[key] - tests_a[key]
+        for key in ("passed", "failed")
+        if isinstance(tests_a.get(key), (int, float)) and isinstance(tests_b.get(key), (int, float))
+    }
     if tests_delta:
         comparison["tests_delta"] = tests_delta
     tokens_a = left.get("token_usage") if isinstance(left.get("token_usage"), dict) else {}
@@ -460,14 +565,21 @@ def compare_run_rounds(task_id: str, a: int = 1, b: int = 2, user: dict[str, Any
     token_delta = {
         key: tokens_b[key] - tokens_a[key]
         for key in set(tokens_a).intersection(tokens_b)
-        if isinstance(tokens_a.get(key), (int, float)) and isinstance(tokens_b.get(key), (int, float))
+        if isinstance(tokens_a.get(key), (int, float))
+        and isinstance(tokens_b.get(key), (int, float))
     }
     if token_delta:
         comparison["token_usage_delta"] = token_delta
     changed_fields = sorted(
-        key for key in set(left).intersection(right)
+        key
+        for key in set(left).intersection(right)
         if key not in {"task_id", "round", "started_at", "updated_at"} and left[key] != right[key]
     )
     comparison["changed_fields"] = changed_fields
-    return {"enabled": True, "task_id": task_id, "round_a": a, "round_b": b, "diff_comparison": comparison}
-
+    return {
+        "enabled": True,
+        "task_id": task_id,
+        "round_a": a,
+        "round_b": b,
+        "diff_comparison": comparison,
+    }

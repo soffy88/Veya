@@ -1,30 +1,39 @@
-from pathlib import Path
-import subprocess
 import hashlib
 import json
 import os
+import subprocess
 import time
-from typing import Dict, Any, Optional
-from veya.gsk import get_repo_root, is_enabled
+from pathlib import Path
+from typing import Any
+
+from veya.gsk import get_repo_root
+
 
 def _git_status() -> tuple[str, str, str]:
     root = get_repo_root()
     try:
-        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, timeout=2).stdout.strip()
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, timeout=2
+        ).stdout.strip()
     except Exception:
         head = "unknown"
     try:
-        porcelain = subprocess.run(["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, timeout=2).stdout
+        porcelain = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, timeout=2
+        ).stdout
     except Exception:
         porcelain = ""
     try:
-        diff = subprocess.run(["git", "diff"], cwd=root, capture_output=True, text=True, timeout=2).stdout
+        diff = subprocess.run(
+            ["git", "diff"], cwd=root, capture_output=True, text=True, timeout=2
+        ).stdout
     except Exception:
         diff = ""
     diff_hash = hashlib.sha256(diff.encode("utf-8")).hexdigest()
     return head, porcelain.strip(), diff_hash
 
-def compute_workspace_fingerprint() -> Dict[str, Any]:
+
+def compute_workspace_fingerprint() -> dict[str, Any]:
     head, porcelain, diff_hash = _git_status()
     raw = f"{head}:{porcelain}:{diff_hash}"
     fp_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -33,11 +42,12 @@ def compute_workspace_fingerprint() -> Dict[str, Any]:
         "porcelain": porcelain,
         "diff_hash": diff_hash,
         "fingerprint": fp_hash,
-        "timestamp": time.time()
+        "timestamp": time.time(),
     }
 
+
 class EvidenceLedger:
-    def __init__(self, ledger_path: Optional[Path] = None, event_root: Optional[Path] = None):
+    def __init__(self, ledger_path: Path | None = None, event_root: Path | None = None):
         self.root = get_repo_root()
         configured_event_root = os.getenv("VEYA_GSK_EVENT_ROOT", "").strip()
         self.event_root = Path(event_root or configured_event_root or Path.home()).expanduser()
@@ -49,7 +59,9 @@ class EvidenceLedger:
         )
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def record_run(self, label: str, command: str, exit_code: int, stdout_summary: str) -> Dict[str, Any]:
+    def record_run(
+        self, label: str, command: str, exit_code: int, stdout_summary: str
+    ) -> dict[str, Any]:
         fp = compute_workspace_fingerprint()
         entry = {
             "label": label,
@@ -57,7 +69,7 @@ class EvidenceLedger:
             "exit_code": exit_code,
             "stdout_summary": hashlib.sha256(stdout_summary.encode("utf-8")).hexdigest(),
             "fingerprint": fp,
-            "recorded_at": time.time()
+            "recorded_at": time.time(),
         }
         encoded = json.dumps(entry, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         with open(self.ledger_path, "a", encoding="utf-8") as f:
@@ -81,7 +93,7 @@ class EvidenceLedger:
         if not self.ledger_path.exists():
             return "MISSING"
         latest = None
-        with open(self.ledger_path, "r", encoding="utf-8") as f:
+        with open(self.ledger_path, encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -101,11 +113,11 @@ class EvidenceLedger:
         else:
             return "STALE"
 
-    def get_record(self, label: str) -> Optional[Dict[str, Any]]:
+    def get_record(self, label: str) -> dict[str, Any] | None:
         if not self.ledger_path.exists():
             return None
         latest = None
-        with open(self.ledger_path, "r", encoding="utf-8") as f:
+        with open(self.ledger_path, encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -117,7 +129,6 @@ class EvidenceLedger:
                     pass
         return latest
 
-
-    def evidence_for(self, label: str) -> Dict[str, Any]:
+    def evidence_for(self, label: str) -> dict[str, Any]:
         """Return a claim/test evidence status and its latest record."""
         return {"label": label, "status": self.check(label), "record": self.get_record(label)}

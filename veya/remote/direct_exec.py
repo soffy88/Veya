@@ -211,9 +211,7 @@ def _plan_execution(
     """
 
     # GSK is opt-in: when disabled this path stays identical to canonical main.
-    careful_enabled = os.getenv("VEYA_GSK_CAREFUL", "0").lower() in (
-        "1", "true", "yes", "on"
-    )
+    careful_enabled = os.getenv("VEYA_GSK_CAREFUL", "0").lower() in ("1", "true", "yes", "on")
     freeze_enabled = bool(os.getenv("VEYA_GSK_FREEZE_DIR", "").strip())
     if careful_enabled or freeze_enabled:
         from veya.gsk.careful import check_careful, check_freeze
@@ -294,7 +292,7 @@ def _record_gsk_execution_evidence(
         from veya.gsk.evidence import EvidenceLedger
 
         safe_command = redact_text(command, secret_values=_secret_values())
-        identity = hashlib.sha256(f"{cwd}\0{safe_command}".encode("utf-8")).hexdigest()[:20]
+        identity = hashlib.sha256(f"{cwd}\0{safe_command}".encode()).hexdigest()[:20]
         EvidenceLedger().record_run(
             label=f"direct_exec:{identity}",
             command=f"cwd={cwd} command={safe_command}",

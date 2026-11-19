@@ -7,6 +7,7 @@ full path: client -> socket -> daemon -> srt on host.
 Skipped automatically when srt cannot run on this machine (e.g. inside a
 Docker container where bwrap cannot create namespaces).
 """
+
 import os
 import subprocess
 import sys
@@ -46,8 +47,7 @@ def daemon(tmp_path_factory):
     socket_dir = tmp_path_factory.mktemp("sandbox-sockets")
     socket_path = socket_dir / "sandbox-exec.sock"
     proc = subprocess.Popen(
-        [sys.executable, "server/sandbox_remote_daemon.py",
-         "--socket-dir", str(socket_dir)],
+        [sys.executable, "server/sandbox_remote_daemon.py", "--socket-dir", str(socket_dir)],
         cwd=REPO_ROOT,
         env=_daemon_env(socket_dir),
         stdout=subprocess.PIPE,

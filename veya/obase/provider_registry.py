@@ -93,13 +93,13 @@ def _get_encryption_key() -> bytes:
 def _encrypt_value(value: str) -> str:
     """Encrypt a string value."""
     f = Fernet(_get_encryption_key())
-    return f.encrypt(value.encode()).decode()
+    return str(f.encrypt(value.encode()).decode())
 
 
 def _decrypt_value(encrypted: str) -> str:
     """Decrypt a string value."""
     f = Fernet(_get_encryption_key())
-    return f.decrypt(encrypted.encode()).decode()
+    return str(f.decrypt(encrypted.encode()).decode())
 
 
 # ── Provider Spec Extensions ────────────────────────────────────────────

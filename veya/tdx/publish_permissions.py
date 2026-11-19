@@ -103,7 +103,12 @@ def check_publish_permission(agent_id: str, action: str, *, target: str | None =
         try:
             _audit(
                 "tdx.publish_denied",
-                {"agent_id": agent_id, "action": action, "target": target, "reason": "permission_store_unavailable"},
+                {
+                    "agent_id": agent_id,
+                    "action": action,
+                    "target": target,
+                    "reason": "permission_store_unavailable",
+                },
                 actor=agent_id or "tdx-policy",
             )
         except Exception:
@@ -112,7 +117,11 @@ def check_publish_permission(agent_id: str, action: str, *, target: str | None =
 
     allowed = bool((permissions.get(agent_id) or permissions["default"]).get(action, False))
     topic = "tdx.publish_allowed" if allowed else "tdx.publish_denied"
-    _audit(topic, {"agent_id": agent_id, "action": action, "target": target}, actor=agent_id or "tdx-policy")
+    _audit(
+        topic,
+        {"agent_id": agent_id, "action": action, "target": target},
+        actor=agent_id or "tdx-policy",
+    )
     if not allowed:
         raise PermissionError(
             f"Agent {agent_id!r} is not authorized by TDX publish permissions to perform {action!r}."
@@ -141,7 +150,20 @@ def classify_publish_action(tool_name: str, kwargs: dict[str, Any]) -> str | Non
         return "merge"
     if name in {"git_tag", "tag", "create_tag", "git_create_tag"}:
         return "tag"
-    if name in {"deploy", "deploy_service", "deploy_agent", "service_restart", "restart_service", "systemd_restart", "docker_deploy"} or name.startswith("deploy_") or name.endswith("_deploy"):
+    if (
+        name
+        in {
+            "deploy",
+            "deploy_service",
+            "deploy_agent",
+            "service_restart",
+            "restart_service",
+            "systemd_restart",
+            "docker_deploy",
+        }
+        or name.startswith("deploy_")
+        or name.endswith("_deploy")
+    ):
         return "deploy"
 
     strings = "\n".join(_strings(kwargs))
@@ -151,14 +173,28 @@ def classify_publish_action(tool_name: str, kwargs: dict[str, Any]) -> str | Non
         return "merge"
     if re.search(r"\bgit\s+(?:-C\s+\S+\s+)?tag\b", strings, re.IGNORECASE):
         return "tag"
-    if re.search(r"\b(?:kubectl\s+apply|helm\s+upgrade|vercel\s+deploy|netlify\s+deploy|docker\s+compose\s+up|systemctl\s+restart)\b", strings, re.IGNORECASE):
+    if re.search(
+        r"\b(?:kubectl\s+apply|helm\s+upgrade|vercel\s+deploy|netlify\s+deploy|docker\s+compose\s+up|systemctl\s+restart)\b",
+        strings,
+        re.IGNORECASE,
+    ):
         return "deploy"
     return None
 
 
 def _publish_target(kwargs: dict[str, Any]) -> str | None:
     """Choose a compact destination identifier for the audit envelope."""
-    for key in ("target", "remote", "branch", "tag", "service", "unit", "environment", "repository", "repo"):
+    for key in (
+        "target",
+        "remote",
+        "branch",
+        "tag",
+        "service",
+        "unit",
+        "environment",
+        "repository",
+        "repo",
+    ):
         value = kwargs.get(key)
         if isinstance(value, (str, int)) and str(value).strip():
             return str(value)[:512]
@@ -178,7 +214,9 @@ def _current_request_is_owner() -> bool:
         return False
     if not isinstance(user, dict):
         return False
-    configured_owner = (os.getenv("VEYA_OWNER_USER_ID") or os.getenv("VEYA_TAILNET_OWNER_USER_ID") or "").strip()
+    configured_owner = (
+        os.getenv("VEYA_OWNER_USER_ID") or os.getenv("VEYA_TAILNET_OWNER_USER_ID") or ""
+    ).strip()
     user_id = str(user.get("user_id") or "")
     return user.get("is_owner") is True or bool(configured_owner and user_id == configured_owner)
 
@@ -193,7 +231,12 @@ def tool_guard_policy(tool_name: str, kwargs: dict[str, Any], source: str) -> st
         try:
             _audit(
                 "tdx.publish_owner_bypass",
-                {"tool_name": tool_name, "action": action, "source": source, "target": _publish_target(kwargs)},
+                {
+                    "tool_name": tool_name,
+                    "action": action,
+                    "source": source,
+                    "target": _publish_target(kwargs),
+                },
                 actor="owner",
             )
         except Exception:
@@ -201,7 +244,11 @@ def tool_guard_policy(tool_name: str, kwargs: dict[str, Any], source: str) -> st
         return None
 
     agent_id = next(
-        (str(kwargs[key]) for key in ("agent_id", "bot_id", "caller_agent_id", "executor_id") if kwargs.get(key)),
+        (
+            str(kwargs[key])
+            for key in ("agent_id", "bot_id", "caller_agent_id", "executor_id")
+            if kwargs.get(key)
+        ),
         "",
     )
     if not agent_id and source.startswith(("agent:", "bot:")):

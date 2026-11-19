@@ -157,9 +157,7 @@ def test_evaluate_waiting_denied_changed_ready(tmp_path):
     changed = [{"role": "user", "text": "do something else"}]
     verdict, reason, _ = evaluate_resume(record2, approvals=resolved2, messages=changed)
     assert (verdict, reason) == ("done", "objective-changed")
-    verdict, reason, outcomes = evaluate_resume(
-        record2, approvals=resolved2, messages=_messages()
-    )
+    verdict, reason, outcomes = evaluate_resume(record2, approvals=resolved2, messages=_messages())
     assert (verdict, reason) == ("resume", "ready")
     assert outcomes == [
         {
@@ -235,7 +233,13 @@ async def test_run_resume_group_thread_appends_room_reply(tmp_path, seams, monke
     class FakeGroupStore:
         def append_message(self, group_id, *, role, text, bot_id=None, task_id=None, **kwargs):
             room_calls.append(
-                {"group_id": group_id, "role": role, "text": text, "bot_id": bot_id, "task_id": task_id}
+                {
+                    "group_id": group_id,
+                    "role": role,
+                    "text": text,
+                    "bot_id": bot_id,
+                    "task_id": task_id,
+                }
             )
 
     monkeypatch.setattr("server.bot_team.groups.GroupStore", FakeGroupStore)
@@ -243,7 +247,13 @@ async def test_run_resume_group_thread_appends_room_reply(tmp_path, seams, monke
     outcome = await run_resume_for_record(record, store=store, conversations=convos)
     assert outcome == "resumed"
     assert room_calls == [
-        {"group_id": "grp-1", "role": "bot", "text": "resumed reply", "bot_id": "bot-1", "task_id": "new-task"}
+        {
+            "group_id": "grp-1",
+            "role": "bot",
+            "text": "resumed reply",
+            "bot_id": "bot-1",
+            "task_id": "new-task",
+        }
     ]
 
 
@@ -251,9 +261,15 @@ def test_maybe_mark_done_only_when_all_resolved(tmp_path):
     store = _store(tmp_path)
     record = _record(store)
     _approval(store, "ap-1", "sess-1")
-    assert maybe_mark_done(record["resume_id"], store=store, request_ids=["ap-1"], session_id="sess-1") is False
+    assert (
+        maybe_mark_done(record["resume_id"], store=store, request_ids=["ap-1"], session_id="sess-1")
+        is False
+    )
     store.resolve_approval("ap-1", decision="allow")
-    assert maybe_mark_done(record["resume_id"], store=store, request_ids=["ap-1"], session_id="sess-1") is True
+    assert (
+        maybe_mark_done(record["resume_id"], store=store, request_ids=["ap-1"], session_id="sess-1")
+        is True
+    )
     assert store.get_turn_resume(record["resume_id"])["state"] == "done"
 
 

@@ -45,9 +45,7 @@ def build_quote(
         text = str(message.get("text") or "")
         if len(text) > max_chars:
             text = text[:max_chars] + "…"
-        author = message.get("bot_id") or (
-            "user" if message.get("role") == "user" else "bot"
-        )
+        author = message.get("bot_id") or ("user" if message.get("role") == "user" else "bot")
         return {"id": wanted, "author": str(author), "text": text}
     raise ValueError(f"quoted message {wanted!r} not found in this conversation")
 

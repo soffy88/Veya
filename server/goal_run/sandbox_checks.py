@@ -77,7 +77,13 @@ def validate_commands(commands: Any) -> list[list[str]]:
             # are rejected. Legitimate checks are cwd-relative. The check
             # also covers "--flag=/abs" style values.
             for part in arg.split("="):
-                if part.startswith("/") or part == ".." or part.startswith("../") or part.endswith("/..") or "/../" in part:
+                if (
+                    part.startswith("/")
+                    or part == ".."
+                    or part.startswith("../")
+                    or part.endswith("/..")
+                    or "/../" in part
+                ):
                     raise ValueError(f"check argv must stay inside the scratch copy: {arg!r}")
         validated.append(list(command))
     return validated
@@ -96,9 +102,7 @@ def _scrubbed_env(scratch: str) -> dict[str, str]:
     }
 
 
-async def _run_one(
-    argv: list[str], cwd: str, timeout_s: float
-) -> CommandResult:
+async def _run_one(argv: list[str], cwd: str, timeout_s: float) -> CommandResult:
     import time
 
     started = time.monotonic()
@@ -156,7 +160,11 @@ async def run_checks(
     if not source.is_dir():
         return ChecksResult(passed=False, reason=f"tree is not a directory: {tree}")
     root = scratch_root or os.environ.get("VEYA_WORK_ROOT", str(Path.home() / ".veya" / "work"))
-    scratch = tempfile.mkdtemp(prefix="checks-", dir=root) if Path(root).is_dir() else tempfile.mkdtemp(prefix="checks-")
+    scratch = (
+        tempfile.mkdtemp(prefix="checks-", dir=root)
+        if Path(root).is_dir()
+        else tempfile.mkdtemp(prefix="checks-")
+    )
     try:
         shutil.copytree(source, scratch, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
         results: list[CommandResult] = []
@@ -174,14 +182,14 @@ async def run_checks(
                 return ChecksResult(passed=False, commands=results, reason=reason)
         return ChecksResult(passed=True, commands=results, reason="all checks passed")
     except Exception as exc:
-        return ChecksResult(passed=False, reason=f"checks harness failed: {type(exc).__name__}: {exc}")
+        return ChecksResult(
+            passed=False, reason=f"checks harness failed: {type(exc).__name__}: {exc}"
+        )
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def record_checks(
-    events: Any, subject_id: str, diff_hash: str, result: ChecksResult
-) -> None:
+def record_checks(events: Any, subject_id: str, diff_hash: str, result: ChecksResult) -> None:
     """Append the ``checks.completed`` record the merge gate reads."""
 
     events.append(

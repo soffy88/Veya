@@ -300,6 +300,7 @@ class RoutineSignalRouter:
             FeatureDisabled: when ``VEYA_ROUTINE_TRIGGERS`` is off.
         """
         from server.nano_w9.flags import FeatureDisabled, flag_enabled
+
         if not flag_enabled("VEYA_ROUTINE_TRIGGERS") and not flag_enabled("VEYA_EVENT_TRIGGERS"):
             raise FeatureDisabled("VEYA_ROUTINE_TRIGGERS")
         hits = self.match(signal)

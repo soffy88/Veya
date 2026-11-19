@@ -1262,10 +1262,7 @@ class PersonalRuntimeStore:
         # Postgres FTS is opt-out and additive. CJK-only queries have no
         # 'simple' tokens, so keep the pre-existing ILIKE path for them.
         use_fts = (
-            self.backend == "postgres"
-            and fts_enabled()
-            and bool(query)
-            and has_latin_tokens(query)
+            self.backend == "postgres" and fts_enabled() and bool(query) and has_latin_tokens(query)
         )
         if use_fts:
             from veya.obase.tenant import current_tenant
@@ -1277,14 +1274,21 @@ class PersonalRuntimeStore:
                 "scope_type = $3",
                 "scope_id = $4",
             ]
-            candidate_params: list[object] = [list(statuses), float(min_confidence), scope_type, scope_id]
+            candidate_params: list[object] = [
+                list(statuses),
+                float(min_confidence),
+                scope_type,
+                scope_id,
+            ]
             if memory_type:
                 candidate_clauses.append("memory_type = $5")
                 candidate_params.append(memory_type)
             # Server-derived tenant column, never a client-controlled tag.
             candidate_clauses.append("tenant_id = $6")
             candidate_params.append(tenant)
-            fts_sql, candidate_params = search_candidate_ids_sql(candidate_clauses, candidate_params)
+            fts_sql, candidate_params = search_candidate_ids_sql(
+                candidate_clauses, candidate_params
+            )
             candidate_params.append(limit)
             candidate_ids = [
                 str(row["id"])

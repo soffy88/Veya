@@ -248,11 +248,7 @@ def _routine_router():
         routine: Any = None,
         **_: Any,
     ) -> dict[str, Any]:
-        target_bot_id = (
-            getattr(routine, "bot_id", None)
-            or payload.get("bot_id")
-            or "veya-default"
-        )
+        target_bot_id = getattr(routine, "bot_id", None) or payload.get("bot_id") or "veya-default"
         target_registry = RoutineRegistry(bot_id=target_bot_id)
         routines: list[Any] = []
         if routine is not None:
@@ -268,10 +264,7 @@ def _routine_router():
         state = GoalRunState(
             goal_id=uuid.uuid4().hex,
             goal_text=str(
-                payload.get("event")
-                or payload.get("text")
-                or payload.get("pattern")
-                or "signal"
+                payload.get("event") or payload.get("text") or payload.get("pattern") or "signal"
             ),
             bot_id=target_bot_id,
         )

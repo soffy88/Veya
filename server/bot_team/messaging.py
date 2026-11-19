@@ -266,9 +266,7 @@ class BotMessenger:
                 f"than {MAX_HOP_DEPTH} hops (depth={depth})"
             )
         if reply_mode not in ("resume", "none"):
-            raise ValueError(
-                f"reply_mode must be 'resume' or 'none', got {reply_mode!r}"
-            )
+            raise ValueError(f"reply_mode must be 'resume' or 'none', got {reply_mode!r}")
         from server.bot_team.delegations import DelegationStore
 
         store = DelegationStore(root=self.conversations.root)

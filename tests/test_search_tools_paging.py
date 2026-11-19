@@ -125,9 +125,7 @@ async def test_offset_flows_through_registry_execute(monkeypatch, fake_catalog):
     session = "s-exec-page"
     token = _current_master_session.set(session)
     try:
-        raw = await registry.execute(
-            "search_tools", {"query": "widget", "top_k": 2, "offset": 2}
-        )
+        raw = await registry.execute("search_tools", {"query": "widget", "top_k": 2, "offset": 2})
     finally:
         _current_master_session.reset(token)
     payload = json.loads(raw)

@@ -70,9 +70,7 @@ def _read_token(args: argparse.Namespace) -> str:
     )
 
 
-def _request(
-    method: str, url: str, token: str, payload: dict[str, Any] | None = None
-) -> Any:
+def _request(method: str, url: str, token: str, payload: dict[str, Any] | None = None) -> Any:
     data = None
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     if payload is not None:
@@ -103,9 +101,7 @@ def _messages(base_url: str, token: str, kind: str, ref: str) -> list[dict[str, 
     return [m for m in messages if isinstance(m, dict)]
 
 
-def _new_attention(
-    base_url: str, token: str, kind: str, ref: str, since_ts: float
-) -> bool:
+def _new_attention(base_url: str, token: str, kind: str, ref: str, since_ts: float) -> bool:
     """True when a new open attention item appeared for this conversation."""
 
     try:
@@ -161,9 +157,7 @@ def send_turn(args: argparse.Namespace) -> int:
                     return _emit(args, ref, task_id, [message])
         else:
             fresh = [
-                m
-                for m in messages
-                if m.get("role") == "bot" and str(m.get("id")) not in before_ids
+                m for m in messages if m.get("role") == "bot" and str(m.get("id")) not in before_ids
             ]
             if fresh:
                 return _emit(args, ref, task_id, fresh)
@@ -176,9 +170,7 @@ def send_turn(args: argparse.Namespace) -> int:
         time.sleep(min(args.poll, max(0.05, deadline - time.time())))
 
 
-def _emit(
-    args: argparse.Namespace, ref: str, task_id: str, replies: list[dict[str, Any]]
-) -> int:
+def _emit(args: argparse.Namespace, ref: str, task_id: str, replies: list[dict[str, Any]]) -> int:
     if args.json:
         print(
             json.dumps(
@@ -217,8 +209,12 @@ def main(argv: list[str] | None = None) -> int:
         default="~/.veya/api-token",
         help="file holding the bearer token on one line",
     )
-    parser.add_argument("--wait", type=float, default=DEFAULT_WAIT_S, help="seconds to wait (default 300)")
-    parser.add_argument("--poll", type=float, default=DEFAULT_POLL_S, help="poll interval in seconds")
+    parser.add_argument(
+        "--wait", type=float, default=DEFAULT_WAIT_S, help="seconds to wait (default 300)"
+    )
+    parser.add_argument(
+        "--poll", type=float, default=DEFAULT_POLL_S, help="poll interval in seconds"
+    )
     parser.add_argument("--no-wait", action="store_true", help="open the turn and return at once")
     parser.add_argument("--json", action="store_true", help="print the reply envelope as JSON")
     args = parser.parse_args(argv)

@@ -136,9 +136,7 @@ def usage_snapshot(root: str | Path | None = None) -> dict[str, Any]:
     if not isinstance(cached, dict):
         return {"configured": False, "providers": {}, "updated_ts": None, "stale": False}
     updated = cached.get("updated_ts")
-    stale = bool(
-        isinstance(updated, (int, float)) and time.time() - updated > USAGE_STALE_AFTER_S
-    )
+    stale = bool(isinstance(updated, (int, float)) and time.time() - updated > USAGE_STALE_AFTER_S)
     return {**cached, "stale": stale}
 
 

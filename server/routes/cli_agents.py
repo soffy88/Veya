@@ -8,12 +8,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from server.routes.tailnet import require_tailnet_owner
 from runtime.coding.cli_agents import (
     _validate_command_template,
     get_cli_agent_registry,
 )
 from server import auth as auth_mod
+from server.routes.tailnet import require_tailnet_owner
 
 router = APIRouter(tags=["cli-agents"], dependencies=[Depends(require_tailnet_owner)])
 

@@ -326,7 +326,9 @@ class SandboxConfig:
     reject_dangerous: bool = True  # G4: 危险命令执行前拦截
     env_extra: dict[str, str] | None = None  # 注入子进程的额外环境变量(如 OPENBLAS_NUM_THREADS=1)
     profile: str | None = None
-    allowed_domains: list[str] | None = None  # srt 专用: network_blocked=False 时的域名白名单; None 则 srt 模式下拒绝执行 (fail-closed)
+    allowed_domains: list[str] | None = (
+        None  # srt 专用: network_blocked=False 时的域名白名单; None 则 srt 模式下拒绝执行 (fail-closed)
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -467,7 +469,6 @@ class Sandbox(ABC):
         self.logger = logging.getLogger(f"sandbox.{id(self)}")
         self._srt_settings_path: str | None = None
         self._last_backend: str = "legacy"
-
 
         # 确保审计日志目录存在 (cwd 不可写时 — 如容器 /app 只读 — fallback 到系统临时目录)
         if self.config.audit_enabled:
@@ -942,7 +943,14 @@ class ProcessSandbox(Sandbox):
             # srt 自己给子进程注入指向本地代理的 proxy env (含 per-run token),
             # 宿主的 egress 代理只应供给 srt 自身的上游, 不能原样进子进程;
             # srt 会覆盖子进程的 proxy 变量, 这里把宿主代理透传给 srt 进程即可。
-            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "no_proxy"):
+            for name in (
+                "http_proxy",
+                "https_proxy",
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "NO_PROXY",
+                "no_proxy",
+            ):
                 value = os.environ.get(name)
                 if value is not None:
                     env[name] = value
@@ -1368,7 +1376,7 @@ def _remote_call(socket_path: str, payload: dict[str, Any], timeout: float) -> d
     resp = json.loads(data.decode("utf-8"))
     if "error" in resp:
         raise RemoteProtocolError(str(resp["error"])[:500])
-    return resp
+    return dict(resp)
 
 
 class RemoteSandbox(Sandbox):
@@ -1439,9 +1447,7 @@ class RemoteSandbox(Sandbox):
                 _remote_call, self._socket_path or "", payload, timeout
             )
         except RemoteConnectError as exc:
-            self.logger.warning(
-                "sandbox remote unavailable (%s); falling back to local", exc
-            )
+            self.logger.warning("sandbox remote unavailable (%s); falling back to local", exc)
             local = ProcessSandbox(self.config)
             if kind == "execute":
                 result = await local.execute(fields["command"])
@@ -1462,6 +1468,7 @@ class RemoteSandbox(Sandbox):
             }
         result["sandbox_backend"] = "srt-remote"
         return result
+
 
 def create_sandbox(config: SandboxConfig | None = None) -> Sandbox:
     """Create a sandbox instance."""

@@ -1,5 +1,4 @@
-import pytest
-from veya.gsk.evidence import EvidenceLedger, compute_workspace_fingerprint
+from veya.gsk.evidence import EvidenceLedger
 
 
 def test_evidence_ledger_lifecycle(tmp_path):
@@ -22,6 +21,7 @@ def test_direct_execution_records_evidence_only_when_enabled(monkeypatch, tmp_pa
     import hashlib
     import json
     import sys
+
     from veya.remote.direct_exec import run_direct_command
 
     ledger_path = tmp_path / "evidence.jsonl"

@@ -398,7 +398,11 @@ class ApprovalStore:
         return self.get_turn_resume(resume_id)
 
     def transition_turn_resume(
-        self, resume_id: str, to_state: str, *, from_states: tuple[str, ...] = ("pending", "claimed")
+        self,
+        resume_id: str,
+        to_state: str,
+        *,
+        from_states: tuple[str, ...] = ("pending", "claimed"),
     ) -> dict[str, Any] | None:
         """Move a resume to a terminal state (done/expired), once only."""
 

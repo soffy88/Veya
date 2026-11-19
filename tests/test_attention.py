@@ -7,8 +7,6 @@ sees it on its next turn; a dismissed item closes without delivery.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -109,9 +107,12 @@ def test_attention_answer_delivers_to_bot(client, att_env):
     assert answered.json()["item"]["status"] == "answered"
     messages = ConversationStore(att_env["root"]).list("alpha")
     assert messages[-1]["role"] == "user" and messages[-1]["text"] == "The lake one"
-    assert client.post(
-        f"/api/v1/bots/attention/{item_id}/answer", json={"answer": "again"}
-    ).status_code == 409
+    assert (
+        client.post(
+            f"/api/v1/bots/attention/{item_id}/answer", json={"answer": "again"}
+        ).status_code
+        == 409
+    )
     assert client.post(f"/api/v1/bots/attention/{item_id}/dismiss").status_code == 409
 
 
@@ -126,9 +127,7 @@ def test_attention_answer_delivers_to_group(client, att_env):
     )
     assert created.status_code == 200, created.text
     item_id = created.json()["item"]["id"]
-    answered = client.post(
-        f"/api/v1/bots/attention/{item_id}/answer", json={"answer": "Hangzhou"}
-    )
+    answered = client.post(f"/api/v1/bots/attention/{item_id}/answer", json={"answer": "Hangzhou"})
     assert answered.status_code == 200, answered.text
     transcript = GroupStore(att_env["root"]).messages(group.id)
     assert transcript[-1]["role"] == "user" and transcript[-1]["text"] == "Hangzhou"
@@ -136,9 +135,7 @@ def test_attention_answer_delivers_to_group(client, att_env):
 
 def test_attention_dismiss_api(client, att_env):
     _register(BotRegistry(), "alpha")
-    created = client.post(
-        "/api/v1/bots/attention", json={"question": "Q?", "bot_id": "alpha"}
-    )
+    created = client.post("/api/v1/bots/attention", json={"question": "Q?", "bot_id": "alpha"})
     item_id = created.json()["item"]["id"]
     dismissed = client.post(f"/api/v1/bots/attention/{item_id}/dismiss")
     assert dismissed.status_code == 200
@@ -171,9 +168,7 @@ def test_inbox_shape(client, att_env):
     group = GroupStore(att_env["root"]).create(
         name="room", bot_ids=["alpha", "beta"], admin_bot_id="alpha"
     )
-    client.post(
-        "/api/v1/bots/attention", json={"question": "Q?", "bot_id": "alpha"}
-    )
+    client.post("/api/v1/bots/attention", json={"question": "Q?", "bot_id": "alpha"})
     inbox = client.get("/api/v1/bots/inbox")
     assert inbox.status_code == 200, inbox.text
     data = inbox.json()

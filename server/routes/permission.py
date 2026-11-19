@@ -82,7 +82,11 @@ async def evaluate(req: EvaluateRequest) -> DecisionResponse:
     )
 
 
-@router.post("/{request_id}/approve", response_model=DecisionResponse, dependencies=[Depends(auth_mod.require_owner)])
+@router.post(
+    "/{request_id}/approve",
+    response_model=DecisionResponse,
+    dependencies=[Depends(auth_mod.require_owner)],
+)
 async def approve(request_id: str, note: str = "approved via API") -> DecisionResponse:
     """人工批准一个挂起请求。"""
     gate = get_gate()
@@ -92,7 +96,11 @@ async def approve(request_id: str, note: str = "approved via API") -> DecisionRe
     return _to_response(request, note)
 
 
-@router.post("/{request_id}/deny", response_model=DecisionResponse, dependencies=[Depends(auth_mod.require_owner)])
+@router.post(
+    "/{request_id}/deny",
+    response_model=DecisionResponse,
+    dependencies=[Depends(auth_mod.require_owner)],
+)
 async def deny(request_id: str, note: str = "denied via API") -> DecisionResponse:
     """人工拒绝一个挂起请求。"""
     gate = get_gate()

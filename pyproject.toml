@@ -270,6 +270,13 @@ ignore_missing_imports = true
 module = ["sounddevice", "onnxruntime"]
 ignore_missing_imports = true
 
+# defusedxml 是 veya/obase/channels/safe_xml.py 的可选依赖(try/except ImportError
+# 守卫, 缺失时回落标准库 xml.etree.ElementTree); 部署 requirements 有它,
+# 但 qualification 环境不装, mypy 按缺失处理。
+[[tool.mypy.overrides]]
+module = ["defusedxml"]
+ignore_missing_imports = true
+
 # NANO-W10d web-reading probes (veya/obase/channel_probes.py) probe for these
 # at runtime with try/except ImportError and degrade when absent; they are
 # optional, so a missing stub is not a missing implementation.

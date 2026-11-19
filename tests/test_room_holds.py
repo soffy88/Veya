@@ -50,7 +50,12 @@ def _register(*bot_ids: str) -> BotRegistry:
     return registry
 
 
-def _fake_master(monkeypatch, replies: dict[str, str], seen: list[str], objectives: dict[str, list[str]] | None = None):
+def _fake_master(
+    monkeypatch,
+    replies: dict[str, str],
+    seen: list[str],
+    objectives: dict[str, list[str]] | None = None,
+):
     async def fake_execute(request: Any) -> GoalRunResponse:
         bot_id = str(request.constraints.metadata.get("bot_id") or "")
         seen.append(bot_id)
@@ -94,13 +99,18 @@ def test_classify_hold_directive():
     assert classify_hold_directive("@beta 停一下", ["alpha", "beta"], registry).holds == ("beta",)
     assert classify_hold_directive("@beta resume", ["alpha", "beta"], registry).resumes == ("beta",)
     assert classify_hold_directive("继续", ["alpha", "beta"], registry).resume_all is True
-    assert classify_hold_directive("@beta stop @alpha resume", ["alpha", "beta"], registry).holds == ("beta",)
+    assert classify_hold_directive(
+        "@beta stop @alpha resume", ["alpha", "beta"], registry
+    ).holds == ("beta",)
     assert classify_hold_directive("@beta", ["alpha", "beta"], registry) is None
     assert classify_hold_directive("stop", ["alpha", "beta"], registry) is None
     assert classify_hold_directive("@beta stop, 顺便说说昨天", ["alpha", "beta"], registry) is None
     assert classify_hold_directive("> @beta stop", ["alpha", "beta"], registry) is None
     assert classify_hold_directive("`@beta stop`", ["alpha", "beta"], registry) is None
-    assert classify_hold_directive("@beta 今天天气不错，我们 stop 一下吧", ["alpha", "beta"], registry) is None
+    assert (
+        classify_hold_directive("@beta 今天天气不错，我们 stop 一下吧", ["alpha", "beta"], registry)
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -151,9 +161,7 @@ async def test_empty_reply_counts_as_pass(hold_env, monkeypatch):
     seen: list[str] = []
     _fake_master(monkeypatch, {"alpha": "say:alpha", "beta": "say:beta"}, seen)
     real_extract = turns_mod.extract_reply
-    monkeypatch.setattr(
-        turns_mod, "extract_reply", lambda response, *, bot: ""
-    )
+    monkeypatch.setattr(turns_mod, "extract_reply", lambda response, *, bot: "")
     try:
         group = _group(hold_env, registry, ["alpha", "beta"])
         result = await _run(hold_env, registry, group, "hello")
@@ -169,7 +177,7 @@ async def test_empty_reply_counts_as_pass(hold_env, monkeypatch):
 
 
 def test_stash_cap(hold_env):
-    registry = _register("alpha", "beta")
+    _ = _register("alpha", "beta")
     store = GroupStore(hold_env["root"])
     group = store.create(name="cap", bot_ids=["alpha", "beta"], admin_bot_id="alpha")
     store.update(group.id, held_bot_ids=["beta"])

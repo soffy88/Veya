@@ -87,9 +87,7 @@ class RoomPostBudget:
         # Escalate first: a second consecutive solo post with nobody
         # answering is a human's problem, whatever the post says. The
         # streak only exists once a user message has anchored it.
-        recent_solo = [
-            post for post in self._posts if post[0] >= self._last_user_ts
-        ]
+        recent_solo = [post for post in self._posts if post[0] >= self._last_user_ts]
         if (
             self._last_user_ts > 0
             and recent_solo
@@ -99,11 +97,7 @@ class RoomPostBudget:
             self._breaker_until = at + BREAKER_S
             return PostDecision(False, reason="escalate", escalate=True)
         for ts, poster, body in self._posts:
-            if (
-                poster == speaker
-                and body == normalized
-                and at - ts <= DUPLICATE_WINDOW_S
-            ):
+            if poster == speaker and body == normalized and at - ts <= DUPLICATE_WINDOW_S:
                 return PostDecision(False, reason="duplicate")
         windowed = [post for post in self._posts if at - post[0] <= RING_WINDOW_S]
         if len(windowed) >= 3:
@@ -113,9 +107,7 @@ class RoomPostBudget:
                 self._breaker_until = at + BREAKER_S
                 return PostDecision(False, reason="ring")
         recent = [
-            post
-            for post in self._posts
-            if post[1] == speaker and at - post[0] <= RATE_WINDOW_S
+            post for post in self._posts if post[1] == speaker and at - post[0] <= RATE_WINDOW_S
         ]
         if len(recent) >= RATE_MAX_POSTS:
             return PostDecision(False, reason="sender-rate")

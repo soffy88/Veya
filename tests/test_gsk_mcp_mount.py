@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+
 from server import auth as auth_mod
 from server.app import app
 

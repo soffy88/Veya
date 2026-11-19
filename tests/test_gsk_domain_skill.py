@@ -1,5 +1,3 @@
-import pytest
-
 from veya.gsk.domain_skills import (
     DomainSkillManager,
     extract_domain,
@@ -26,7 +24,9 @@ def test_domain_skills_quarantine_and_activation(monkeypatch, tmp_path):
     assert "Always use asyncio.run()" in skills[0]
 
 
-def test_domain_skill_injects_into_existing_execution_context_only_when_enabled(monkeypatch, tmp_path):
+def test_domain_skill_injects_into_existing_execution_context_only_when_enabled(
+    monkeypatch, tmp_path
+):
     manager = DomainSkillManager(storage_path=tmp_path / "domain_skills.json")
     domain = "example.com"
     manager.register_skill(domain, "Prefer documented pagination endpoints.")
@@ -82,7 +82,6 @@ def test_three_successful_domain_tasks_activate_quarantined_note(monkeypatch, tm
     inject_domain_skills(next_context, task, manager)
     assert len(next_context.selected_skills) == 1
     assert "official docs" in render_execution_context(next_context)
-
 
 
 def test_domain_notes_use_existing_skills_tree_without_callable_manifest(monkeypatch, tmp_path):

@@ -1,5 +1,7 @@
 import pytest
+
 from veya.gsk.careful import check_careful, check_freeze
+
 
 def test_careful_guard_rules(monkeypatch):
     monkeypatch.setenv("VEYA_GSK_CAREFUL", "1")
@@ -16,6 +18,7 @@ def test_careful_guard_rules(monkeypatch):
     ok, msg = check_careful("git push origin main --force")
     assert ok is False
 
+
 def test_freeze_guard(monkeypatch, tmp_path):
     monkeypatch.setenv("VEYA_GSK_CAREFUL", "1")
     monkeypatch.setenv("VEYA_GSK_FREEZE_DIR", "veya/gsk")
@@ -30,6 +33,7 @@ def test_freeze_guard(monkeypatch, tmp_path):
 
 def test_direct_exec_guard_wiring_is_opt_in(monkeypatch, tmp_path):
     from types import SimpleNamespace
+
     import veya.remote.direct_exec as direct_exec
 
     class FakeRunner:
@@ -43,27 +47,43 @@ def test_direct_exec_guard_wiring_is_opt_in(monkeypatch, tmp_path):
     monkeypatch.delenv("VEYA_GSK_FREEZE_DIR", raising=False)
 
     planned = direct_exec._plan_execution(
-        tmp_path, "echo safe", cwd=tmp_path, profile="default",
-        approved=False, network=None,
+        tmp_path,
+        "echo safe",
+        cwd=tmp_path,
+        profile="default",
+        approved=False,
+        network=None,
     )
     assert planned[-1] == "echo safe"
 
     monkeypatch.setenv("VEYA_GSK_CAREFUL", "1")
     with pytest.raises(direct_exec.DirectDenied):
         direct_exec._plan_execution(
-            tmp_path, "r" + "m -rf /", cwd=tmp_path, profile="default",
-            approved=False, network=None,
+            tmp_path,
+            "r" + "m -rf /",
+            cwd=tmp_path,
+            profile="default",
+            approved=False,
+            network=None,
         )
     with pytest.raises(direct_exec.DirectDenied):
         direct_exec._plan_execution(
-            tmp_path, "git push origin main --force", cwd=tmp_path,
-            profile="default", approved=False, network=None,
+            tmp_path,
+            "git push origin main --force",
+            cwd=tmp_path,
+            profile="default",
+            approved=False,
+            network=None,
         )
 
     monkeypatch.delenv("VEYA_GSK_CAREFUL", raising=False)
     monkeypatch.setenv("VEYA_GSK_FREEZE_DIR", "veya/gsk")
     with pytest.raises(direct_exec.DirectDenied):
         direct_exec._plan_execution(
-            tmp_path, "echo safe", cwd=tmp_path, profile="default",
-            approved=False, network=None,
+            tmp_path,
+            "echo safe",
+            cwd=tmp_path,
+            profile="default",
+            approved=False,
+            network=None,
         )

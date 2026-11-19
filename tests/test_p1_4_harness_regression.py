@@ -5,6 +5,7 @@ Covers:
 - S2 extract_reply: model replies mentioning 'Source URL:' not falsely suppressed.
 - S4/S7 deterministic checks: steer action field present, checkpoint verdict structure.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -12,7 +13,6 @@ import pytest
 from server.bot_team.turns import extract_reply
 from server.goal_run.bot_identity import BotSpec
 from veya.oskill.pure.html_to_markdown import _MarkdownParser, html_to_markdown, read_html
-
 
 # ---------------------------------------------------------------------------
 # S2 — Title extraction robustness
@@ -42,7 +42,7 @@ def test_title_chunked_feed():
     """
     p = _MarkdownParser()
     p.feed("<html><head><title>")
-    p.feed("\n  ")           # whitespace-only first chunk
+    p.feed("\n  ")  # whitespace-only first chunk
     p.feed("Example Domain")
     p.feed("\n</title></head><body><p>Hello</p></body></html>")
     _, title, _, _ = p.result()
@@ -59,8 +59,7 @@ def test_title_empty_stays_empty():
 def test_title_in_read_html_header():
     """read_html() includes 'Title: ...' in markdown when title is non-empty."""
     html = (
-        "<html><head><title>\n  Example Domain\n</title></head>"
-        "<body><h1>Hello</h1></body></html>"
+        "<html><head><title>\n  Example Domain\n</title></head><body><h1>Hello</h1></body></html>"
     )
     doc = read_html(html, url="https://example.com")
     assert "Title: Example Domain" in doc.markdown

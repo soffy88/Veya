@@ -7,7 +7,6 @@ import os
 import re
 import urllib.request
 from pathlib import Path
-from typing import Any
 
 # 1. Fetch OpenAPI
 OPENAPI_URL = "http://127.0.0.1:8799/openapi.json"
@@ -37,8 +36,10 @@ os.environ["VEYA_CONTINUITY_V1"] = "1"
 os.environ["VEYA_PERSONAL_CONTEXT_UI"] = "1"
 os.environ["VEYA_LONG_TERM_LEARNING"] = "1"
 
-from server.app import app
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute  # noqa: E402
+
+from server.app import app  # noqa: E402
+
 
 # Recursively unwrap all routes
 def get_all_routes(router_or_app):
@@ -52,6 +53,7 @@ def get_all_routes(router_or_app):
         elif hasattr(r, "app") and hasattr(r.app, "routes"):
             results.extend(get_all_routes(r.app))
     return results
+
 
 all_api_routes = get_all_routes(app)
 
@@ -82,13 +84,12 @@ frontend_calls = []
 # Pattern 1: api("gateway", ...)
 api_regex = re.compile(
     r'api\(\s*["\'](gateway|legacy)["\']\s*,\s*([`"\'][^,\)]+[`"\'])(?:\s*,\s*(\{.*?\})\s*)?\s*\)',
-    re.DOTALL
+    re.DOTALL,
 )
 
 # Pattern 2: fetch(...)
 fetch_regex = re.compile(
-    r'fetch\(\s*([`"\'][^,\)]+[`"\']|\$\{API_BASE\}[^,\)]+)\s*(?:,\s*(\{.*?\})\s*)?\s*\)',
-    re.DOTALL
+    r'fetch\(\s*([`"\'][^,\)]+[`"\']|\$\{API_BASE\}[^,\)]+)\s*(?:,\s*(\{.*?\})\s*)?\s*\)', re.DOTALL
 )
 
 for file_path in web_dir.rglob("*"):
@@ -103,13 +104,15 @@ for file_path in web_dir.rglob("*"):
             m = re.search(r'method\s*:\s*["\'](GET|POST|PUT|PATCH|DELETE)["\']', opts)
             if m:
                 method = m.group(1)
-            frontend_calls.append({
-                "source": str(file_path.relative_to(web_dir)),
-                "upstream": up,
-                "method": method,
-                "raw_path": raw_path,
-                "options": opts.strip()
-            })
+            frontend_calls.append(
+                {
+                    "source": str(file_path.relative_to(web_dir)),
+                    "upstream": up,
+                    "method": method,
+                    "raw_path": raw_path,
+                    "options": opts.strip(),
+                }
+            )
         # Search for fetch(...)
         for match in fetch_regex.finditer(content):
             raw_path = match.group(1).strip("`\"'")
@@ -121,13 +124,15 @@ for file_path in web_dir.rglob("*"):
             elif "body" in opts:
                 method = "POST"
             clean_path = raw_path.replace("${API_BASE}", "").replace("${base}", "").strip("`\"'")
-            frontend_calls.append({
-                "source": str(file_path.relative_to(web_dir)),
-                "upstream": "fetch",
-                "method": method,
-                "raw_path": clean_path,
-                "options": opts.strip()
-            })
+            frontend_calls.append(
+                {
+                    "source": str(file_path.relative_to(web_dir)),
+                    "upstream": "fetch",
+                    "method": method,
+                    "raw_path": clean_path,
+                    "options": opts.strip(),
+                }
+            )
 
 print(f"Total frontend calls scanned: {len(frontend_calls)}")
 

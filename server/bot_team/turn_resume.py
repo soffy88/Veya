@@ -300,9 +300,7 @@ async def run_resume_for_record(
             session_id=str(record.get("session_id") or ""), limit=100, include_expired=True
         )
         messages = conversations.list(str(record.get("bot_id") or ""))
-        verdict, reason, outcomes = evaluate_resume(
-            record, approvals=approvals, messages=messages
-        )
+        verdict, reason, outcomes = evaluate_resume(record, approvals=approvals, messages=messages)
         if verdict == "skip":
             store.release_turn_resume(resume_id)
             return f"waiting-{reason}"
@@ -407,14 +405,10 @@ async def maybe_resume_for_session(
                 continue
             try:
                 outcomes.append(
-                    await run_resume_for_record(
-                        record, store=store, conversations=conversations
-                    )
+                    await run_resume_for_record(record, store=store, conversations=conversations)
                 )
             except Exception:
-                log.exception(
-                    "turn-resume session sweep failed for %s", record.get("resume_id")
-                )
+                log.exception("turn-resume session sweep failed for %s", record.get("resume_id"))
                 outcomes.append("failed")
     except Exception:
         log.exception("turn-resume session sweep failed for %s", session_id)
@@ -432,9 +426,7 @@ def schedule_resume_check(session_id: str) -> None:
     except RuntimeError:
         log.warning("turn-resume check skipped: no running loop for %s", session_id)
         return
-    task = loop.create_task(
-        maybe_resume_for_session(session_id), name="veya-turn-resume-check"
-    )
+    task = loop.create_task(maybe_resume_for_session(session_id), name="veya-turn-resume-check")
 
     def _done(done_task: asyncio.Task) -> None:
         try:
@@ -485,9 +477,7 @@ async def reap_turn_resumes(
                     record, store=store, conversations=conversations
                 )
             except Exception:
-                log.exception(
-                    "turn-resume reap failed for %s", record.get("resume_id")
-                )
+                log.exception("turn-resume reap failed for %s", record.get("resume_id"))
                 outcome = "failed"
             if outcome == "resumed":
                 counts["resumed"] += 1

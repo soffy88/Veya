@@ -59,7 +59,9 @@ async def test_sqlite_search_unchanged_and_bounded(tmp_path):
         )
         committed = await store.commit_memory_candidate(candidate["id"])
         mid = committed["record"]["id"]
-        assert [m["id"] for m in await store.search_memory("alpha", scope_type="user", scope_id="u1")] == [mid]
+        assert [
+            m["id"] for m in await store.search_memory("alpha", scope_type="user", scope_id="u1")
+        ] == [mid]
         assert await store.search_memory("alpha", scope_type="user", scope_id="someone-else") == []
         # Oversized limit is clamped, never passed through unbounded.
         assert len(await store.search_memory("alpha", limit=100000)) <= fts.MAX_RESULTS

@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator
 
 
 class _BotTurnLock:
-    __slots__ = ("lock", "loop", "owner", "depth")
+    __slots__ = ("depth", "lock", "loop", "owner")
 
     def __init__(self) -> None:
         self.lock = asyncio.Lock()

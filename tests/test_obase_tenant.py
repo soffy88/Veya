@@ -36,7 +36,9 @@ def test_host_and_user_mappings(monkeypatch):
         "VEYA_TENANT_USER_MAP": "u1=team-user",
     }
     assert (
-        t.resolve_tenant_context(_scope("teama.example.com:443"), {"user_id": "u1"}, env=env).tenant_id
+        t.resolve_tenant_context(
+            _scope("teama.example.com:443"), {"user_id": "u1"}, env=env
+        ).tenant_id
         == "team-a"
     )
     assert (
@@ -53,8 +55,7 @@ def test_strict_mode_fails_closed_on_unknown_or_conflicting_inputs():
     assert (
         t.resolve_tenant_context(
             _scope("a.example"), None, env={**strict, "VEYA_TENANT_HOST_MAP": "a.example=a"}
-        )
-        .tenant_id
+        ).tenant_id
         == "a"
     )
     conflict = {
@@ -81,7 +82,10 @@ async def test_contextvar_flows_into_spawned_tasks_and_audit_writes():
     )
     token = t.bind_tenant_context(ctx)
     try:
-        assert await asyncio.create_task(asyncio.to_thread(lambda: t.current_tenant().tenant_id)) == "tenant-a"
+        assert (
+            await asyncio.create_task(asyncio.to_thread(lambda: t.current_tenant().tenant_id))
+            == "tenant-a"
+        )
         ac.safe_append(action="risk.asked", detail={"n": 1})
         assert store.head("tenant-a")["seq"] == 1
         assert store.head(t.DEFAULT_TENANT) is None

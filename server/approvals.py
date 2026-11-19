@@ -310,6 +310,7 @@ class ApprovalService:
                 if version_id:
                     try:
                         from runtime.personal import get_personal_runtime
+
                         runtime = get_personal_runtime()
                         await runtime.confirm_skill(version_id)
                     except Exception:

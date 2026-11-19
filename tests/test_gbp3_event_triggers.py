@@ -13,15 +13,16 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.goal_run.models import RoutineSpec, GoalRunState
-from server.goal_run.routine_registry import RoutineRegistry
+from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_history import RoutineHistoryStore
-from server.nano_w9.routine_triggers import RoutineSignalRouter, verify_webhook_signature
+from server.goal_run.routine_registry import RoutineRegistry
 from server.nano_w9.flags import FeatureDisabled
+from server.nano_w9.routine_triggers import RoutineSignalRouter, verify_webhook_signature
 from server.routes.routines import router as routines_router
 
 
@@ -38,9 +39,10 @@ def test_gbp3_event_trigger_flag_off(gbp3_env):
     """Test that when VEYA_EVENT_TRIGGERS is off, event triggers are disabled."""
     registry = RoutineRegistry()
     router = RoutineSignalRouter(registry=registry)
-    
+
     with pytest.raises(FeatureDisabled) as exc:
         import asyncio
+
         asyncio.run(router.handle({"kind": "webhook", "event": "push", "verified": True}))
     assert exc.value.flag in ("VEYA_ROUTINE_TRIGGERS", "VEYA_EVENT_TRIGGERS")
 
@@ -49,7 +51,7 @@ def test_gbp3_webhook_trigger_and_history(gbp3_env, monkeypatch):
     """Test real call to webhook triggering routine, verifying signature and recording history."""
     monkeypatch.setenv("VEYA_EVENT_TRIGGERS", "1")
     registry = RoutineRegistry(bot_id="default-bot")
-    
+
     # Register routine with webhook trigger
     spec = RoutineSpec(
         routine_id="routine-hook-1",
@@ -63,11 +65,14 @@ def test_gbp3_webhook_trigger_and_history(gbp3_env, monkeypatch):
     registry.register(spec)
 
     history_store = RoutineHistoryStore(bot_id="default-bot")
-    
+
     seen: list[dict] = []
+
     def mock_dispatch(**kw):
         seen.append(kw)
-        history_store.add_record("routine-hook-1", {"trigger_id": kw.get("trigger_id"), "status": "ok"})
+        history_store.add_record(
+            "routine-hook-1", {"trigger_id": kw.get("trigger_id"), "status": "ok"}
+        )
         return {"handoffs": [1]}
 
     router = RoutineSignalRouter(
@@ -85,6 +90,7 @@ def test_gbp3_webhook_trigger_and_history(gbp3_env, monkeypatch):
     # Test signal handle
     signal = {"kind": "webhook", "event": "git.tag", "verified": True, "id": "hook_123"}
     import asyncio
+
     res = asyncio.run(router.handle(signal))
     assert res["status"] == "ok"
     assert len(res["dispatched"]) == 1
@@ -102,13 +108,15 @@ def test_gbp3_webhook_invalid_secret(gbp3_env):
     secret = "s" * 32
     bad_signature = "0" * 64
     assert not verify_webhook_signature(body, secret=secret, signature=bad_signature)
-    assert not verify_webhook_signature(body, secret="wrong-secret-length-too-short", signature=bad_signature)
+    assert not verify_webhook_signature(
+        body, secret="wrong-secret-length-too-short", signature=bad_signature
+    )
 
 
 def test_gbp3_bot_group_message_matching(gbp3_env, monkeypatch):
     """Test bot group message matching keyword/regex vs non-matching."""
     monkeypatch.setenv("VEYA_EVENT_TRIGGERS", "1")
-    
+
     spec_match = RoutineSpec(
         routine_id="r-match",
         trigger_topic="event.arrive",
@@ -116,7 +124,7 @@ def test_gbp3_bot_group_message_matching(gbp3_env, monkeypatch):
         goal_template="Handle deploy",
         enabled=True,
     )
-    setattr(spec_match, "triggers", [{"kind": "message", "regex": "^deploy\\s+\\w+"}])
+    spec_match.triggers = [{"kind": "message", "regex": "^deploy\\s+\\w+"}]
 
     spec_nomatch = RoutineSpec(
         routine_id="r-nomatch",
@@ -125,7 +133,7 @@ def test_gbp3_bot_group_message_matching(gbp3_env, monkeypatch):
         goal_template="Handle test",
         enabled=True,
     )
-    setattr(spec_nomatch, "triggers", [{"kind": "message", "regex": "^test\\s+\\w+"}])
+    spec_nomatch.triggers = [{"kind": "message", "regex": "^test\\s+\\w+"}]
 
     class MockRegistry:
         def list(self, *, include_disabled=False):
@@ -138,6 +146,7 @@ def test_gbp3_bot_group_message_matching(gbp3_env, monkeypatch):
     )
 
     import asyncio
+
     # Matching case
     res1 = asyncio.run(router.handle({"kind": "message", "text": "deploy production"}))
     assert res1["status"] == "ok"
@@ -154,6 +163,7 @@ def test_gbp3_http_webhook_and_history_endpoints(gbp3_env, monkeypatch):
     monkeypatch.setenv("VEYA_EVENT_TRIGGERS", "1")
     app = FastAPI()
     from server.routes import routines as _routines_mod
+
     app.dependency_overrides[_routines_mod._require_owned_bot] = lambda: None
     app.include_router(routines_router)
     client = TestClient(app)
@@ -191,4 +201,3 @@ def test_gbp3_http_webhook_and_history_endpoints(gbp3_env, monkeypatch):
     hist_data = resp_hist.json()
     assert hist_data["status"] == "ok"
     assert isinstance(hist_data["history"], list)
-

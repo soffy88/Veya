@@ -72,7 +72,9 @@ def _prior_rounds(events: Any, subject_id: str) -> list[dict[str, Any]]:
 
 def _record(events: Any, topic: str, subject_id: str, payload: dict[str, Any]) -> None:
     try:
-        events.append({"topic": topic, "task_id": subject_id, "actor": "system", "payload": payload})
+        events.append(
+            {"topic": topic, "task_id": subject_id, "actor": "system", "payload": payload}
+        )
     except Exception:
         _log.warning("review gate could not record %s", topic, exc_info=True)
 

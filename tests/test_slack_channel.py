@@ -14,11 +14,13 @@ from server.channels.slack import SlackAdapter, chunk_text_for_platform
 from veya.obase.channels import PLATFORM_SLACK, verify_slack_signature
 
 SECRET = "test-signing-secret"
-BODY = b'{"type":"event_callback","event":{"type":"message","text":"hi","channel":"C1","user":"U1"}}'
+BODY = (
+    b'{"type":"event_callback","event":{"type":"message","text":"hi","channel":"C1","user":"U1"}}'
+)
 
 
 def _sig(secret: str, ts: str, body: bytes) -> str:
-    base = f"v0:{ts}:".encode("utf-8") + body
+    base = f"v0:{ts}:".encode() + body
     return "v0=" + hmac.new(secret.encode(), base, hashlib.sha256).hexdigest()
 
 
@@ -77,12 +79,23 @@ def test_slack_challenge_and_parse():
     bot_msg = adapter.parse_inbound(
         payload={
             "type": "event_callback",
-            "event": {"type": "message", "subtype": "bot_message", "text": "x", "channel": "C1", "user": "U1"},
+            "event": {
+                "type": "message",
+                "subtype": "bot_message",
+                "text": "x",
+                "channel": "C1",
+                "user": "U1",
+            },
         },
         headers={},
     )
     assert bot_msg is None
-    assert adapter.parse_inbound(payload={"type": "event_callback", "event": {"type": "reaction_added"}}, headers={}) is None
+    assert (
+        adapter.parse_inbound(
+            payload={"type": "event_callback", "event": {"type": "reaction_added"}}, headers={}
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio

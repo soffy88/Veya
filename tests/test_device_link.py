@@ -45,11 +45,17 @@ def test_store_scopes_require_owned_distinct_devices(tmp_path):
     )
     assert scope.status == "active"
     with pytest.raises(ValueError):
-        store.create_scope("provider-share", USER["user_id"], host_device="desk1", guest_device="desk1", ref="x")
+        store.create_scope(
+            "provider-share", USER["user_id"], host_device="desk1", guest_device="desk1", ref="x"
+        )
     with pytest.raises(KeyError):
-        store.create_scope("provider-share", USER["user_id"], host_device="desk1", guest_device="ghost", ref="x")
+        store.create_scope(
+            "provider-share", USER["user_id"], host_device="desk1", guest_device="ghost", ref="x"
+        )
     with pytest.raises(ValueError):
-        store.create_scope("nope", USER["user_id"], host_device="desk1", guest_device="phone1", ref="x")
+        store.create_scope(
+            "nope", USER["user_id"], host_device="desk1", guest_device="phone1", ref="x"
+        )
     assert store.revoke_scope(scope.scope_id, USER["user_id"]) is True
     assert store.revoke_scope("ghost", USER["user_id"]) is False
 

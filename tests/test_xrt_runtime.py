@@ -1,12 +1,12 @@
 """XRT execution tests use an isolated fake CLI; no real provider CLI is run."""
+
 from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import subprocess
 import sys
-import shutil
-import shutil
 from pathlib import Path
 
 import pytest
@@ -68,6 +68,7 @@ def _prepare_fake_cli(
     monkeypatch.setitem(cli_agents.XRT_RUNTIME_PROFILES["devin"], "command", str(fake_cli))
     monkeypatch.setattr(executor_adapter.event_store, "append", lambda *_args, **_kwargs: {})
     from server import events
+
     monkeypatch.setattr(events, "append_canonical_event", lambda *_args, **_kwargs: {})
     captured: list[str] = []
     monkeypatch.setattr(
@@ -90,10 +91,12 @@ async def _wait_for_status(execution_id: str, limit_s: float = 8.0) -> dict:
 
 def test_fake_cli_dispatch_collects_worktree_diff_and_stream(monkeypatch, tmp_path) -> None:
     root, _home, _fake_cli, captured = _prepare_fake_cli(tmp_path, monkeypatch)
+
     async def scenario() -> tuple[dict, dict]:
         started = await xrt_runtime.dispatch("devin", "edit tracked file", str(root), 5)
         return started, await _wait_for_status(started["execution_id"])
-    started, result = asyncio.run(scenario())
+
+    _, result = asyncio.run(scenario())
     assert result["status"] == "COMPLETED"
     assert "FAKE_CLI_FINISHED" in result["stdout"]
     assert "changed by fake CLI" in result["git_diff"]
@@ -102,13 +105,17 @@ def test_fake_cli_dispatch_collects_worktree_diff_and_stream(monkeypatch, tmp_pa
     manifest = Path(result["artifact_manifest"])
     assert manifest.is_file()
     assert {"outputs/worktree.diff", "evidence/execution_result.json"}.issubset(
-        {item["path"] for item in __import__("json").loads(manifest.read_text(encoding="utf-8"))["artifacts"]}
+        {
+            item["path"]
+            for item in __import__("json").loads(manifest.read_text(encoding="utf-8"))["artifacts"]
+        }
     )
     assert Path(result["worktree_path"]).resolve() != root.resolve()
 
 
 def test_fake_cli_timeout_and_cancel(monkeypatch, tmp_path) -> None:
     root, _home, _fake_cli, _captured = _prepare_fake_cli(tmp_path, monkeypatch)
+
     async def scenario() -> tuple[dict, dict, dict]:
         started = await xrt_runtime.dispatch("devin", "slow task", str(root), 1)
         timed_out = await _wait_for_status(started["execution_id"], limit_s=8)
@@ -116,6 +123,7 @@ def test_fake_cli_timeout_and_cancel(monkeypatch, tmp_path) -> None:
         cancelled = await xrt_runtime.cancel(second["execution_id"])
         final = await _wait_for_status(second["execution_id"], limit_s=8)
         return timed_out, {"cancelled": cancelled}, final
+
     timed_out, cancelled, final = asyncio.run(scenario())
     assert timed_out["status"] == "TIMEOUT"
     assert timed_out["exit_code"] == 124
@@ -127,6 +135,7 @@ def test_fake_cli_concurrency_limit_is_enforced(monkeypatch, tmp_path) -> None:
     root, _home, _fake_cli, _captured = _prepare_fake_cli(tmp_path, monkeypatch)
     monkeypatch.setenv("VEYA_XRT_MAX_CONCURRENT", "2")
     monkeypatch.setenv("VEYA_XRT_MAX_PER_RUNTIME", "1")
+
     async def scenario() -> tuple[bool, dict]:
         started = await xrt_runtime.dispatch("devin", "slow concurrency task", str(root), 10)
         with pytest.raises(RuntimeError, match="concurrency limit"):
@@ -134,6 +143,7 @@ def test_fake_cli_concurrency_limit_is_enforced(monkeypatch, tmp_path) -> None:
         cancelled = await xrt_runtime.cancel(started["execution_id"])
         final = await _wait_for_status(started["execution_id"], limit_s=8)
         return cancelled, final
+
     cancelled, final = asyncio.run(scenario())
     assert cancelled is True
     assert final["status"] == "CANCELLED"
@@ -151,9 +161,11 @@ def test_missing_runtime_is_reported_without_a_real_cli(monkeypatch, tmp_path) -
 
 def test_fake_cli_nonzero_exit_is_reported_as_failed(monkeypatch, tmp_path) -> None:
     root, _home, _fake_cli, _captured = _prepare_fake_cli(tmp_path, monkeypatch)
+
     async def scenario() -> tuple[dict, dict]:
         started = await xrt_runtime.dispatch("devin", "please fail this task", str(root), 5)
         return started, await _wait_for_status(started["execution_id"])
+
     started, result = asyncio.run(scenario())
     assert result["execution_id"] == started["execution_id"]
     assert result["status"] == "FAILED"

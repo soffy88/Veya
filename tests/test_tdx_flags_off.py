@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 
 from server.app import app
 
-
 client = TestClient(app)
 
 
@@ -18,7 +17,12 @@ def test_all_tdx_flags_off(monkeypatch, owner_headers):
 
     assert client.get("/api/v1/tdx/needs-you", headers=owner_headers).status_code == 404
     assert client.get("/api/v1/tdx/publish-perms", headers=owner_headers).status_code == 404
-    assert client.put("/api/v1/tdx/publish-perms/agent-1", json={"push": True}, headers=owner_headers).status_code == 404
+    assert (
+        client.put(
+            "/api/v1/tdx/publish-perms/agent-1", json={"push": True}, headers=owner_headers
+        ).status_code
+        == 404
+    )
     assert client.get("/api/v1/tdx/runs", headers=owner_headers).status_code == 404
     assert client.get("/api/v1/tdx/runs/t1/rounds", headers=owner_headers).status_code == 404
     assert client.get("/api/v1/tdx/runs/t1/compare", headers=owner_headers).status_code == 404

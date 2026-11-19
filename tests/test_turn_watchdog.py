@@ -53,9 +53,7 @@ async def _run_turn(monkeypatch, tmp_path, task, timeout):
     store = ConversationStore(tmp_path / "bots-root")
     result = await finish_bot_turn(
         bot=BotSpec(bot_id="beta", name="Beta"),
-        start=BotTurnStart(
-            bot_id="beta", task_id="t1", session_id="s1", trace_id="tr1"
-        ),
+        start=BotTurnStart(bot_id="beta", task_id="t1", session_id="s1", trace_id="tr1"),
         text="hello",
         user={"user_id": "u1", "username": "u"},
         conversations=store,

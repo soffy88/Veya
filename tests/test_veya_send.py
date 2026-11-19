@@ -41,7 +41,7 @@ def _make_server(state: _StubState) -> ThreadingHTTPServer:
         def _authed(self) -> bool:
             return self.headers.get("Authorization") == f"Bearer {state.require_token}"
 
-        def do_POST(self) -> None:  # noqa: N802
+        def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length) if length else b"{}"
             try:
@@ -54,7 +54,7 @@ def _make_server(state: _StubState) -> ThreadingHTTPServer:
                 return
             self._send_json(state.post_status, {"task_id": "task-1", "status": "accepted"})
 
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             state.get_counts[self.path] = state.get_counts.get(self.path, 0) + 1
             if not self._authed():
                 self._send_json(401, {"detail": "nope"})
@@ -86,7 +86,9 @@ def stub():
     server.server_close()
 
 
-def _run(args: list[str], base_url: str, extra_env: dict | None = None) -> subprocess.CompletedProcess:
+def _run(
+    args: list[str], base_url: str, extra_env: dict | None = None
+) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["VEYA_API_TOKEN"] = "test-token"
     env["VEYA_BASE_URL"] = base_url
@@ -104,9 +106,17 @@ def _run(args: list[str], base_url: str, extra_env: dict | None = None) -> subpr
 def test_bot_happy_path(stub):
     state, base_url = stub
     state.bot_messages = [
-        {"id": "m1", "role": "bot", "bot_id": "chef", "text": "dinner is served", "task_id": "task-1"}
+        {
+            "id": "m1",
+            "role": "bot",
+            "bot_id": "chef",
+            "text": "dinner is served",
+            "task_id": "task-1",
+        }
     ]
-    result = _run(["--bot", "chef", "--wait", "5", "--poll", "0.1", "what is for dinner?"], base_url)
+    result = _run(
+        ["--bot", "chef", "--wait", "5", "--poll", "0.1", "what is for dinner?"], base_url
+    )
     assert result.returncode == 0, result.stderr
     assert "dinner is served" in result.stdout
     assert state.posts[0]["body"] == {"text": "what is for dinner?"}
@@ -136,7 +146,7 @@ def test_group_happy_path(stub):
 
 
 def test_timeout_is_exit_2(stub):
-    state, base_url = stub
+    _, base_url = stub
     result = _run(["--bot", "chef", "--wait", "0.5", "--poll", "0.1", "hello"], base_url)
     assert result.returncode == 2
 
@@ -174,7 +184,7 @@ def test_unreachable_is_exit_4():
 
 
 def test_no_wait_prints_task_id(stub):
-    state, base_url = stub
+    _, base_url = stub
     result = _run(["--bot", "chef", "--no-wait", "hello"], base_url)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["task_id"] == "task-1"

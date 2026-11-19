@@ -88,7 +88,9 @@ def default_config_path() -> Path:
     return Path(os.path.expanduser("~/.veya/delivery.json"))
 
 
-def load_delivery_config(path: str | Path | None = None) -> tuple[dict[str, Any] | None, str, str | None]:
+def load_delivery_config(
+    path: str | Path | None = None,
+) -> tuple[dict[str, Any] | None, str, str | None]:
     """Return ``(config, reason, config_sha)``; config None means refuse.
 
     ``reason`` is "" on success and names the refusal otherwise.  The
@@ -130,7 +132,11 @@ def load_delivery_config(path: str | Path | None = None) -> tuple[dict[str, Any]
     if isinstance(timeout_s, bool) or not isinstance(timeout_s, int) or timeout_s <= 0:
         return None, "config check_timeout_s must be a positive integer", config_sha
     rounds = data.get("review_rounds_max", MAX_REVIEW_ROUNDS)
-    if isinstance(rounds, bool) or not isinstance(rounds, int) or not 1 <= rounds <= MAX_REVIEW_ROUNDS:
+    if (
+        isinstance(rounds, bool)
+        or not isinstance(rounds, int)
+        or not 1 <= rounds <= MAX_REVIEW_ROUNDS
+    ):
         return None, f"config review_rounds_max must be 1..{MAX_REVIEW_ROUNDS}", config_sha
     return data, "", config_sha
 
@@ -244,14 +250,18 @@ def git_mergeable(
     worktree = Path(tempfile.mkdtemp(prefix="delivery-merge-"))
     worktree.rmdir()
     try:
-        add = _git(repo, "worktree", "add", "--detach", str(worktree), base, timeout=120, runner=runner)
+        add = _git(
+            repo, "worktree", "add", "--detach", str(worktree), base, timeout=120, runner=runner
+        )
         if add.returncode != 0:
             raise DeliveryRefused(f"git worktree add failed: {_git_text(add).strip()[:200]}")
         merged = _git(worktree, "merge", "--no-commit", "--no-ff", head, timeout=120, runner=runner)
         _git(worktree, "merge", "--abort", timeout=60, runner=runner)
         if merged.returncode == 0:
             return True, ""
-        return False, _git_text(merged).strip().splitlines()[0][:300] if _git_text(merged).strip() else "merge conflict"
+        return False, _git_text(merged).strip().splitlines()[0][:300] if _git_text(
+            merged
+        ).strip() else "merge conflict"
     finally:
         _git(repo, "worktree", "remove", "--force", str(worktree), timeout=60, runner=runner)
         _git(repo, "worktree", "prune", timeout=60, runner=runner)
@@ -260,7 +270,9 @@ def git_mergeable(
 def _worktree_add(repo: Path, head: str, runner: Any = None) -> Path:
     worktree = Path(tempfile.mkdtemp(prefix="delivery-wt-"))
     worktree.rmdir()
-    result = _git(repo, "worktree", "add", "--detach", str(worktree), head, timeout=120, runner=runner)
+    result = _git(
+        repo, "worktree", "add", "--detach", str(worktree), head, timeout=120, runner=runner
+    )
     if result.returncode != 0:
         raise DeliveryRefused(f"git worktree add failed: {_git_text(result).strip()[:200]}")
     return worktree
@@ -340,15 +352,31 @@ async def run_delivery_order(
             config_sha=config_sha,
         )
 
-    repo_dir = Path(repo_path) if repo_path is not None else Path(os.environ.get("VEYA_DELIVERY_REPO_PATH") or "")
+    repo_dir = (
+        Path(repo_path)
+        if repo_path is not None
+        else Path(os.environ.get("VEYA_DELIVERY_REPO_PATH") or "")
+    )
     if not str(repo_dir):
-        return refuse("repo path not configured (VEYA_DELIVERY_REPO_PATH)", subject=subject, config_sha=config_sha)
+        return refuse(
+            "repo path not configured (VEYA_DELIVERY_REPO_PATH)",
+            subject=subject,
+            config_sha=config_sha,
+        )
     if not git_is_repo(repo_dir, runner=git_runner):
-        return refuse(f"repo path is not a git repo: {repo_dir}", subject=subject, config_sha=config_sha)
+        return refuse(
+            f"repo path is not a git repo: {repo_dir}", subject=subject, config_sha=config_sha
+        )
     if not git_ref_exists(repo_dir, "main", runner=git_runner):
-        return refuse("base branch main not present locally", subject=subject, config_sha=config_sha)
+        return refuse(
+            "base branch main not present locally", subject=subject, config_sha=config_sha
+        )
     if not git_head_is_commit(repo_dir, head, runner=git_runner):
-        return refuse(f"head sha not present locally (never fetched): {head}", subject=subject, config_sha=config_sha)
+        return refuse(
+            f"head sha not present locally (never fetched): {head}",
+            subject=subject,
+            config_sha=config_sha,
+        )
 
     try:
         diff = git_diff(repo_dir, "main", head, runner=git_runner)
@@ -464,7 +492,11 @@ async def run_delivery_order(
             pending = []
         for row in pending:
             args = row.get("tool_args") or {}
-            if isinstance(args, dict) and args.get("subject") == subject and args.get("diff_hash") == digest:
+            if (
+                isinstance(args, dict)
+                and args.get("subject") == subject
+                and args.get("diff_hash") == digest
+            ):
                 emit("delivery.card_exists", {**base_result, "approval_id": row.get("request_id")})
                 return {"status": "awaiting_approval", **base_result}
     card_args = {

@@ -7,20 +7,19 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from veya.gsk import get_repo_root
-
 
 _EMPTY_PAYLOAD_HASH = hashlib.sha256(b"").hexdigest()
 
 
-def _canonical(value: Dict[str, Any]) -> str:
+def _canonical(value: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 class EgressReceiptLedger:
-    def __init__(self, path: Optional[Path] = None, event_root: Optional[Path] = None):
+    def __init__(self, path: Path | None = None, event_root: Path | None = None):
         self.root = get_repo_root()
         configured_event_root = os.getenv("VEYA_GSK_EVENT_ROOT", "").strip()
         self.event_root = Path(event_root or configured_event_root or Path.home()).expanduser()
@@ -45,8 +44,8 @@ class EgressReceiptLedger:
         payload_size: int,
         payload_hash: str,
         timestamp: float,
-        metadata: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
         return {
             "destination": destination,
             "payload_type": payload_type,
@@ -61,9 +60,9 @@ class EgressReceiptLedger:
         destination: str,
         payload_type: str,
         payload_size: int,
-        metadata: Optional[Dict[str, Any]] = None,
-        payload_hash: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any] | None = None,
+        payload_hash: str | None = None,
+    ) -> dict[str, Any]:
         previous = self.list_receipts()
         previous_hash = previous[-1].get("entry_hash", "0" * 64) if previous else "0" * 64
         timestamp = time.time()
@@ -77,7 +76,9 @@ class EgressReceiptLedger:
             metadata=resolved_metadata,
         )
         content_hash = hashlib.sha256(_canonical(fields).encode("utf-8")).hexdigest()
-        entry_hash = hashlib.sha256(f"{previous_hash}:{content_hash}:{timestamp}".encode("utf-8")).hexdigest()
+        entry_hash = hashlib.sha256(
+            f"{previous_hash}:{content_hash}:{timestamp}".encode()
+        ).hexdigest()
         record = {
             "prev_hash": previous_hash,
             "content_hash": content_hash,
@@ -99,7 +100,7 @@ class EgressReceiptLedger:
         )
         return record
 
-    def verify(self) -> Dict[str, Any]:
+    def verify(self) -> dict[str, Any]:
         if not self.path.exists():
             try:
                 from veya.remote.execution_events import ExecutionEventType
@@ -111,14 +112,18 @@ class EgressReceiptLedger:
                     and event.payload.get("receipt_path") == str(self.path)
                 ]
                 if anchored:
-                    return {"valid": False, "count": 0, "error": "Receipt ledger file is missing but event anchors exist"}
+                    return {
+                        "valid": False,
+                        "count": 0,
+                        "error": "Receipt ledger file is missing but event anchors exist",
+                    }
             except Exception as exc:
                 return {"valid": False, "count": 0, "error": str(exc)}
             return {"valid": True, "count": 0, "error": None}
 
         count = 0
         expected_previous = "0" * 64
-        records: List[Dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
         try:
             with self.path.open("r", encoding="utf-8") as handle:
                 for line_number, line in enumerate(handle, 1):
@@ -126,30 +131,48 @@ class EgressReceiptLedger:
                         continue
                     data = json.loads(line)
                     if data.get("prev_hash") != expected_previous:
-                        return {"valid": False, "count": count, "error": f"Chain broken at line {line_number}: prev_hash mismatch"}
+                        return {
+                            "valid": False,
+                            "count": count,
+                            "error": f"Chain broken at line {line_number}: prev_hash mismatch",
+                        }
                     fields = self._entry_fields(
                         destination=str(data.get("destination", "")),
                         payload_type=str(data.get("payload_type", "")),
                         payload_size=int(data.get("payload_size", -1)),
                         payload_hash=str(data.get("payload_hash") or _EMPTY_PAYLOAD_HASH),
                         timestamp=float(data.get("timestamp")),
-                        metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+                        metadata=data.get("metadata")
+                        if isinstance(data.get("metadata"), dict)
+                        else {},
                     )
-                    expected_content = hashlib.sha256(_canonical(fields).encode("utf-8")).hexdigest()
+                    expected_content = hashlib.sha256(
+                        _canonical(fields).encode("utf-8")
+                    ).hexdigest()
                     if expected_content != data.get("content_hash"):
-                        return {"valid": False, "count": count, "error": f"Content hash mismatch at line {line_number}"}
+                        return {
+                            "valid": False,
+                            "count": count,
+                            "error": f"Content hash mismatch at line {line_number}",
+                        }
                     expected_entry = hashlib.sha256(
-                        f"{data.get('prev_hash')}:{data.get('content_hash')}:{data.get('timestamp')}".encode("utf-8")
+                        f"{data.get('prev_hash')}:{data.get('content_hash')}:{data.get('timestamp')}".encode()
                     ).hexdigest()
                     if expected_entry != data.get("entry_hash"):
-                        return {"valid": False, "count": count, "error": f"Entry hash mismatch at line {line_number}"}
+                        return {
+                            "valid": False,
+                            "count": count,
+                            "error": f"Entry hash mismatch at line {line_number}",
+                        }
                     expected_previous = str(data.get("entry_hash"))
                     records.append(data)
                     count += 1
 
             from veya.remote.execution_events import ExecutionEventType
 
-            event_path = self.event_root / ".veya" / "execution-events" / "gsk-egress-receipts.jsonl"
+            event_path = (
+                self.event_root / ".veya" / "execution-events" / "gsk-egress-receipts.jsonl"
+            )
             if event_path.exists():
                 anchored_hashes = [
                     event.payload.get("entry_hash")
@@ -159,15 +182,19 @@ class EgressReceiptLedger:
                 ]
                 recorded_hashes = [record.get("entry_hash") for record in records]
                 if anchored_hashes != recorded_hashes:
-                    return {"valid": False, "count": count, "error": "Receipt ledger differs from canonical execution-event anchors"}
+                    return {
+                        "valid": False,
+                        "count": count,
+                        "error": "Receipt ledger differs from canonical execution-event anchors",
+                    }
             return {"valid": True, "count": count, "error": None}
         except Exception as exc:
             return {"valid": False, "count": count, "error": str(exc)}
 
-    def list_receipts(self) -> List[Dict[str, Any]]:
+    def list_receipts(self) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
-        records: List[Dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
         with self.path.open("r", encoding="utf-8") as handle:
             for line in handle:
                 if line.strip():

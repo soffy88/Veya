@@ -163,9 +163,7 @@ class TurnServer:
             len(proc.stderr or ""),
         )
         if proc.returncode != 0:
-            return 200, self._error(
-                request_id, -32603, f"command failed (exit {proc.returncode})"
-            )
+            return 200, self._error(request_id, -32603, f"command failed (exit {proc.returncode})")
         reply = (proc.stdout or "").strip()
         if not reply:
             return 200, self._error(request_id, -32603, "command produced no output")
@@ -199,13 +197,13 @@ def make_handler(server: TurnServer):
             self.end_headers()
             self.wfile.write(body)
 
-        def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler name
+        def do_GET(self) -> None:
             if self.path.endswith("/health"):
                 self._send_json(200, {"status": "ok"})
             else:
                 self._send_json(404, {"error": "not found"})
 
-        def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler name
+        def do_POST(self) -> None:
             try:
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
@@ -258,9 +256,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    turn_server = TurnServer(
-        command=command, cwd=args.cwd, timeout_s=args.timeout, secret=secret
-    )
+    turn_server = TurnServer(command=command, cwd=args.cwd, timeout_s=args.timeout, secret=secret)
     httpd = ThreadingHTTPServer((args.host, args.port), make_handler(turn_server))
     print(
         f"mcp-turn-server on http://{args.host}:{args.port} command={command} "

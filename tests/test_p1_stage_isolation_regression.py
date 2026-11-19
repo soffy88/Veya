@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from urllib.parse import urlparse
-
-import pytest
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -33,10 +30,14 @@ def test_stage_db_isolation():
 
     parsed = urlparse(dsn)
     # Stage host must be isolated (e.g. veya-stage-db)
-    assert parsed.hostname == "veya-stage-db", f"Expected stage DB host 'veya-stage-db', got {parsed.hostname}"
+    assert parsed.hostname == "veya-stage-db", (
+        f"Expected stage DB host 'veya-stage-db', got {parsed.hostname}"
+    )
     # Stage user must NOT be production superuser
     assert parsed.username != "veya_runtime", "Stage must not use prod 'veya_runtime' superuser"
-    assert parsed.username == "veya_stage_user", f"Expected stage user 'veya_stage_user', got {parsed.username}"
+    assert parsed.username == "veya_stage_user", (
+        f"Expected stage user 'veya_stage_user', got {parsed.username}"
+    )
     # Database name
     assert parsed.path.lstrip("/") == "veya_stage"
 

@@ -53,7 +53,7 @@ harness2 的 proposer 通道只有 `opencode`（bun 直调 CLI）和 `claude_cli
 
 ```python
 # harness2 Phase 1: real (model-backed) proposer sessions ... (default OFF)
-FeatureFlag("VEYA_HARNESS2_REAL_PROPOSER", False, "runtime", "2027-01-01"),
+(FeatureFlag("VEYA_HARNESS2_REAL_PROPOSER", False, "runtime", "2027-01-01"),)
 ```
 
 flag 关闭时：

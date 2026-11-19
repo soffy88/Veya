@@ -3,8 +3,8 @@
 
 import json
 import re
-import urllib.request
 import urllib.error
+import urllib.request
 
 TOKEN = "758fe9321611a3f290147b2b3e7edb793a9f9a3ada48b695"
 BASE = "http://127.0.0.1:8799"
@@ -39,10 +39,7 @@ for m, p in sorted(routes_to_test, key=lambda x: x[1]):
     test_path = re.sub(r"\{[^}]*\}", "test-val", test_path)
 
     url = f"{BASE}{test_path}"
-    headers = {
-        "Authorization": f"Bearer {TOKEN}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     data = None
     if m in ("POST", "PUT", "PATCH"):
         data = b"{}"
@@ -65,7 +62,7 @@ for m, p in sorted(routes_to_test, key=lambda x: x[1]):
         "openapi_path": p,
         "test_path": test_path,
         "status": status,
-        "response": resp_body
+        "response": resp_body,
     }
     results.append(record)
 

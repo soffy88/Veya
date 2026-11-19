@@ -35,7 +35,7 @@
 
 ```python
 # dsh-decision-review Phase 0 (default OFF; lazy tool slot only)
-FeatureFlag("VEYA_DSH_DECISION_REVIEW", False, "safety", "2027-06-01"),
+(FeatureFlag("VEYA_DSH_DECISION_REVIEW", False, "safety", "2027-06-01"),)
 ```
 
 `owner=safety` 与第十节给定值一致；`removal_date=2027-06-01` 同。位置在

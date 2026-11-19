@@ -91,7 +91,6 @@ def fake_master(monkeypatch):
 def client(owner_headers):
     app = FastAPI()
     # W11-AUTH: bot routes now require a signed-in user (D2).
-    from server import auth as _w11_auth
     from server.auth import AuthGateMiddleware
 
     app.add_middleware(AuthGateMiddleware)

@@ -31,14 +31,10 @@ def test_normalize_entry_renders_kind_and_until():
         "kind: preference; until: 2099-01-01]"
     )
     # Re-normalising strips the old suffix instead of doubling it.
-    again = normalize_entry(
-        entry, source="part 1 #a1", added="2026-11-02", bot_id="chef"
-    )
+    again = normalize_entry(entry, source="part 1 #a1", added="2026-11-02", bot_id="chef")
     assert again == "prefers tea [source: part 1 #a1; added: 2026-11-02; by: chef]"
     # Legacy entries without kind/until keep their shape.
-    legacy = normalize_entry(
-        "likes tea", source="part 1 #a1", added="2026-10-11", bot_id="chef"
-    )
+    legacy = normalize_entry("likes tea", source="part 1 #a1", added="2026-10-11", bot_id="chef")
     assert legacy == "likes tea [source: part 1 #a1; added: 2026-10-11; by: chef]"
 
 
@@ -70,9 +66,7 @@ def _store(tmp_path) -> LayeredMemoryStore:
 
 def test_append_entry_persists_kind_until_and_refuses_bad_values(tmp_path):
     store = _store(tmp_path)
-    result = store.append_entry(
-        "candidate lead", kind="candidate", until="2099-06-01"
-    )
+    result = store.append_entry("candidate lead", kind="candidate", until="2099-06-01")
     assert result["ok"] is True
     assert "kind: candidate; until: 2099-06-01" in result["entry"]
     assert "kind: candidate" in store.core_text("bot")
@@ -95,9 +89,7 @@ def test_recall_and_search_hide_expired_entries(tmp_path, monkeypatch):
         "kind: candidate; until: 2026-01-02]"
     )
     store._store.write(CORE_FILE, f"{core}{expired}\n")
-    monkeypatch.setattr(
-        "server.bot_team.memory_layers._bound_bot", lambda: "chef"
-    )
+    monkeypatch.setattr("server.bot_team.memory_layers._bound_bot", lambda: "chef")
     monkeypatch.setattr(
         "server.bot_team.memory_layers.LayeredMemoryStore",
         lambda bot_id: store,
@@ -114,9 +106,7 @@ def test_recall_and_search_hide_expired_entries(tmp_path, monkeypatch):
 
 def test_remember_tool_refuses_bad_kind(tmp_path, monkeypatch):
     monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path / "bots-root"))
-    monkeypatch.setattr(
-        "server.bot_team.memory_layers._bound_bot", lambda: "chef"
-    )
+    monkeypatch.setattr("server.bot_team.memory_layers._bound_bot", lambda: "chef")
     outcome = json.loads(remember("x", kind="rumour"))
     assert outcome["ok"] is False
     assert "unknown memory kind" in outcome["error"]

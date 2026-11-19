@@ -59,7 +59,9 @@ def validate_weixin_https_url(raw: str) -> str:
         parsed.scheme != "https"
         or parsed.username
         or parsed.password
-        or not (parsed.hostname == "weixin.qq.com" or (parsed.hostname or "").endswith(".weixin.qq.com"))
+        or not (
+            parsed.hostname == "weixin.qq.com" or (parsed.hostname or "").endswith(".weixin.qq.com")
+        )
     ):
         raise WechatIlinkError("BAD_URL", "not a weixin.qq.com HTTPS URL")
     return raw
@@ -111,7 +113,9 @@ class WechatIlinkClient:
             headers["Authorization"] = f"Bearer {self.bot_token}"
         return headers
 
-    async def _post(self, path: str, payload: dict[str, Any], *, with_token: bool = False) -> dict[str, Any]:
+    async def _post(
+        self, path: str, payload: dict[str, Any], *, with_token: bool = False
+    ) -> dict[str, Any]:
         try:
             resp = await self._http.post(
                 self.base_url + path,
@@ -150,8 +154,12 @@ class WechatIlinkClient:
             if not isinstance(token, str) or not token:
                 raise WechatIlinkError("BAD_RESPONSE", "confirmed without bot_token")
             self.bot_token = token
-            self.ilink_bot_id = data.get("ilink_bot_id") if isinstance(data.get("ilink_bot_id"), str) else None
-            self.ilink_user_id = data.get("ilink_user_id") if isinstance(data.get("ilink_user_id"), str) else None
+            self.ilink_bot_id = (
+                data.get("ilink_bot_id") if isinstance(data.get("ilink_bot_id"), str) else None
+            )
+            self.ilink_user_id = (
+                data.get("ilink_user_id") if isinstance(data.get("ilink_user_id"), str) else None
+            )
         return {"status": status}
 
     def _require_session(self) -> None:
@@ -174,9 +182,7 @@ class WechatIlinkClient:
         self._require_session()
         if not to or not text:
             raise WechatIlinkError("BAD_REQUEST", "send needs a target and text")
-        return await self._post(
-            "/api/messages/send", {"to": to, "text": text}, with_token=True
-        )
+        return await self._post("/api/messages/send", {"to": to, "text": text}, with_token=True)
 
 
 __all__ = [

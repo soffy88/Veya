@@ -269,7 +269,7 @@ async def fetch_url_text(
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         resp = await client.get(url, headers={"User-Agent": user_agent})
         resp.raise_for_status()
-        return resp.text
+        return str(resp.text)
 
 
 async def fetch_github_readme(repo: str, timeout: float = 10.0) -> str:

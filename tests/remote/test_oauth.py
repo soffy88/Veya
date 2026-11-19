@@ -272,7 +272,11 @@ def test_consent_works_with_a_real_uuid_user_id(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         oauth,
         "authenticate",
-        lambda username, password: {"user_id": real_user_id, "username": username, "is_owner": True},
+        lambda username, password: {
+            "user_id": real_user_id,
+            "username": username,
+            "is_owner": True,
+        },
     )
     monkeypatch.delenv("VEYA_REMOTE_OAUTH_TOKEN_ID", raising=False)
 
