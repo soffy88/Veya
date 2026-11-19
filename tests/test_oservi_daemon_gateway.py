@@ -259,7 +259,7 @@ async def test_agent_loop_gate_blocks_and_releases():
 
 
 @pytest.fixture
-async def gateway_client():
+async def gateway_client(owner_headers):
     import httpx
 
     from server.app import app
@@ -275,7 +275,9 @@ async def gateway_client():
     )
     gateway_engine(engine)
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://localhost", headers=owner_headers
+    ) as c:
         yield c
     await engine.shutdown()
 
