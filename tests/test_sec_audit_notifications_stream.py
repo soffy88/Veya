@@ -86,10 +86,14 @@ def test_notifications_stream_bearer_allowed(
     app: FastAPI, member_token: str, finite_stream
 ) -> None:
     client = TestClient(app)
-    resp = client.get("/api/v1/notifications/stream", headers={"Authorization": f"Bearer {member_token}"})
+    resp = client.get(
+        "/api/v1/notifications/stream", headers={"Authorization": f"Bearer {member_token}"}
+    )
     assert resp.status_code == 200
 
 
 def test_approve_endpoint_requires_auth(app: FastAPI) -> None:
     client = TestClient(app)
-    assert client.post("/api/v1/notifications/x/approve", json={"approved": True}).status_code == 401
+    assert (
+        client.post("/api/v1/notifications/x/approve", json={"approved": True}).status_code == 401
+    )

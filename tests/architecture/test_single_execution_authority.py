@@ -142,11 +142,17 @@ def test_backend_run_does_not_expose_spawning_registration_over_http(owner_heade
         assert "worker.dispatch" in r.json()["detail"]
 
     # Non-spawning kinds still work, so the registry keeps its read/use surface.
-    r = client.post("/api/v1/backends/register", json={"name": "facade-builtin", "kind": "builtin"}, headers=owner_headers)
+    r = client.post(
+        "/api/v1/backends/register",
+        json={"name": "facade-builtin", "kind": "builtin"},
+        headers=owner_headers,
+    )
     assert r.status_code == 200 and r.json()["status"] == "registered"
 
     # An unknown kind is still rejected for its own reason.
-    r = client.post("/api/v1/backends/register", json={"name": "bad", "kind": "nope"}, headers=owner_headers)
+    r = client.post(
+        "/api/v1/backends/register", json={"name": "bad", "kind": "nope"}, headers=owner_headers
+    )
     assert r.status_code == 400
 
 
