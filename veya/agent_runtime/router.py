@@ -10,8 +10,8 @@ Bridges incoming AgentTriggers to Missions:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import time
-import uuid
 from pathlib import Path
 
 from veya.channel.store import ChannelStore
@@ -73,8 +73,10 @@ class MissionTriggerRouter:
             else:
                 routing_reason = MissionRoutingReason.CONTINUE_MISSION
         else:
-            # Create a new Mission
-            mission_id = f"m_{uuid.uuid4().hex[:12]}"
+            # Derive the mission identity from the trigger so a crash after the
+            # mission commit but before the routing-record commit cannot create
+            # a second mission when the same trigger is reclaimed.
+            mission_id = f"m_{hashlib.sha256(trigger.trigger_id.encode('utf-8')).hexdigest()[:12]}"
             goal = (
                 trigger.payload.get("goal")
                 or trigger.payload.get("prompt")
@@ -84,16 +86,17 @@ class MissionTriggerRouter:
             constraints = [str(c) for c in trigger.payload.get("constraints") or []]
             acceptance_criteria = [str(a) for a in trigger.payload.get("acceptance_criteria") or []]
 
-            mission = Mission(
-                mission_id=mission_id,
-                goal=str(goal),
-                channel_id=trigger.channel_id,
-                workspace=workspace,
-                constraints=constraints,
-                acceptance_criteria=acceptance_criteria,
-                status=MissionStatus.created,
-            )
-            self.mission_store.save(mission)
+            if self.mission_store.load(mission_id) is None:
+                mission = Mission(
+                    mission_id=mission_id,
+                    goal=str(goal),
+                    channel_id=trigger.channel_id,
+                    workspace=workspace,
+                    constraints=constraints,
+                    acceptance_criteria=acceptance_criteria,
+                    status=MissionStatus.created,
+                )
+                self.mission_store.save(mission)
 
             # Ensure channel link
             with contextlib.suppress(Exception):

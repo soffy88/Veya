@@ -287,6 +287,13 @@ def test_pq_e_trigger_boundary_crash_matrix(test_env: Path):
     assert m_id_replay == m_id
     assert len(m_store.list()) == 1
 
+    # Boundary: mission committed, routing record not yet committed.  A crash
+    # here must not create a second mission when the trigger is reclaimed.
+    router.store.routing_file.unlink()
+    m_id_crash_replay, _ = router.route_trigger(t1)
+    assert m_id_crash_replay == m_id
+    assert len(m_store.list()) == 1
+
 
 # --- PQ-F: Real Webhook HTTP Ingestion & Deduplication ---
 def test_pq_f_real_webhook_http(test_env: Path):
