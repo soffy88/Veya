@@ -33,14 +33,19 @@ def test_profiles_are_explicit_and_do_not_mount_secrets():
 def test_command_parser_rejects_shell_escape_and_runner_captures_redacted_artifact(tmp_path: Path):
     root = tmp_path / "worktree"
     root.mkdir()
-    with_error = ["echo ok && touch outside", "bash -lc 'echo bypass'", "echo hi > file"]
-    for command in with_error:
-        try:
+    # LOCAL2-U3/U4: the parser deliberately normalises compound commands to a
+    # bash argv so the *permission engine* grades the inner script. Refusing
+    # them here would duplicate (and contradict) that authority. What must be
+    # refused outright are bare interactive shells that would wait on stdin.
+    for command, script in (
+        ("echo ok && touch outside", "echo ok && touch outside"),
+        ("bash -lc 'echo bypass'", "echo bypass"),
+        ("echo hi > file", "echo hi > file"),
+    ):
+        assert parse_command(command) == ["/bin/bash", "-lc", script]
+    for command in ("bash", "zsh", "sh -l"):
+        with pytest.raises(CommandPolicyError):
             parse_command(command)
-        except CommandPolicyError:
-            pass
-        else:
-            raise AssertionError(f"unsafe command accepted: {command}")
 
     runner = CommandRunner(
         root, profile="local_restricted", artifact_root=root / ".veya" / "outputs"

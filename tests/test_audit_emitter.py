@@ -280,14 +280,15 @@ def test_audit_route_replay(tmp_path, monkeypatch):
 
     monkeypatch.setattr(auth_mod, "_DB_PATH", tmp_path / "auth.db")
     auth_mod._init_db()  # monkeypatch 换库后需手动建表
+    # The owner_headers fixture issues its token against conftest's temp DB;
+    # this test swaps the DB afterward, so issue a fresh owner token here.
+    test_user = auth_mod.create_user("route-test-owner", "a-very-long-password", is_owner=True)
+    local_headers = {"Authorization": f"Bearer {auth_mod.issue_token(test_user['user_id'])}"}
 
     c = TestClient(app)
-    reg = c.post("/api/v1/auth/register", json={"username": "audit_test", "password": "secret123"})
-    assert reg.status_code == 200, reg.text
-    token = reg.json()["token"]
-    hdr = {"Authorization": f"Bearer {token}"}
-
-    r = c.get(f"/audit/{trace_id}", headers=hdr)
+    # SEC H1 + public-signup gate: use an owner token on the test-local DB,
+    # not the anonymous signup route (which is intentionally closed by default).
+    r = c.get(f"/audit/{trace_id}", headers=local_headers)
     assert r.status_code == 200
     body = r.json()
     assert body["trace_id"] == trace_id
@@ -301,9 +302,9 @@ def test_audit_route_replay(tmp_path, monkeypatch):
     assert body["events"][0]["inputs"]["cpd_version"] == 1
     assert body["events"][2]["execution"]["capability_nonce"] == "cap-route"
 
-    r2 = c.get("/audit/traces", headers=hdr)
+    r2 = c.get("/audit/traces", headers=local_headers)
     assert r2.status_code == 200
     assert any(t["trace_id"] == trace_id for t in r2.json()["traces"])
 
-    r3 = c.get("/audit/ghost-trace", headers=hdr)
+    r3 = c.get("/audit/ghost-trace", headers=local_headers)
     assert r3.status_code == 404

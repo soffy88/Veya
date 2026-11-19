@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -93,8 +93,20 @@ async def test_reported_status_is_the_goalrun_verdict(tmp_path: Path, mock_runti
     manager = _manager(tmp_path, mock_runtime_available)
     workspace = _bot(manager, "bot-final", tmp_path)
 
-    # The command cannot execute: the GoalRun authority must decide "failed".
-    result = await manager.submit_goal("bot-final", "this-binary-does-not-exist-c2xyz")
+    # Make the substrate fail explicitly. A natural-language objective is not a
+    # shell command on the canonical CLI-worker substrate, so it can succeed as
+    # a plain agent turn; only an actual process failure must yield "failed".
+    command = "exit 97"
+    with patch("veya.remote._proc.spawn_process", new_callable=AsyncMock) as spawn:
+        proc = spawn.return_value
+        proc.communicate = AsyncMock(return_value=(b"", b"deliberate failure"))
+        proc.returncode = 97
+        proc.pid = 1
+        stdout = AsyncMock()
+        stdout.readline.side_effect = [b"", b""]
+        proc.stdout = stdout
+        proc.stderr = stdout
+        result = await manager.submit_goal("bot-final", command)
 
     state = load_goal_run(str(workspace), result.goal_id)
     assert state is not None

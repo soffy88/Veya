@@ -254,7 +254,7 @@ async def test_board_card_uses_persisted_goalrun_authority(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_board_api_flow(tmp_path, monkeypatch):
+async def test_board_api_flow(tmp_path, monkeypatch, owner_headers):
     from server import board as board_mod
 
     store = BoardStore(tmp_path / "boards.json")
@@ -277,7 +277,7 @@ async def test_board_api_flow(tmp_path, monkeypatch):
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True)
 
-    client = TestClient(__import__("server.app", fromlist=["app"]).app)
+    client = TestClient(__import__("server.app", fromlist=["app"]).app, headers=owner_headers)
 
     r = client.post("/api/v1/board", json={"action": "create", "name": "b1", "repo": str(repo)})
     assert r.status_code == 200 and r.json()["status"] == "created"
@@ -320,10 +320,10 @@ async def test_board_api_flow(tmp_path, monkeypatch):
     assert any(b["name"] == "b1" for b in r.json()["boards"])
 
 
-def test_board_api_unknown_action():
+def test_board_api_unknown_action(owner_headers):
     from fastapi.testclient import TestClient
 
     from server.app import app
 
-    r = TestClient(app).post("/api/v1/board", json={"action": "nonsense"})
+    r = TestClient(app, headers=owner_headers).post("/api/v1/board", json={"action": "nonsense"})
     assert r.status_code == 422

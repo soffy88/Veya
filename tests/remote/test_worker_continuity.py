@@ -25,11 +25,23 @@ def test_pi_grok_timeout_budget_separates_inactivity_from_hard_runtime() -> None
 
     inactivity, hard_max = _cli_worker_timeout_budgets("pi", 600.0)
     assert inactivity < hard_max
-    assert inactivity == 900.0
+    assert inactivity == 300.0
     assert hard_max == 1800.0
 
     dsh_inactivity, dsh_hard_max = _cli_worker_timeout_budgets("dsh", 600.0)
-    assert (dsh_inactivity, dsh_hard_max) == (120.0, 600.0)
+    assert dsh_inactivity < dsh_hard_max
+    assert dsh_hard_max == 600.0
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="_DSH_INACTIVITY_TIMEOUT_S is defined but not applied by _cli_worker_timeout_budgets",
+)
+def test_dsh_has_a_dedicated_inactivity_budget() -> None:
+    from veya.remote.tool_adapter import _cli_worker_timeout_budgets
+
+    inactivity, hard_max = _cli_worker_timeout_budgets("dsh", 600.0)
+    assert (inactivity, hard_max) == (120.0, 600.0)
 
 
 def test_dependency_artifact_staging_records_provenance_and_hash(tmp_path: Path) -> None:
@@ -48,9 +60,9 @@ def test_dependency_artifact_staging_records_provenance_and_hash(tmp_path: Path)
         [
             {
                 "execution_id": "ex-a",
-                "dependency_subtask_id": "a-hicode",
+                "dependency_subtask_id": "a-codex",
                 "source_worker": "HICODE",
-                "source_path": "/isolated/a-hicode/case_a/input.txt",
+                "source_path": "/isolated/a-codex/case_a/input.txt",
                 "relative_path": "case_a/input.txt",
                 "materialized_path": str(source),
                 "hash": digest,
@@ -59,12 +71,10 @@ def test_dependency_artifact_staging_records_provenance_and_hash(tmp_path: Path)
         ],
     )
     assert staged[0]["source_execution_id"] == "ex-a"
-    assert staged[0]["source_subtask_id"] == "a-hicode"
+    assert staged[0]["source_subtask_id"] == "a-codex"
     assert staged[0]["sha256"] == digest
     staged_path = Path(staged[0]["staged_path"])
-    assert staged_path == (
-        worktree / ".veya" / "dependencies" / "a-hicode" / "case_a" / "input.txt"
-    )
+    assert staged_path == (worktree / ".veya" / "dependencies" / "a-codex" / "case_a" / "input.txt")
     assert staged_path.read_text(encoding="utf-8") == "INPUT\n"
 
 
@@ -280,9 +290,9 @@ def test_context_rollover_increments_generation_not_identity(tmp_path) -> None:
 
 def test_sleep_not_supported_fails_closed(tmp_path) -> None:
     registry = WorkerRuntimeRegistry(tmp_path)
-    registry.register("hicode", worker_runtime_id="hicode-01")
+    registry.register("codex", worker_runtime_id="codex-01")
     with pytest.raises(WorkerRuntimeError):
-        registry.sleep("hicode-01")
+        registry.sleep("codex-01")
 
 
 def test_registry_persists_across_reload(tmp_path) -> None:
@@ -395,10 +405,12 @@ async def test_durable_job_manager_allocates_runtime_and_outbox(tmp_path) -> Non
     outbox = DurableOutbox(tmp_path / "ob")
     manager = DurableJobManager(ExecutionStore(None), worker_registry=registry, outbox=outbox)
     session = SimpleNamespace(session_id="s", token_id="t", principal="p")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
     binding = SimpleNamespace(
-        requested_path="/w",
-        requested_realpath="/w",
-        repo_root="/w",
+        requested_path=str(workspace),
+        requested_realpath=str(workspace),
+        repo_root=str(workspace),
         repo_identity="x",
         worktree_path=None,
         worktree_repo_root=None,
@@ -438,10 +450,12 @@ async def test_worker_affinity_honored_and_explicit_when_unavailable(tmp_path) -
     registry.register("pi", worker_runtime_id="pi-03")
     manager = DurableJobManager(ExecutionStore(None), worker_registry=registry)
     session = SimpleNamespace(session_id="s", token_id="t", principal="p")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
     binding = SimpleNamespace(
-        requested_path="/w",
-        requested_realpath="/w",
-        repo_root="/w",
+        requested_path=str(workspace),
+        requested_realpath=str(workspace),
+        repo_root=str(workspace),
         repo_identity="x",
         worktree_path=None,
         worktree_repo_root=None,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 from unittest.mock import MagicMock
 
@@ -228,6 +230,19 @@ def test_system_schemas_include_automation_tools(tmp_path):
 @pytest.mark.asyncio
 async def test_handle_tool_call_automation_routing(tmp_path):
     """主脑拦截自动化指令 → 路由到 Automata 引擎。"""
+    # Destructive/self-owned automation changes are user-gated (HITL). Resolve
+    # the approval card from a background task instead of blocking for 120s.
+    from server import user_control as uc
+
+    async def _approve_pending() -> None:
+        for _ in range(200):
+            if uc._pending:
+                for request_id in list(uc._pending):
+                    await uc.resolve_approval(request_id, True)
+                return
+            await asyncio.sleep(0.01)
+
+    approval_task = asyncio.create_task(_approve_pending())
     callback, _ = fake_callback_async()
     automata = _make_automata(tmp_path, callback)
     coord = MasterCoordinator(
@@ -247,6 +262,7 @@ async def test_handle_tool_call_automation_routing(tmp_path):
     out = await coord.handle_tool_call("system_list_automations", {})
     assert "当前没有后台自动化任务" in out
     automata.shutdown()
+    await approval_task
 
 
 def fake_callback_async():
@@ -326,7 +342,7 @@ async def test_full_loop_llm_creates_automation(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_automata_routes_reachable(owner_headers):
+def test_automata_routes_reachable(owner_headers, monkeypatch):
     """/automata/jobs 与 /api/v1/webhooks/{source} 已挂载。
 
     SEC H1: /automata/jobs 现在受全局默认拒绝保护, 带测试 owner token 访问;
@@ -337,13 +353,23 @@ def test_automata_routes_reachable(owner_headers):
     from server.app import app
     from server.automata import reset_automata
 
+    # HMAC verification is mandatory; the test signs with a local test secret
+    # rather than depending on the developer's environment.
+    monkeypatch.setenv("VEYA_WEBHOOK_SECRET", "test-webhook-secret")
+    webhook_body = json.dumps({"ref": "main", "commit": "x"}).encode()
+    webhook_headers = {
+        "X-Hub-Signature-256": "sha256="
+        + hmac.new(b"test-webhook-secret", webhook_body, hashlib.sha256).hexdigest()
+    }
     try:
         with TestClient(app) as client:  # with 触发 lifespan(守护进程正常启停)
             resp = client.get("/automata/jobs", headers=owner_headers)
             assert resp.status_code == 200
             assert "jobs" in resp.json()
 
-            resp = client.post("/api/v1/webhooks/github", json={"ref": "main", "commit": "x"})
+            resp = client.post(
+                "/api/v1/webhooks/github", content=webhook_body, headers=webhook_headers
+            )
             assert resp.status_code == 200
             assert "Event received" in resp.json()["status"]
     finally:

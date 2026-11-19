@@ -80,12 +80,6 @@ def manager(
     return BotManager(bot_registry, definition_store)
 
 
-from veya.remote.executor_adapters import register_default_adapters
-
-@pytest.fixture(autouse=True)
-def auto_register_adapters():
-    register_default_adapters()
-
 class TestBotRuntime:
     """L0-3: Independent Bot entry. L0-4: Tool execution."""
 
@@ -121,7 +115,9 @@ class TestBotRuntime:
         )
 
         assert result.bot_id == "test-bot-submit"
-        assert result.status in ("success", "failed")
+        # C2.3: the public status is the canonical GoalRun verdict, not the
+        # pre-C2 "success"/"failed" vocabulary.
+        assert result.status in ("completed", "failed", "paused")
         assert result.instance_id != ""
 
     @pytest.mark.asyncio

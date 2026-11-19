@@ -32,12 +32,12 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = [pytest.mark.external, pytest.mark.asyncio]
-
 from veya.remote.executor_health import ExecutorFailureClass, ExecutorHealthRegistry
 from veya.remote.models import RemotePermissions, RemoteSession
 from veya.remote.tool_adapter import RemoteToolAdapter
 from veya.supervision.executor_reselect import ExecutorReselectionRequest, reselect_executor
+
+pytestmark = [pytest.mark.external, pytest.mark.asyncio]
 
 MISSION = "m-p4"
 TASK = "t-p4"
@@ -72,6 +72,7 @@ def setup_repo() -> None:
 
 @pytest.mark.asyncio
 async def test_p4_real_failover_to_real_worker_to_verifier_to_goalrun_complete(tmp_path):
+    _require_opencode_dir_flag()
     repo = Path(tmp_path) / "repo"
     _setup_repo(repo)
 
@@ -203,6 +204,32 @@ async def test_p4_real_failover_to_real_worker_to_verifier_to_goalrun_complete(t
 async def _tick() -> None:
     """Keep the event loop turning between terminal-state polls."""
     await asyncio.sleep(0)
+
+
+def _require_opencode_dir_flag() -> None:
+    """This qualification's harness argv requires the qualified OpenCode CLI."""
+    binary = shutil.which("opencode")
+    if not binary:
+        pytest.skip("requires the qualified opencode CLI (binary not installed)")
+    help_result = subprocess.run(
+        [binary, "run", "--help"],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    if help_result.returncode != 0 or "--dir" not in help_result.stdout:
+        version = subprocess.run(
+            [binary, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        ).stdout.strip()
+        pytest.skip(
+            "requires a qualified OpenCode CLI supporting `run --dir`; "
+            f"installed version is {version or 'unknown'}"
+        )
 
 
 def _setup_repo(repo: Path) -> None:

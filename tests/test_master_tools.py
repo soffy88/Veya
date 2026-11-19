@@ -95,7 +95,22 @@ def test_side_effect_pure_read_matches_parallel_safe_whitelist():
         and spec.side_effect is SideEffect.PURE_READ
     }
     assert annotated_pure_read, "至少应该有一批工具标了 PURE_READ, 空集说明标注丢了"
-    assert annotated_pure_read.issubset(_PARALLEL_SAFE_TOOLS_MODULE)
+    # Later read-only capabilities (lazy tool discovery, channel/skill readers,
+    # delegation status, read-only browser/tailnet probes) were added after the
+    # rfc-06 concurrency whitelist; they are annotated PURE_READ but do not
+    # silently join a parallel batch. Pin that boundary explicitly instead of
+    # treating a documentation annotation as a concurrency grant.
+    added_after_rfc06 = {
+        "search_tools",
+        "read_browser",
+        "read_channel",
+        "read_skill",
+        "list_bots",
+        "delegation_status",
+        "coding_git_verify",
+        "tailnet_request_status",
+    }
+    assert annotated_pure_read - _PARALLEL_SAFE_TOOLS_MODULE == added_after_rfc06
 
 
 @pytest.mark.asyncio
@@ -136,7 +151,7 @@ async def test_registry_errors():
     with pytest.raises(ValueError, match="properties"):
         reg.register("bad", "d", {"type": "object"}, _f)
 
-    with pytest.raises(ToolExecutionError, match="not found"):
+    with pytest.raises(ToolExecutionError, match="not a registered tool"):
         await reg.execute("nope", {})
 
     reg.register("boom", "d", {"type": "object", "properties": {}}, lambda: 1 / 0)
@@ -307,9 +322,10 @@ def test_system_prompt_includes_dynamic_tool_inventory():
     coord = MasterCoordinator()
     prompt = coord.get_system_prompt()
     assert "# AVAILABLE TOOLS" in prompt
-    assert "- browser_run —" in prompt
-    assert "- delegate_to_genesis —" in prompt
-    assert "- read_file_ast —" in prompt
+    # Frozen mainline: the default prompt carries a compact name-only catalog
+    # plus `search_tools` for on-demand schemas, not per-tool descriptions.
+    for name in ("browser_run", "delegate_to_genesis", "read_file_ast", "search_tools"):
+        assert f"`{name}`" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +467,9 @@ async def test_chat_stream_hitl_after_max_rounds():
     coord = MasterCoordinator(llm_fn=looping_llm, max_rounds=2)
     result = await coord.chat_stream("循环任务", session_id="m4")
     assert result["status"] == "no_progress_detected"
-    assert "repeated" in (result.get("error") or "") or "list_files" in result.get("final_answer", "")
+    assert "repeated" in (result.get("error") or "") or "list_files" in result.get(
+        "final_answer", ""
+    )
 
 
 @pytest.mark.asyncio
@@ -468,15 +486,16 @@ async def test_chat_stream_user_api_key_isolated():
 
 
 @pytest.mark.asyncio
-async def test_master_router_endpoints_reachable():
+async def test_master_router_endpoints_reachable(owner_headers):
     """主脑路由已挂载: /master/tools 真实可访问。"""
     import httpx
 
     from server.app import app
 
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/master/tools")
+    # TrustedHostMiddleware (SEC H1) rejects the http://test default host.
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+        resp = await client.get("/master/tools", headers=owner_headers)
     assert resp.status_code == 200
     tools = resp.json()["tools"]
     names = {t["name"] for t in tools}

@@ -462,10 +462,11 @@ async def test_master_routes_to_skill_hub(tmp_path):
 
 
 def test_master_inventory_includes_skills(tmp_path):
-    """②-A dispatcher: 技能不再逐条进系统提示 (精简意图), 只保留 system_reload_skills。"""
+    """Lazy discovery keeps individual skills out of the system prompt."""
     _write_skill(tmp_path, "greeter", code="def main(x):\n    return x\n")
     hub = VeyaSkillHub(skills_dir=tmp_path)
     coord = MasterCoordinator(skill_hub=hub)
     prompt = coord.get_system_prompt()
     assert "- greeter —" not in prompt  # dispatcher: 技能不进 system 提示
-    assert "- system_reload_skills —" in prompt
+    assert "search_tools" in prompt
+    assert coord._raw_get_all_tool_schemas()

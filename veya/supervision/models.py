@@ -388,6 +388,7 @@ class ExecutionReport:
             deviations=list(data.get("deviations") or []),
             blocked_items=list(data.get("blocked_items") or []),
             jev_decisions=list(data.get("jev_decisions") or []),
+            evidence_chain=list(data.get("evidence_chain") or []),
             executor_summary=str(data.get("executor_summary", "")),
             proposed_next_action=data.get("proposed_next_action"),
             created_at=float(data.get("created_at", time.time())),

@@ -25,6 +25,7 @@ from server.bot_team.tool import (
     message_bot,
     register_tools,
 )
+from server.bot_team.turns import PEER_MATERIALS_TEXT
 from server.events import EventStore
 from server.goal_run.bot_identity import (
     BotRegistry,
@@ -172,10 +173,11 @@ async def test_the_tool_speaks_as_the_bot_of_the_running_turn(lorca_env, fake_ma
     # The target ran one real turn, bound to the target bot.
     assert len(fake_master) == 1
     assert fake_master[0].constraints.metadata["bot_id"] == "beta"
+    assert "summarise this" in fake_master[0].objective
 
     store = ConversationStore(lorca_env["root"])
     assert [item["text"] for item in store.list("alpha")] == ["say:beta"]
-    assert [item["text"] for item in store.list("beta")] == ["summarise this", "say:beta"]
+    assert [item["text"] for item in store.list("beta")] == [PEER_MATERIALS_TEXT, "say:beta"]
 
 
 @pytest.mark.asyncio

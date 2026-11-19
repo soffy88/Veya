@@ -97,6 +97,18 @@ def test_verification_fail_replans_then_pass_is_only_completion(tmp_path):
     assert run.apply_verification("PASS", evidence={"test": "green"}) == "completed"
 
 
+@pytest.mark.parametrize("outcome", ["INSUFFICIENT", "AMBIGUOUS"])
+def test_inconclusive_verdict_replans_instead_of_crashing(tmp_path, outcome):
+    """VerificationVerdict emits more than PASS/FAIL; inconclusive is not success."""
+    run = harness(tmp_path)
+    assert run.apply_verification(outcome, evidence={"bundle": "abc"}) == "recovering"
+    assert run.state.status != "completed"
+    assert run.state.failure_evidence[-1] == {
+        "verification": outcome,
+        "evidence": {"bundle": "abc"},
+    }
+
+
 def test_accelerated_30_minute_synthetic_run_has_bounded_state(tmp_path):
     run = harness(tmp_path, max_wall_s=1800, max_tool_calls=240, max_replans=20)
     for index in range(180):

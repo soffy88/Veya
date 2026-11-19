@@ -353,7 +353,8 @@ def test_no_raw_model_business_dependency():
         )
         and "worktrees" not in str(p)
         and "site-packages" not in str(p)
-        and not str(p).startswith("venv") and not str(p.relative_to(REPO)).startswith("veya/remote")
+        and not str(p).startswith("venv")
+        and not str(p.relative_to(REPO)).startswith("veya/remote")
     ]
     assert scan_targets, "no first-party python files discovered to scan"
 
@@ -460,10 +461,19 @@ def test_no_silent_model_substitution():
             "router": {"route": "veya-free-rr", "provider": "opencode-go", "model": "m"},
         }
 
+    async def fake_master_call(messages, kwargs):
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "frontier answer"}}],
+            "usage": {},
+            "router": {"route": "frontier_fallback", "provider": "", "model": ""},
+        }
+
     import veya.obase.llm as llm_mod
 
-    original = llm_mod._veya12_free_call
+    original_free = llm_mod._veya12_free_call
+    original_master = llm_mod._veya12_flash_call
     llm_mod._veya12_free_call = fake_pool_call
+    llm_mod._veya12_flash_call = fake_master_call
     try:
         for alias, canonical, expect_dep in (
             ("veya1.2-free", "veya-free", True),
@@ -490,7 +500,8 @@ def test_no_silent_model_substitution():
             else:
                 assert "DEPRECATION" not in router
     finally:
-        llm_mod._veya12_free_call = original
+        llm_mod._veya12_free_call = original_free
+        llm_mod._veya12_flash_call = original_master
 
 
 def test_no_silent_provider_fallback():

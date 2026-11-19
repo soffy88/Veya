@@ -231,7 +231,7 @@ async def test_router_complexity_heuristic():
 
 
 @pytest.mark.asyncio
-async def test_autonomous_route_full_flow(tmp_path, monkeypatch):
+async def test_autonomous_route_full_flow(tmp_path, monkeypatch, owner_headers):
     """/api/v1/autonomous/run 全链路: 安全→状态机→路由→持久化。"""
     from fastapi.testclient import TestClient
 
@@ -261,7 +261,7 @@ async def test_autonomous_route_full_flow(tmp_path, monkeypatch):
         economy_model="e",
     )
 
-    client = TestClient(app)
+    client = TestClient(app, headers=owner_headers)
     resp = client.post(
         "/api/v1/autonomous/run",
         json={
@@ -283,14 +283,14 @@ async def test_autonomous_route_full_flow(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_autonomous_route_blocks_injection(tmp_path, monkeypatch):
+async def test_autonomous_route_blocks_injection(tmp_path, monkeypatch, owner_headers):
     from fastapi.testclient import TestClient
 
     from server.app import app
     from server.routes import resilient
 
     resilient.task_manager = VeyaTaskManager(db_path=str(tmp_path / "tasks.db"))
-    client = TestClient(app)
+    client = TestClient(app, headers=owner_headers)
     resp = client.post(
         "/api/v1/autonomous/run",
         json={

@@ -33,12 +33,12 @@ def bots_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def client(bots_dir):
+def client(bots_dir, owner_headers):
     from server import auth as _auth
     from server.app import app
 
     app.dependency_overrides[_auth.require_user] = lambda: {"user_id": "test-user"}
-    with TestClient(app, raise_server_exceptions=True) as c:
+    with TestClient(app, headers=owner_headers, raise_server_exceptions=True) as c:
         yield c
     app.dependency_overrides.pop(_auth.require_user, None)
 

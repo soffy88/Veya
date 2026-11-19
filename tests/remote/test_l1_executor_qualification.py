@@ -153,6 +153,19 @@ def test_registry_record_holds_no_credential_or_handle(registry) -> None:
         payload = identity.to_dict()
         for key in payload:
             lowered = key.lower()
+            # Boolean evidence flags report *whether* a credential was probed;
+            # they carry no credential material or live handle.
+            if lowered in ("credential_valid", "credential_present", "credential_proven"):
+                assert payload[key] is None or isinstance(payload[key], bool)
+                continue
+            if lowered == "credential_evidence":
+                # Evidence is a non-secret enum (UNPROBED, STRUCTURAL_REFUTED, ...).
+                assert isinstance(payload[key], str)
+                assert not any(
+                    token in payload[key].lower()
+                    for token in ("key", "token", "secret", "password")
+                )
+                continue
             assert not any(
                 token in lowered
                 for token in (

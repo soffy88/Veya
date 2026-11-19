@@ -125,7 +125,7 @@ async def test_backend_run_requires_registry_admission(monkeypatch):
     assert "opencode" in result["admitted_executors"]
 
 
-def test_backend_run_does_not_expose_spawning_registration_over_http():
+def test_backend_run_does_not_expose_spawning_registration_over_http(owner_headers):
     """A caller may not choose a spawned executable through the HTTP registry."""
 
     from fastapi.testclient import TestClient
@@ -136,16 +136,23 @@ def test_backend_run_does_not_expose_spawning_registration_over_http():
         r = client.post(
             "/api/v1/backends/register",
             json={"name": f"evil-{kind}", "kind": kind, "command": ["/bin/sh", "-c", "id"]},
+            headers=owner_headers,
         )
         assert r.status_code == 400, f"kind={kind} must not be HTTP-registrable"
         assert "worker.dispatch" in r.json()["detail"]
 
     # Non-spawning kinds still work, so the registry keeps its read/use surface.
-    r = client.post("/api/v1/backends/register", json={"name": "facade-builtin", "kind": "builtin"})
+    r = client.post(
+        "/api/v1/backends/register",
+        json={"name": "facade-builtin", "kind": "builtin"},
+        headers=owner_headers,
+    )
     assert r.status_code == 200 and r.json()["status"] == "registered"
 
     # An unknown kind is still rejected for its own reason.
-    r = client.post("/api/v1/backends/register", json={"name": "bad", "kind": "nope"})
+    r = client.post(
+        "/api/v1/backends/register", json={"name": "bad", "kind": "nope"}, headers=owner_headers
+    )
     assert r.status_code == 400
 
 

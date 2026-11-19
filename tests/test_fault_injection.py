@@ -89,7 +89,7 @@ async def test_tool_unexpected_exception_wrapped_not_leaked(span_capture):
 @pytest.mark.asyncio
 async def test_tool_not_found_does_not_crash_caller():
     reg = MasterToolRegistry()
-    with pytest.raises(ToolExecutionError, match="not found"):
+    with pytest.raises(ToolExecutionError, match="not a registered tool"):
         await reg.execute("does_not_exist", {})
 
 

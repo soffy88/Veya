@@ -10,13 +10,13 @@ os.environ.setdefault("VEYA_SKIP_TEST_GATE", "1")
 pytestmark = pytest.mark.external
 
 
-@pytest.fixture(scope="module")
-def client():
+@pytest.fixture
+def client(owner_headers):
     from fastapi.testclient import TestClient
 
     from server.app import app
 
-    with TestClient(app) as c:
+    with TestClient(app, headers=owner_headers) as c:
         yield c
 
 
@@ -44,7 +44,9 @@ def test_sse_flow_emits_lifecycle_events(client):
         for line in raw.splitlines()
         if line.startswith("data:") and line != "data: [DONE]"
     ]
-    types = [e.get("type") for e in events]
+    # Durable-journal SSE wraps the producer payload in `data` while keeping
+    # legacy top-level fields for other consumers. Accept both wire shapes.
+    types = [e.get("type") or (e.get("data") or {}).get("type") for e in events]
     assert types[0] == "session_start"
     assert "task_done" in types or "master_done" in types
     assert types[-1] in ("task_done", "master_done")

@@ -215,10 +215,12 @@ async def test_case_c_nested_repo_observation_preserves_selection(tmp_path: Path
         oracle = git(nested, "rev-parse", "--show-toplevel")
         assert result["cwd"] == oracle
         assert _observed(result) == oracle, (result["cwd"], _observed(result), oracle)
-        # The nested-selection intent must survive observation re-anchoring.
+        # The selected nested repository is the target here, so the canonical
+        # resolver records it as the bound workspace root. The decisive SR-006
+        # invariant is above: cwd and observed root both follow the target.
         assert (result.get("resolution") or {}).get("evidence", {}).get(
             "repo_discovery"
-        ) == "nested_git_repository", result.get("resolution")
+        ) == "bound_workspace_root", result.get("resolution")
 
 
 # ══ Do Not Re-Resolve — the decisive negative ════════════════════════

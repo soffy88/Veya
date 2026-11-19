@@ -174,4 +174,5 @@ def test_canonical_supervision_tools_register() -> None:
         "veya_mission_set_mode",
         "veya_reviews",
         "veya_events",
+        "supervise_task",
     }

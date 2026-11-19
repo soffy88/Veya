@@ -623,7 +623,21 @@ class Sandbox(ABC):
             return []
         # --bind / / keeps the filesystem view identical (write semantics
         # unchanged); the isolation this adds is the network namespace.
-        return ["bwrap", "--die-with-parent", "--unshare-net", "--bind", "/", "/", "--"]
+        # bwrap replaces /dev after setting up its own mounts, so the root bind
+        # alone leaves /dev/null unusable in the child. Populate the minimal
+        # device set explicitly; otherwise even `ulimit ... 2>/dev/null` fails
+        # and Python cannot initialize its hash randomisation.
+        return [
+            "bwrap",
+            "--die-with-parent",
+            "--unshare-net",
+            "--bind",
+            "/",
+            "/",
+            "--dev",
+            "/dev",
+            "--",
+        ]
 
     def _restore_resource_limits(self) -> None:
         """No-op: host rlimits are never lowered (see _apply_resource_limits)."""

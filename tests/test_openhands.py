@@ -135,8 +135,8 @@ def test_registry_status_aggregation():
 # =========================================================================
 
 
-def test_backends_api_list_status_register():
-    client = TestClient(__import__("server.app", fromlist=["app"]).app)
+def test_backends_api_list_status_register(owner_headers):
+    client = TestClient(__import__("server.app", fromlist=["app"]).app, headers=owner_headers)
 
     r = client.get("/api/v1/backends")
     assert r.status_code == 200
@@ -164,8 +164,8 @@ def test_backends_api_list_status_register():
     assert r.status_code == 400
 
 
-def test_backends_run_unknown_404():
-    client = TestClient(__import__("server.app", fromlist=["app"]).app)
+def test_backends_run_unknown_404(owner_headers):
+    client = TestClient(__import__("server.app", fromlist=["app"]).app, headers=owner_headers)
     r = client.post("/api/v1/backends/run", json={"name": "ghost", "prompt": "hi"})
     assert r.status_code == 404
 
@@ -188,9 +188,9 @@ def test_decompose_checklist_and_headings():
     assert len(tasks3) == 1
 
 
-def test_issue_decompose_api_no_github():
+def test_issue_decompose_api_no_github(owner_headers):
     """直接 body 拆解: 创建看板 + 线性依赖链 + auto_start=False 不启动。"""
-    client = TestClient(__import__("server.app", fromlist=["app"]).app)
+    client = TestClient(__import__("server.app", fromlist=["app"]).app, headers=owner_headers)
     r = client.post(
         "/api/v1/automation/issue-decompose",
         json={
@@ -217,7 +217,7 @@ def test_issue_decompose_api_no_github():
     assert cards[ids[2]]["depends_on"] == [ids[1]]
 
 
-def test_issue_decompose_requires_content():
-    client = TestClient(__import__("server.app", fromlist=["app"]).app)
+def test_issue_decompose_requires_content(owner_headers):
+    client = TestClient(__import__("server.app", fromlist=["app"]).app, headers=owner_headers)
     r = client.post("/api/v1/automation/issue-decompose", json={})
     assert r.status_code == 400

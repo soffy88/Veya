@@ -258,8 +258,8 @@ def test_w20_tailnet_status_owner_on(monkeypatch: pytest.MonkeyPatch, owner_clie
     body = status.json()
     assert body["enabled"] is True
     assert body["default_port"] == 7767
-    # Default policy is deny-all (allowlist empty) — fail-closed.
-    assert body["allow_count"] == 0
+    # Fresh policy seeds exactly the configured owner login; deny still wins.
+    assert body["allow_count"] == 1
 
 
 def test_w20_tailnet_status_forbidden_for_non_owner(

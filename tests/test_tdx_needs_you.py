@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -45,7 +47,7 @@ def test_needs_you_reads_actual_approval_and_blocked_events(monkeypatch, tmp_pat
     store.create_approval({
         "request_id": "real-approval-7", "scope": scope,
         "tool": "shell.exec", "tool_args": {"command": "pytest"},
-        "created_at": 1000, "session_id": "session-a",
+        "created_at": 1000, "expires_at": time.time() + 60, "session_id": "session-a",
     })
     events.append({
         "topic": "task.blocked", "task_id": "real-task-7", "session_id": "session-a",

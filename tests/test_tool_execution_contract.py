@@ -131,7 +131,7 @@ async def test_skill_dispatcher_validates_real_manifest_arguments(tmp_path, monk
     _write_strict_skill(tmp_path)
     hub = VeyaSkillHub(skills_dir=tmp_path)
 
-    with pytest.raises(ToolExecutionError, match=r"Skill 'strict_skill'.*schema validation"):
+    with pytest.raises(ToolExecutionError, match=r"strict_skill.*schema validation"):
         await hub.execute("run_skill", {"skill_name": "strict_skill", "args": {"count": "one"}})
 
     result = await hub.execute("run_skill", {"skill_name": "strict_skill", "args": {"count": 2}})
@@ -144,7 +144,7 @@ async def test_non_dispatcher_skill_validates_manifest_arguments(tmp_path, monke
     _write_strict_skill(tmp_path)
     hub = VeyaSkillHub(skills_dir=tmp_path)
 
-    with pytest.raises(ToolExecutionError, match=r"Skill 'strict_skill'.*schema validation"):
+    with pytest.raises(ToolExecutionError, match=r"strict_skill.*schema validation"):
         await hub.execute("strict_skill", {})
 
     assert json.loads(await hub.execute("strict_skill", {"count": 3})) == {"count": 3}

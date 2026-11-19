@@ -124,7 +124,9 @@ async def test_lead_worker_pass_still_synthesizes(lead_env, monkeypatch):
 
     calls: list[str] = []
 
-    async def scripted(bot, text, context, user, workspace_id, conversations):
+    async def scripted(
+        bot, text, context, user, workspace_id, conversations, materials="", thread_id="", **kwargs
+    ):
         calls.append(bot.bot_id)
         if bot.bot_id == "beta":
             return SimpleNamespace(reply=PASS_SENTINEL, task_id="t", session_id="s")
@@ -206,12 +208,25 @@ def test_select_lead_owner_rules(lead_env):
     from server.bot_team.groups import select_lead_owner
 
     registry = _register(BotRegistry(), "alpha", "beta")
-    assert select_lead_owner(text="请 Beta 说说看法", available=["alpha", "beta"], registry=registry) == "beta"
+    assert (
+        select_lead_owner(text="请 Beta 说说看法", available=["alpha", "beta"], registry=registry)
+        == "beta"
+    )
     assert select_lead_owner(text="@Beta", available=["alpha", "beta"], registry=registry) == "beta"
-    assert select_lead_owner(text="让 Beta说", available=["alpha", "beta"], registry=registry) == "beta"
-    assert select_lead_owner(text="Beta2 来", available=["alpha", "beta"], registry=registry) is None
-    assert select_lead_owner(text="Alpha 和 Beta 都说", available=["alpha", "beta"], registry=registry) is None
-    assert select_lead_owner(text="没人被点名", available=["alpha", "beta"], registry=registry) is None
+    assert (
+        select_lead_owner(text="让 Beta说", available=["alpha", "beta"], registry=registry)
+        == "beta"
+    )
+    assert (
+        select_lead_owner(text="Beta2 来", available=["alpha", "beta"], registry=registry) is None
+    )
+    assert (
+        select_lead_owner(text="Alpha 和 Beta 都说", available=["alpha", "beta"], registry=registry)
+        is None
+    )
+    assert (
+        select_lead_owner(text="没人被点名", available=["alpha", "beta"], registry=registry) is None
+    )
     assert select_lead_owner(text="请 Alpha 说", available=["beta"], registry=registry) == "beta"
     # Sole available member answers even when another name is mentioned;
     # the absent member is reported via skipped by the cycle, not by routing.
@@ -234,7 +249,9 @@ async def test_lead_direct_routing_on_mention(lead_env, monkeypatch):
 
     calls: list[str] = []
 
-    async def scripted(bot, text, context, user, workspace_id, conversations):
+    async def scripted(
+        bot, text, context, user, workspace_id, conversations, materials="", thread_id="", **kwargs
+    ):
         calls.append(bot.bot_id)
         return SimpleNamespace(reply=f"DIRECT:{bot.bot_id}", task_id="t", session_id="s")
 

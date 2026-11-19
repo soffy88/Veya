@@ -57,7 +57,7 @@ async def _sleep_runner(reporter: object) -> str:
 
 def test_worker_declared_shell_matches_injected_tools() -> None:
     assert probe_runtime_capability_manifest("pi").supports_shell is False
-    assert probe_runtime_capability_manifest("hicode").supports_shell is True
+    assert probe_runtime_capability_manifest("codex").supports_shell is True
 
 
 def test_dispatch_rejects_missing_required_shell() -> None:

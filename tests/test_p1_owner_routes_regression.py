@@ -61,7 +61,7 @@ MANAGED_ENDPOINTS = [
     ("POST", "/permission/req_123/approve", {"note": "test approve"}),
     ("POST", "/permission/req_123/deny", {"note": "test deny"}),
     ("GET", "/permission/pending", None),
-    ("POST", "/notifications/notif_123/approve", {"approved": True}),
+    ("POST", "/api/v1/notifications/notif_123/approve", {"approved": True}),
     ("GET", "/tool", None),
     ("POST", "/tool", {"name": "read", "args": {"path": "/tmp/test"}}),
     ("GET", "/security/permissions", None),

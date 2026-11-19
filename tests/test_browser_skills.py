@@ -84,11 +84,11 @@ def test_agent_reach_mcp_executor_unreachable_is_structured():
     assert "不可达" in out or "HTTP" in out
 
 
-def test_browser_run_engine_field_schema():
+def test_browser_run_engine_field_schema(owner_headers):
     """BrowserRunRequest 接受 engine 字段 (browser_use 默认 | omodul)。"""
     from server.app import app
 
-    client = TestClient(app)
+    client = TestClient(app, headers=owner_headers)
     # engine 合法值
     r = client.post(
         "/api/v1/browser/run",

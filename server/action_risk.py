@@ -58,6 +58,8 @@ _INTERNAL_WRITE_TOOLS = frozenset(
         "team_delete",
         "system_dispatch_omni_channel",
         "gmail_draft",
+        "system_save_preference",
+        "system_remove_preference",
     }
 )
 

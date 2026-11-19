@@ -315,7 +315,7 @@ class LongRunningHarness:
             self.state.suspend_reason = None
             self.checkpoint(reason="verification_pass")
             return self.state.status
-        if normalized in {"FAIL", "BLOCKED"}:
+        if normalized in {"FAIL", "BLOCKED", "INSUFFICIENT", "AMBIGUOUS"}:
             self.state.failure_evidence.append(
                 {"verification": normalized, "evidence": dict(evidence or {})}
             )

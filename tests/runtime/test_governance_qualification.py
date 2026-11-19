@@ -14,14 +14,36 @@ from server.user_control import (
 
 
 @pytest.fixture
-async def active_session():
+async def active_session(tmp_path, monkeypatch):
     import uuid
+
+    from runtime.execution.runtime import DurableExecutionRuntime, DurableRuntimeConfig
+
+    runtime = DurableExecutionRuntime(
+        DurableRuntimeConfig(
+            enabled=False,
+            sqlite_path=str(tmp_path / "governance.sqlite3"),
+        )
+    )
+    monkeypatch.setattr(governance_store, "_runtime", runtime)
+    monkeypatch.setattr(governance_store, "_migrated", False, raising=False)
 
     sid = "test_qual_" + uuid.uuid4().hex[:8]
     tokens = activate(mode="agent", require_approval=True, session_id=sid)
     await governance_store.init_state(sid, "agent", True)
     yield sid
     deactivate(tokens)
+
+
+async def _approval_record(session_id: str, request_hash: str, *, timeout: float = 2.0):
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        record = await governance_store.get_approval_by_hash(session_id, request_hash)
+        if record is not None:
+            return record
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError("approval record was not created within 2s")
+        await asyncio.sleep(0.02)
 
 
 @pytest.mark.asyncio
@@ -32,18 +54,6 @@ async def test_action_gateway_revalidation(active_session):
     # Task to simulate user control evaluation
     eval_task = asyncio.create_task(user_control_policy("write_file", kwargs, "test"))
 
-    # Allow some time for it to register pending
-    await asyncio.sleep(0.1)
-
-    # During the wait, we freeze the session to an unrelated directory
-    await set_freeze(active_session, allow="some_other_dir", root="/tmp")
-
-    # We then approve the request!
-    # Get request ID
-    state = await governance_store.get_state(active_session)
-    assert state is not None
-
-    # We will just fetch using the new by-hash method
     import hashlib
     import json
 
@@ -51,7 +61,10 @@ async def test_action_gateway_revalidation(active_session):
 
     args_json = json.dumps(_safe_args(kwargs), sort_keys=True)
     req_hash = hashlib.sha256(f"{active_session}:write_file:{args_json}".encode()).hexdigest()
-    record = await governance_store.get_approval_by_hash(active_session, req_hash)
+    record = await _approval_record(active_session, req_hash)
+
+    # During the wait, we freeze the session to an unrelated directory.
+    await set_freeze(active_session, allow="some_other_dir", root="/tmp")
 
     # Resolve
     await resolve_approval(record.request_id, approved=True)
@@ -96,8 +109,7 @@ async def test_hash_canonicalization_and_binding(active_session):
 
     # Approve kwargs1
     eval_task1 = asyncio.create_task(user_control_policy("write_file", kwargs1, "test"))
-    await asyncio.sleep(0.1)
-    record = await governance_store.get_approval_by_hash(active_session, req_hash1)
+    record = await _approval_record(active_session, req_hash1)
     await resolve_approval(record.request_id, approved=True)
     res1 = await eval_task1
     assert res1 is None  # Allowed
@@ -113,7 +125,9 @@ async def test_hash_canonicalization_and_binding(active_session):
     # Different args -> not allowed
     kwargs3 = {"a": 1, "path": "/tmp/b"}
     eval_task3 = asyncio.create_task(user_control_policy("write_file", kwargs3, "test"))
-    await asyncio.sleep(0.1)
+    args_json3 = json.dumps(_safe_args(kwargs3), sort_keys=True)
+    req_hash3 = hashlib.sha256(f"{active_session}:write_file:{args_json3}".encode()).hexdigest()
+    await _approval_record(active_session, req_hash3)
     # the task is pending, not allowed immediately
     assert not eval_task3.done()
     eval_task3.cancel()

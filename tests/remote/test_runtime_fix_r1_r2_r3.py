@@ -241,7 +241,16 @@ def test_r1_the_target_validator_is_decidable(tmp_path: Path) -> None:
     from veya.remote.tool_adapter import _invalid_git_target_reason
 
     assert _invalid_git_target_reason(tmp_path / "nope") is not None
-    assert _invalid_git_target_reason(tmp_path) is None
+    # A valid target requires a .git entry. Use a real git repo, not the bare
+    # tmp_path fixture dir (which is not itself a repository).
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    assert _invalid_git_target_reason(repo) is None
+    # A regular file is not a usable Git target either: the validator now
+    # distinguishes a non-directory from a non-repo directory.
     existing = tmp_path / "f"
     existing.write_text("x")
     assert _invalid_git_target_reason(existing) is not None

@@ -90,6 +90,8 @@ def _deactivate(tokens):
         ("save_draft", RISK_WRITE),
         ("gmail_create_draft", RISK_WRITE),
         ("draft_email", RISK_WRITE),
+        ("system_save_preference", RISK_WRITE),
+        ("system_remove_preference", RISK_WRITE),
         # outbound communication (H)
         ("send_email", RISK_OUTBOUND),
         ("post_message", RISK_OUTBOUND),

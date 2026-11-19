@@ -392,7 +392,11 @@ async def test_command_runs_in_isolated_worktree_when_requested(tmp_path: Path) 
 
 
 async def test_command_never_falls_back_to_owner_root(tmp_path: Path) -> None:
-    # A non-git workspace cannot be isolated -> fail closed, no owner-root run.
+    # A non-git workspace runs in its canonical root by default (LOCAL2-R3: the
+    # user's own machine work is ordinary work). Isolation is only reachable for
+    # git-backed workspaces, so the failure mode here is "cannot be isolated", not
+    # "must not run at all". The breach we guard against is falling back to an
+    # owner repository root, which the canonical resolver must never do.
     make_workspace(tmp_path, git=False)
     gateway, secret, _ = make_gateway(tmp_path, PrimitiveExecutor(), ExecutionStore(None))
     session = await initialize(gateway, secret)
@@ -403,8 +407,11 @@ async def test_command_never_falls_back_to_owner_root(tmp_path: Path) -> None:
         "shell.exec",
         {"command": f'{PY} -c "print(1)"', "profile": "local_trusted", "timeout_s": 10},
     )
-    assert envelope["ok"] is False
-    assert envelope["error_code"] in {"WORKSPACE_DENIED", "POLICY_BLOCKED"}
+    assert envelope["ok"] is True, envelope
+    result = envelope["result"]
+    # Never resolved to an owner git root outside the requested workspace.
+    assert str(tmp_path.resolve()) in (result.get("cwd") or result.get("worktree") or "")
+    assert "WORKSPACE_DENIED" not in str(envelope.get("error_code"))
 
 
 async def test_owner_dirty_preserved_by_command(tmp_path: Path) -> None:

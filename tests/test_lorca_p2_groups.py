@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from server.bot_team.conversations import PASS_SENTINEL, ConversationStore
 from server.bot_team.groups import MAX_GROUP_MEMBERS, GroupStore
 from server.bot_team.messaging import MAX_HOP_DEPTH, BotMessageRefused, BotMessenger
+from server.bot_team.turns import GROUP_MATERIALS_TEXT
 from server.events import EventStore
 from server.goal_run.bot_identity import BotRegistry, BotSpec
 from server.goal_run.models import GoalRunResponse, GoalStatus
@@ -230,11 +231,12 @@ async def test_group_turn_order_and_transcript(lorca_env, fake_master):
     assert transcript[2]["bot_id"] == "beta"
     # The second member received the first member's reply as context.
     assert "say:alpha" in fake_master[1].objective
+    assert "plan the brief" in fake_master[0].objective
 
     # Every member also recorded the turn in its own conversation.
     conversations = ConversationStore(lorca_env["root"])
     assert [item["text"] for item in conversations.list("beta")] == [
-        "plan the brief",
+        GROUP_MATERIALS_TEXT,
         "say:beta",
     ]
 
@@ -280,7 +282,7 @@ async def test_group_pass_reply_is_hidden_and_stops_the_round_early(lorca_env, m
     # The bot conversations keep the same rule: the question stays, the PASS
     # reply does not.
     conversations = ConversationStore(lorca_env["root"])
-    assert [item["text"] for item in conversations.list("alpha")] == ["thoughts?"]
+    assert [item["text"] for item in conversations.list("alpha")] == [GROUP_MATERIALS_TEXT]
     hidden_alpha = conversations.list("alpha", include_hidden=True)
     assert len(hidden_alpha) == 2
     assert hidden_alpha[1]["text"] == PASS_SENTINEL

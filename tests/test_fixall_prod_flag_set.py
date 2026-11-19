@@ -16,7 +16,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 FLAGS_FILE = Path(__file__).resolve().parents[1] / "deploy" / "bot_landing_flags.env"
-WIRED = ("VEYA_REMOTE_CONTROL", "VEYA_MCP_PRESETS", "VEYA_CHANNELS", "VEYA_PROVIDER_REGISTRY")
+WIRED = ("VEYA_MCP_PRESETS", "VEYA_CHANNELS", "VEYA_PROVIDER_REGISTRY")
+# Remote control is deliberately OFF in the committed prod flag set; its route is
+# flag-gated and stays dark until an owner explicitly opts in.
+DARK = ("VEYA_REMOTE_CONTROL",)
 
 
 def _prod_flags() -> dict[str, str]:
@@ -33,6 +36,11 @@ def _prod_flags() -> dict[str, str]:
 @pytest.mark.parametrize("name", WIRED)
 def test_prod_flag_set_enables_surface(name: str) -> None:
     assert _prod_flags().get(name) == "1"
+
+
+@pytest.mark.parametrize("name", DARK)
+def test_prod_flag_set_keeps_remote_control_dark(name: str) -> None:
+    assert _prod_flags().get(name) == "0"
 
 
 @pytest.fixture
@@ -68,8 +76,6 @@ def client(prod_env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestCli
 @pytest.mark.parametrize(
     "path",
     [
-        "/api/v1/remote/hosts",
-        "/api/v1/remote/sessions",
         "/api/v1/channels/bindings",
         "/api/v1/providers",
     ],
@@ -84,3 +90,10 @@ def test_mcp_presets_not_flag_disabled_with_prod_flags(client: TestClient) -> No
     assert resp.status_code == 200
     reasons = [p["reason"] for p in resp.json()["presets"]]
     assert reasons and not any("flag disabled" in str(r) for r in reasons)
+
+
+@pytest.mark.parametrize("path", ["/api/v1/remote/hosts", "/api/v1/remote/sessions"])
+def test_remote_control_stays_dark_with_prod_flags(client: TestClient, path: str) -> None:
+    """b2eeab7b disabled remote control in prod until owner checks land."""
+    resp = client.get(path)
+    assert resp.status_code == 404, (path, resp.status_code, resp.text[:200])

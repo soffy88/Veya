@@ -169,7 +169,10 @@ async def test_existing_supervision_runtime_executes_all_modes_before_writeback(
     assert mission is not None
 
     async def runner(_mission: object) -> object:
-        return SimpleNamespace(final_summary="verification: pytest 1 passed")
+        return SimpleNamespace(
+            status="completed",
+            final_summary="verification: pytest 1 passed",
+        )
 
     supervisor = ExternalSupervisor(store, SupervisionRouter(store), runner=runner)
     run_result = await supervisor.run(binding.mission_id)

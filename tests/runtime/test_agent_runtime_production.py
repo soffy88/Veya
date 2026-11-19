@@ -98,6 +98,12 @@ def test_pq_a_real_daemon_process_sigkill_recovery(test_env: Path):
     # 2. Spawn real OS daemon subprocess
     env = os.environ.copy()
     env["VEYA_PROJECT_ROOT"] = str(test_env)
+    # The subprocess runs with cwd=test_env; keep the source checkout importable
+    # without changing the daemon's project root.
+    repo_root = Path(__file__).resolve().parents[2]
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(repo_root), env.get("PYTHONPATH", "")) if part
+    )
     proc = subprocess.Popen(
         [sys.executable, "-m", "cli.main", "runtime", "run", "--interval", "0.05"],
         cwd=str(test_env),
@@ -279,6 +285,13 @@ def test_pq_e_trigger_boundary_crash_matrix(test_env: Path):
     # Re-running routing after crash returns existing mission (Idempotent)
     m_id_replay, _ = router.route_trigger(t1)
     assert m_id_replay == m_id
+    assert len(m_store.list()) == 1
+
+    # Boundary: mission committed, routing record not yet committed.  A crash
+    # here must not create a second mission when the trigger is reclaimed.
+    router.store.routing_file.unlink()
+    m_id_crash_replay, _ = router.route_trigger(t1)
+    assert m_id_crash_replay == m_id
     assert len(m_store.list()) == 1
 
 
