@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 
 import pytest
 
@@ -80,6 +81,7 @@ async def test_coordinator_tool_events_have_common_fields(tmp_path, monkeypatch)
     monkeypatch.setattr(events, "event_store", store)
     coordinator = MasterCoordinator.__new__(MasterCoordinator)
     coordinator._tool_timeout_s = None
+    coordinator._lazy_tools_enabled = False
 
     async def raw_tool(_name: str, _args: dict[str, object]) -> str:
         return "ok"
@@ -119,18 +121,22 @@ async def test_approval_events_preserve_same_action_on_resume(tmp_path, monkeypa
 
     store = events.EventStore(tmp_path / "events.jsonl")
     monkeypatch.setattr(events, "event_store", store)
+    session_id = f"session-approval-{uuid.uuid4().hex}"
     context_token = events.bind_event_context(
-        session_id="session-approval",
+        session_id=session_id,
         trace_id="trace-approval",
         turn_id="turn-approval",
     )
     capability_token = events.bind_event_capability("coding")
-    control_tokens = uc.activate(mode="agent", require_approval=True, session_id="session-approval")
+    control_tokens = uc.activate(mode="agent", require_approval=True, session_id=session_id)
     try:
         waiting = asyncio.create_task(uc._wait_approval("coding_task_run", {"x": 1}))
-        await asyncio.sleep(0)
-        while not uc._pending:
-            await asyncio.sleep(0.01)
+
+        async def wait_pending() -> None:
+            while not uc._pending:
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(wait_pending(), timeout=2.0)
         request_id = next(iter(uc._pending))
         assert await uc.resolve_approval(request_id, True)
         assert await waiting is None
@@ -140,7 +146,7 @@ async def test_approval_events_preserve_same_action_on_resume(tmp_path, monkeypa
         events.reset_event_capability(capability_token)
         events.reset_event_context(context_token)
 
-    observed = store.read_all(session_id="session-approval")
+    observed = store.read_all(session_id=session_id)
     lifecycle = [
         event for event in observed if event["topic"] in {"approval.suspended", "approval.resumed"}
     ]
@@ -232,6 +238,7 @@ async def test_react_tool_failure_emits_replan_before_next_tool_step(tmp_path, m
     monkeypatch.setattr(events, "event_store", store)
     coordinator = MasterCoordinator.__new__(MasterCoordinator)
     coordinator._tool_timeout_s = None
+    coordinator._lazy_tools_enabled = False
 
     async def raw_tool(_name: str, args: dict[str, object]) -> str:
         if not args:
