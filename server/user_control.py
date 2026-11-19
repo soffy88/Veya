@@ -336,6 +336,8 @@ _NEVER_GATED = frozenset(
         "forget",
         "memory_forget",
         "bot_memory_note",
+        "system_save_preference",
+        "system_remove_preference",
         "create_plan",
         "skill_create",
     }

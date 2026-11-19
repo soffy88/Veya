@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 
 import pytest
 
@@ -38,14 +39,19 @@ def test_agent_mode_without_approval_allows_high_impact(isolated_guard):
 
 
 def test_resolve_approval_unblocks(isolated_guard):
-    tokens = uc.activate(mode="agent", require_approval=True, session_id="s1")
+    session_id = f"resolve-approval-{uuid.uuid4().hex}"
+    tokens = uc.activate(mode="agent", require_approval=True, session_id=session_id)
 
     async def _run() -> None:
         task = asyncio.create_task(
             isolated_guard.acheck("hicode_run", {"task": "x"}, source="test")
         )
-        while not uc._pending:
-            await asyncio.sleep(0.01)
+
+        async def _wait_pending() -> None:
+            while not uc._pending:
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(_wait_pending(), timeout=2.0)
         assert uc._pending, "should have parked an approval"
         rid = next(iter(uc._pending))
         assert await uc.resolve_approval(rid, True) is True
@@ -103,3 +109,10 @@ def test_luna_core_keeps_hicode():
     assert "hicode_run" in names
     assert "fetch_url" in names
     assert "mcp_hevi" not in names
+
+
+def test_self_owned_preference_memory_is_not_gated():
+    """Remembering or forgetting one preference is reversible self-bookkeeping."""
+
+    assert uc._is_gated_tool("system_save_preference") is False
+    assert uc._is_gated_tool("system_remove_preference") is False
