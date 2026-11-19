@@ -340,7 +340,10 @@ async def run_formal(ctx: dict, target_s: float) -> dict:
         )
         verdict1 = await engine.run_independent_verifier(spec, bundle, head)
         collector.count("verifier_runs")
-        assert verdict1.outcome in {"FAIL", "BLOCKED"}
+        # One required criterion intentionally has no evidence yet.  The
+        # verifier correctly reports INSUFFICIENT, which is a recoverable
+        # verification outcome (apply_verification treats it like FAIL).
+        assert verdict1.outcome in {"FAIL", "BLOCKED", "INSUFFICIENT"}, verdict1.outcome
         state["verifier_fail"] += 1
         collector.emit("verifier", outcome=verdict1.outcome, round=1)
         run.harness_adapter.apply_verification(verdict1.outcome, evidence={"round": 1})
