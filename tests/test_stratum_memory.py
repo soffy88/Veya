@@ -6,34 +6,51 @@ stratum-api 不可达时自动跳过 (环境无关)。
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+
 import pytest
 
 from server.stratum_memory import StratumConnector, get_stratum, wire_master_tools
 
 
-def _endpoint_reachable() -> bool:
-    import socket
+def _functional_stratum_probe() -> tuple[bool, str]:
+    """Require a real MCP handshake and tool list, not just an open TCP port."""
 
-    # 宿主测试进程: 走 docker 映射端口 (9309→stratum-api:9302)
-    for host, port in (("127.0.0.1", 9309), ("stratum-api", 9302)):
+    async def probe() -> tuple[bool, str]:
+        connector = StratumConnector(endpoint="http://127.0.0.1:9309/mcp/mcp")
         try:
-            with socket.create_connection((host, port), timeout=1.5):
-                return True
-        except OSError:
-            continue
-    return False
+            await asyncio.wait_for(connector.start(), timeout=5.0)
+            if not connector.ready:
+                return False, "MCP handshake did not become ready"
+            try:
+                tools = await asyncio.wait_for(connector._client.list_tools(), timeout=5.0)
+            except Exception as exc:
+                return False, f"MCP tool list failed: {type(exc).__name__}"
+            if not tools:
+                return False, "MCP tool list was empty"
+            return True, ""
+        finally:
+            with contextlib.suppress(Exception):
+                await connector.close()
+
+    try:
+        return asyncio.run(probe())
+    except Exception as exc:
+        return False, f"MCP probe failed: {type(exc).__name__}"
 
 
-HAS_STRATUM = _endpoint_reachable()
+HAS_STRATUM, STRATUM_SKIP_REASON = _functional_stratum_probe()
 
 pytestmark = [
     pytest.mark.external,
-    pytest.mark.skipif(not HAS_STRATUM, reason="stratum-api 不可达"),
 ]
 
 
 @pytest.fixture()
 async def connector():
+    if not HAS_STRATUM:
+        pytest.skip(f"stratum-api functional probe unavailable: {STRATUM_SKIP_REASON}")
     c = StratumConnector(endpoint="http://127.0.0.1:9309/mcp/mcp")  # 宿主映射端口
     await c.start()
     yield c
